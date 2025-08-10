@@ -52,7 +52,7 @@ def get_edge_values(arr: np.ndarray) -> np.ndarray:
     # We transpose the (N, D) array of indices to a (D, N) tuple of arrays.
     return arr[tuple(indices.T)]
 
-def set_edge_values(arr: np.ndarray, value) -> None:
+def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     """
     Sets the values of elements on the edges of a NumPy ndarray in-place.
 
@@ -64,6 +64,7 @@ def set_edge_values(arr: np.ndarray, value) -> None:
     indices = get_edge_indices(arr)
     # Use the indices to set the value for all edge elements.
     arr[tuple(indices.T)] = value
+    return arr
 
 if __name__ == '__main__':
     print("--- Array Demonstration ---")
