@@ -14,7 +14,7 @@ class Visualize:
         plot_object.set_data(self.history[frame])
         return (plot_object,)
 
-    def plot2D(self):
+    def plot2D(self, show=False, save=False):
         fig, ax = plt.subplots()
 
         plot_object = ax.imshow(self.history[0], cmap='viridis', vmin=-0.5, vmax=1.0)
@@ -28,7 +28,10 @@ class Visualize:
                                   interval=20,
                                   blit=False)
 
-        plt.show()
+        if show:
+            plt.show()
+        if save:
+            animation.save('simulation2d.mp4', writer='ffmpeg', dpi=150)
 
 
 

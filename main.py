@@ -1,11 +1,11 @@
 from simulate import Simulate
 from visualize import Visualize
 
-gridsize = (16, 16)
-gridstep = 100
+gridsize = (128, 128)
+gridstep = 10
 
 duration = 100
-timestep = 0.1
+timestep = 0.01
 
 wavespeed = 330
 
@@ -16,4 +16,5 @@ if __name__ == '__main__':
     print(history)
 
     visualize = Visualize(history=history)
-    visualize.plot2D()
+    visualize.plot2D(show=True, save=True)
+
