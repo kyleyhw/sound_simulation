@@ -2,16 +2,16 @@ from simulate import Simulate
 from visualize import Visualize
 
 if __name__ == '__main__':
-    dims = 2
+    dims = 3
 
     if dims == 2:
-        gridsize = (64, 64)
+        gridsize = (64, 128)
     if dims == 3:
-        gridsize = (64, 64, 64)
+        gridsize = (32, 32, 32)
 
     gridstep = 10
 
-    duration = 40
+    duration = 2
     timestep = 0.01
 
     wavespeed = 330
@@ -28,8 +28,13 @@ if __name__ == '__main__':
 
     # print(history)
 
-    visualize = Visualize(history=history, params=simulation.get_params())
+
     if dims == 2:
-        visualize.plot2D(show=True, save=True)
+        visualize = Visualize(history=history, params=simulation.get_params())
+        visualize.plot2D(show=True, save=False)
     if dims == 3:
-        visualize.plot3D(show=True, save=True)
+        # visualize = Visualize(history=history[:, 4, :, :], params=simulation.get_params())
+        # visualize.plot2D(show=True, save=False)
+        visualize = Visualize(history=history, params=simulation.get_params())
+        visualize.plot3D(show=False, save=True)
+        # print(history)

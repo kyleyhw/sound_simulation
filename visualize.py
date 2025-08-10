@@ -1,11 +1,12 @@
 from tqdm import tqdm
 import matplotlib
+import numpy as np
 matplotlib.use('TkAgg')
-import pyvista as pv
-from pyvistaqt import BackgroundPlotter
-import time
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
+from skimage.transform import rescale # For resizing data if needed
+from tqdm import tqdm
 
 class Visualize:
     def __init__(self, history, params):
@@ -20,7 +21,7 @@ class Visualize:
     def plot2D(self, show=False, save=False):
         fig, ax = plt.subplots()
 
-        plot_object = ax.imshow(self.history[0], cmap='viridis', vmin=-0.5, vmax=1.0)
+        plot_object = ax.imshow(self.history[0], cmap='viridis', vmin=-1.0, vmax=1.0)
 
         fig.colorbar(plot_object, ax=ax)
 
@@ -51,48 +52,56 @@ class Visualize:
                                progress_callback=progress_update)
 
     def plot3D(self, show=False, save=False):
+        if not save:
+            return
 
-        # This block handles saving the animation to a file NON-interactively
-        if save:
-            # Create the grid object
-            grid = pv.ImageData()
-            grid.dimensions = self.history[0].shape
-            grid["pressure"] = self.history[0].flatten(order="F")
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection='3d')
+        cmap = plt.get_cmap('viridis')
 
-            # Use off_screen=True for saving without a popup window
-            plotter = pv.Plotter(off_screen=True)
-            plotter.add_volume(grid, scalars="pressure", cmap="viridis", clim=[-0.5, 1.0])
+        # --- The Update Function ---
+        def update(frame_number, history_data):
+            ax.clear()
+            frame = history_data[frame_number]
 
-            print("Opening movie file for saving...")
-            plotter.open_movie('simulation_3d.mp4')
+            # 1. Normalize the data to be between 0 and 1 for the colormap
+            # We use a fixed range like [-0.1, 0.1] to keep the colors consistent
+            norm_data = np.clip((frame + 0.1) / 0.2, 0, 1)
 
-            for frame_data in tqdm(self.history[1:], desc="Rendering 3D Animation"):
-                grid["pressure"] = frame_data.flatten(order="F")
-                plotter.write_frame()
+            # 2. Map the normalized data to RGBA colors
+            colors = cmap(norm_data)
 
-            plotter.close()
-            print("3D animation saved to simulation_3d.mp4")
+            # 3. Set the alpha (transparency) based on pressure
+            # Make low-pressure areas more transparent
+            colors[..., 3] = norm_data * 0.3
 
-        # This block handles showing the animation in a LIVE, interactive window
-        if show:
-            # Use BackgroundPlotter for live rendering
-            plotter = BackgroundPlotter()
+            # 4. For performance, only draw voxels above a small threshold
+            filled = norm_data > 0.1
 
-            grid = pv.ImageData()
-            grid.dimensions = self.history[0].shape
-            grid["pressure"] = self.history[0].flatten(order="F")
+            # 5. Plot the voxels
+            ax.voxels(filled, facecolors=colors, edgecolor='none', shade=False)
 
-            plotter.add_volume(grid, scalars="pressure", cmap="viridis", clim=[-0.5, 1.0])
+            ax.set_title(f'Frame {frame_number}')
+            ax.set_xlim(0, frame.shape[0])
+            ax.set_ylim(0, frame.shape[1])
+            ax.set_zlim(0, frame.shape[2])
+            # Optional: Set a fixed camera angle
+            ax.view_init(elev=30, azim=45)
+            return fig,
 
-            print("Starting live interactive animation...")
-            # Loop through the frames to update the plot
-            for frame_data in self.history[1:]:
-                grid["pressure"] = frame_data.flatten(order="F")
-                plotter.render()  # Update the render
-                time.sleep(0.02)  # Control the frame rate
+        # --- Create and Save the Animation ---
+        animation = FuncAnimation(fig, update, frames=self.number_of_frames,
+                                  fargs=(self.history,), blit=False, interval=100)
 
-            print("Animation finished. You can continue to interact with the window.")
-            # The window will remain open until you manually close it
+        with tqdm(total=self.number_of_frames, desc="Saving Voxel Animation") as pbar:
+            def progress_update(current_frame, total_frames):
+                pbar.update(1)
+
+            animation.save('simulation_3d_voxels.mp4', writer='ffmpeg', dpi=100,
+                           progress_callback=progress_update)
+
+        plt.close(fig)
+        print("Voxel animation saved to simulation_3d_voxels.mp4")
 
 
 
