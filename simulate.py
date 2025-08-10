@@ -1,7 +1,10 @@
 import numpy as np
+from tqdm import tqdm
+
 from calculate import Calculate
 from utils import set_edge_values
 laplacian_operator = Calculate().laplacian_operator
+
 
 
 class Simulate:
@@ -13,8 +16,8 @@ class Simulate:
         self.wavespeed = wavespeed
 
         self.dims = len(gridsize)
-        total_iterations = int(np.ceil(duration / timestep)) + 1
-        self.history = np.zeros(shape=tuple((total_iterations,) + gridsize))
+        self.total_iterations = int(np.ceil(duration / timestep)) + 1
+        self.history = np.zeros(shape=tuple((self.total_iterations,) + gridsize))
         # self.boundary_conditions = {}
 
     def check_stability(self):
@@ -41,7 +44,7 @@ class Simulate:
         return pressure_next
 
     def _apply_initial_conditions(self, pressure):
-        # pressure[1, 1] += 1 # needs changing
+        pressure[(1,) * self.dims] += 1 # needs changing
         return pressure
 
     def _apply_boundary_conditions(self, pressure):
@@ -52,13 +55,14 @@ class Simulate:
         return pressure
 
     def _apply_driver(self, pressure, time):
-        pressure[1, 1] += np.cos(2 * np.pi * 3 * time)
+        # pressure[(1,) * self.dims] += np.cos(2 * np.pi * 3 * time)
         return pressure
 
     def _simulation_loop(self, pressure_prev, pressure_curr, time):
         laplacian = laplacian_operator(grid=pressure_curr, gridstep=self.gridstep)
         pressure_next = self._update(pressure_prev=pressure_prev, pressure_curr=pressure_curr,
                                      laplacian=laplacian)
+        pressure_next = self._apply_driver(pressure=pressure_next, time=time)
         pressure_next = self._apply_boundary_conditions(pressure=pressure_next)
         time += self.timestep
         return pressure_curr, pressure_next, time
@@ -68,14 +72,20 @@ class Simulate:
 
         pressure_curr = self._apply_initial_conditions(pressure=pressure_curr)
 
-        iteration = 0
-        while time < self.duration:
-            print('iteration: ' + str(iteration))
-            pressure_curr = self._apply_driver(pressure=pressure_curr, time=time)
+        self.history[0] = pressure_curr
+
+        for iteration in tqdm(range(1, self.total_iterations), desc="simulating"):
+            # print('iteration: ' + str(iteration))
             # print(pressure_curr)
             pressure_prev, pressure_curr, time = self._simulation_loop(pressure_prev=pressure_prev,
                                                                        pressure_curr=pressure_curr, time=time)
             self.history[iteration] = pressure_curr
-            iteration += 1
         return self.history
 
+    def get_params(self):
+        params = {'gridsize' : self.gridsize,
+                  'gridstep' : self.gridstep,
+                  'duration' : self.duration,
+                  'timestep' : self.timestep,
+                  'wavespeed': self.wavespeed}
+        return params
