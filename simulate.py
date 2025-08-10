@@ -41,7 +41,7 @@ class Simulate:
         return pressure_next
 
     def _apply_initial_conditions(self, pressure):
-        pressure[1, 1] += 1 # needs changing
+        # pressure[1, 1] += 1 # needs changing
         return pressure
 
     def _apply_boundary_conditions(self, pressure):
@@ -49,6 +49,10 @@ class Simulate:
         #     boundary_coefficient = self.boundary_conditions[boundary]
         #     pressure = pressure[boundary] * boundary_coefficient
         pressure = set_edge_values(arr=pressure, value=0)
+        return pressure
+
+    def _apply_driver(self, pressure, time):
+        pressure[1, 1] += np.cos(2 * np.pi * 3 * time)
         return pressure
 
     def _simulation_loop(self, pressure_prev, pressure_curr, time):
@@ -67,6 +71,7 @@ class Simulate:
         iteration = 0
         while time < self.duration:
             print('iteration: ' + str(iteration))
+            pressure_curr = self._apply_driver(pressure=pressure_curr, time=time)
             # print(pressure_curr)
             pressure_prev, pressure_curr, time = self._simulation_loop(pressure_prev=pressure_prev,
                                                                        pressure_curr=pressure_curr, time=time)
