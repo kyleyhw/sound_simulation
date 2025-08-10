@@ -55,7 +55,7 @@ class Simulate:
         return pressure
 
     def _apply_driver(self, pressure, time):
-        # pressure[(1,) * self.dims] += np.cos(2 * np.pi * 3 * time)
+        pressure[(1,) * self.dims] += np.cos(2 * np.pi * 3 * time)
         return pressure
 
     def _simulation_loop(self, pressure_prev, pressure_curr, time):
