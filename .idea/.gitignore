@@ -1,0 +1,26 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+
+# IDE configuration files
+.idea/
+*.iml
+
+# Python virtual environment
+venv/
+/env/
+.env
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Build and distribution artifacts
+/build/
+/dist/
+*.egg-info/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
