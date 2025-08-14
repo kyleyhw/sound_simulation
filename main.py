@@ -11,7 +11,7 @@ if __name__ == '__main__':
 
     gridstep = 10
 
-    duration = 2
+    duration = 5
     timestep = 0.01
 
     wavespeed = 330
