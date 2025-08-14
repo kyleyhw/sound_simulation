@@ -4,9 +4,9 @@ import numpy as np
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from mpl_toolkits.mplot3d import Axes3D
-from skimage.transform import rescale # For resizing data if needed
 from tqdm import tqdm
+from mayavi import mlab
+from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
 
 class Visualize:
     def __init__(self, history, params):
@@ -52,58 +52,52 @@ class Visualize:
                                progress_callback=progress_update)
 
     def plot3D(self, show=False, save=False):
-        if not save:
-            return
+        # Transpose the entire history array once at the beginning
+        history_transposed = np.transpose(self.history, (0, 3, 2, 1))
 
-        fig = plt.figure(figsize=(8, 6))
-        ax = fig.add_subplot(111, projection='3d')
-        cmap = plt.get_cmap('viridis')
+        # --- 1. Setup the Scene ---
+        fig = mlab.figure(bgcolor=(1, 1, 1), fgcolor=(0, 0, 0))
 
-        # --- The Update Function ---
-        def update(frame_number, history_data):
-            ax.clear()
-            frame = history_data[frame_number]
+        source = mlab.pipeline.scalar_field(history_transposed[0])
+        volume = mlab.pipeline.volume(source)
 
-            # 1. Normalize the data to be between 0 and 1 for the colormap
-            # We use a fixed range like [-0.1, 0.1] to keep the colors consistent
-            norm_data = np.clip((frame + 0.1) / 0.2, 0, 1)
+        # Apply Color and Opacity Transfer Functions
+        ctf = ColorTransferFunction()
+        ctf.add_rgb_point(-0.1, 0.0, 0.0, 1.0)  # Blue
+        ctf.add_rgb_point(0.0, 0.0, 1.0, 0.0)  # Green
+        ctf.add_rgb_point(0.1, 1.0, 0.0, 0.0)  # Red
+        otf = PiecewiseFunction()
+        otf.add_point(-0.1, 0.8)
+        otf.add_point(0.0, 0.0)
+        otf.add_point(0.1, 0.8)
+        volume._volume_property.set_color(ctf)
+        volume._otf = otf
+        volume.update_ctf = True
 
-            # 2. Map the normalized data to RGBA colors
-            colors = cmap(norm_data)
+        mlab.outline()
+        mlab.axes(xlabel='X', ylabel='Y', zlabel='Z')
 
-            # 3. Set the alpha (transparency) based on pressure
-            # Make low-pressure areas more transparent
-            colors[..., 3] = norm_data * 0.3
+        # --- 2. Create the Animation ---
+        @mlab.animate(delay=50)
+        def anim():
+            pbar = tqdm(total=self.number_of_frames, desc="Animating Frames")
+            for i in range(self.number_of_frames):
+                # Calculate the current time
+                current_time = i * self.params['timestep']
 
-            # 4. For performance, only draw voxels above a small threshold
-            filled = norm_data > 0.1
+                # THE FIX: Update the scene title with the current time
+                mlab.title(f'Time: {current_time:.2f} s', color=(0, 0, 0))
 
-            # 5. Plot the voxels
-            ax.voxels(filled, facecolors=colors, edgecolor='none', shade=False)
+                # Update the 3D data source
+                source.mlab_source.scalars = history_transposed[i]
+                volume.update_ctf = True
 
-            ax.set_title(f'Frame {frame_number}')
-            ax.set_xlim(0, frame.shape[0])
-            ax.set_ylim(0, frame.shape[1])
-            ax.set_zlim(0, frame.shape[2])
-            # Optional: Set a fixed camera angle
-            ax.view_init(elev=30, azim=45)
-            return fig,
-
-        # --- Create and Save the Animation ---
-        animation = FuncAnimation(fig, update, frames=self.number_of_frames,
-                                  fargs=(self.history,), blit=False, interval=100)
-
-        with tqdm(total=self.number_of_frames, desc="Saving Voxel Animation") as pbar:
-            def progress_update(current_frame, total_frames):
                 pbar.update(1)
+                yield
 
-            animation.save('simulation_3d_voxels.mp4', writer='ffmpeg', dpi=100,
-                           progress_callback=progress_update)
-
-        plt.close(fig)
-        print("Voxel animation saved to simulation_3d_voxels.mp4")
-
-
+        # Run the animation and show the window
+        anim()
+        mlab.show()
 
 
 if __name__ == '__main__':
