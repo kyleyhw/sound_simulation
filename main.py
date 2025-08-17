@@ -1,15 +1,19 @@
+import numpy as np
+
 from simulate import Simulate
 from visualize import Visualize
+from setup import Driver
+import waveforms
 
 if __name__ == '__main__':
-    dims = 3
+    dims = 2
 
     if dims == 2:
-        gridsize = (64, 128)
+        gridsize = (256, 256)
     if dims == 3:
         gridsize = (32, 32, 32)
 
-    gridstep = 10
+    gridstep = 8
 
     duration = 5
     timestep = 0.01
@@ -18,6 +22,12 @@ if __name__ == '__main__':
 
     simulation = Simulate(gridsize=gridsize, gridstep=gridstep, duration=duration, timestep=timestep,
                           wavespeed=wavespeed)
+    waveform = waveforms.Cosine(frequency=2, amplitude=1)
+    driver = Driver(location=(int(gridsize[0]/4),) * dims, waveform=waveform)
+    simulation.add_driver(driver=driver)
+    waveform2 = waveforms.Cosine(frequency=5, amplitude=0.5)
+    driver2 = Driver(location=(int(gridsize[0]*3/4),) * dims, waveform=waveform2)
+    simulation.add_driver(driver=driver2)
     history = simulation.run()
 
     isStable = simulation.check_stability()
