@@ -57,14 +57,39 @@ def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     Sets the values of elements on the edges of a NumPy ndarray in-place.
 
     Args:
-        arr: An input NumPy ndarray to be modified.
+        arr (np.ndarray): An input NumPy ndarray to be modified.
         value: The new value to assign to all edge elements.
+
+    Returns:
+        np.ndarray: The modified input array with its edge values set to
+                    the specified value.
     """
     # Get the indices of the edge elements.
     indices = get_edge_indices(arr)
     # Use the indices to set the value for all edge elements.
     arr[tuple(indices.T)] = value
     return arr
+
+def generate_random_location(gridsize: tuple) -> tuple:
+    """Generates a random N-dimensional coordinate within the grid boundaries.
+
+    This function creates a random location for a point source or sensor,
+    ensuring that the location is not on the absolute edge of the grid
+    (i.e., it's at least one unit away from the boundary on all sides).
+
+    Args:
+        gridsize (tuple): A tuple defining the dimensions of the grid,
+                          e.g., (100, 100) for 2D or (50, 50, 50) for 3D.
+
+    Returns:
+        tuple: A tuple of integers representing a random coordinate within
+               the valid inner region of the grid.
+    """
+    location = np.random.randint(low=(1,) * len(gridsize),
+                                 high=tuple([dim - 1 for dim in gridsize]),
+                                 size=len(gridsize),
+                                 dtype=int)
+    return tuple(location)
 
 if __name__ == '__main__':
     print("--- Array Demonstration ---")
