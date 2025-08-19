@@ -30,11 +30,7 @@ if __name__ == '__main__':
     simulation.add_driver(driver=driver2)
     history = simulation.run()
 
-    isStable = simulation.check_stability()
-    if isStable:
-        print('this is stable')
-    else:
-        print('this is unstable')
+    simulation.check_stability()
 
     # print(history)
 
