@@ -1,5 +1,6 @@
 import numpy as np
 from tqdm import tqdm
+import warnings
 
 from setup import Driver
 from calculate import Calculate
@@ -29,9 +30,13 @@ class Simulate:
                   'wavespeed': self.wavespeed}
         return params
 
-    def check_stability(self):
+    def _is_stable(self):
         sigma = self.wavespeed * self.timestep / self.gridstep
         return sigma <= 1/np.sqrt(self.dims)
+
+    def check_stability(self):
+        if not self._is_stable():
+            warnings.warn('This is numerically unstable')
 
 
     # def set_initial_conditions(self, pressure_curr):
