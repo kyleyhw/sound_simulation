@@ -70,26 +70,34 @@ def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     arr[tuple(indices.T)] = value
     return arr
 
-def generate_random_location(gridsize: tuple) -> tuple:
-    """Generates a random N-dimensional coordinate within the grid boundaries.
-
-    This function creates a random location for a point source or sensor,
-    ensuring that the location is not on the absolute edge of the grid
-    (i.e., it's at least one unit away from the boundary on all sides).
-
-    Args:
-        gridsize (tuple): A tuple defining the dimensions of the grid,
-                          e.g., (100, 100) for 2D or (50, 50, 50) for 3D.
-
-    Returns:
-        tuple: A tuple of integers representing a random coordinate within
-               the valid inner region of the grid.
+class LocationGenerator:
     """
-    location = np.random.randint(low=(1,) * len(gridsize),
-                                 high=tuple([dim - 1 for dim in gridsize]),
-                                 size=len(gridsize),
-                                 dtype=int)
-    return tuple(location)
+    Generates random coordinates for a grid of a fixed size.
+    """
+    def __init__(self, gridsize: tuple):
+        """
+        Initializes the generator for a specific grid size.
+
+        Args:
+            gridsize (tuple): The dimensions of the grid.
+        """
+        self.gridsize = gridsize
+        self.dims = len(gridsize)
+        self.low = (1,) * self.dims
+        self.high = tuple(dim - 1 for dim in self.gridsize)
+
+    def get_new_location(self) -> tuple:
+        """
+        Generates a new random location within the grid.
+
+        Returns:
+            tuple: A random N-dimensional coordinate.
+        """
+        location = np.random.randint(low=self.low,
+                                     high=self.high,
+                                     size=self.dims,
+                                     dtype=int)
+        return tuple(location)
 
 if __name__ == '__main__':
     print("--- Array Demonstration ---")
