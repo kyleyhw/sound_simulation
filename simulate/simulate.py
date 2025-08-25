@@ -93,14 +93,14 @@ class Simulate:
         time += self.timestep
         return pressure_curr, pressure_next, time
 
-    def run(self):
+    def run(self, verbose=False):
         pressure_prev, pressure_curr, pressure_next, time = self._initialize(gridsize=self.gridsize)
 
         pressure_curr = self._apply_initial_conditions(pressure=pressure_curr)
 
         self.history[0] = pressure_curr
 
-        for iteration in tqdm(range(1, self.total_iterations), desc="simulating"):
+        for iteration in tqdm(range(1, self.total_iterations), desc="simulating", disable=not verbose):
             # print('iteration: ' + str(iteration))
             # print(pressure_curr)
             pressure_prev, pressure_curr, time = self._simulation_loop(pressure_prev=pressure_prev,

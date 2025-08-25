@@ -2,7 +2,7 @@ from simulate import Simulate
 from waveforms import waveform_registry
 from setup import Driver
 
-def save_full_simulation_results(simulation_object: Simulate, hdf5_file, simulation_id):
+def save_full_simulation_results(simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
     """Saves a simulation into an already open HDF5 file object."""
     sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
     sim_group.create_dataset('history', data=simulation_object.history, compression="gzip")
@@ -23,6 +23,9 @@ def save_full_simulation_results(simulation_object: Simulate, hdf5_file, simulat
         # Save the waveform's parameters (kwargs)
         for key, value in driver.waveform.__dict__.items():
             driver_subgroup.attrs[key] = value
+
+    if verbose:
+        print(f'saved {simulation_id}')
 
 
 def load_simulation_from_archive(archive_file, sim_id):
