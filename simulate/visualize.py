@@ -5,8 +5,8 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from tqdm import tqdm
-from mayavi import mlab
-from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
+# from mayavi import mlab
+# from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
 
 class Visualize:
     def __init__(self, history, params):
@@ -31,10 +31,9 @@ class Visualize:
                                   fargs=(plot_object,),
                                   interval=10,
                                   blit=False)
-        params_string = '|'.join([str(key) + ' ' + str(self.params[key]) for key in self.params.keys()])
-        fig.suptitle(params_string)
-
-        fig.suptitle(params_string)
+        if self.params:
+            params_string = '|'.join([str(key) + ' ' + str(self.params[key]) for key in self.params.keys()])
+            fig.suptitle(params_string)
 
         if show:
             plt.show()
