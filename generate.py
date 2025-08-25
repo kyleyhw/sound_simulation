@@ -1,10 +1,10 @@
 import numpy as np
+import h5py
 
 from simulate import Simulate
 from visualize import Visualize
-import waveforms
 from setup import GenerateDriver
-from utils import LocationGenerator
+from io import save_full_simulation_results
 
 
 
@@ -31,9 +31,13 @@ if __name__ == '__main__':
         simulation.add_driver(driver=driver)
         print(driver_params)
 
+    simulation.check_stability()
+
     history = simulation.run()
 
-    simulation.check_stability()
+    filename = 'single_simulation.hdf5'
+    with h5py.File('/training_data/', 'w') as hdf5_file:
+        save_full_simulation_results(simulation_object=simulation, hdf5_file=hdf5_file, simulation_id=1)
 
 
     visualize = True
