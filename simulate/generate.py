@@ -1,10 +1,11 @@
 import numpy as np
 import h5py
+from datetime import datetime
 
 from simulate import Simulate
 from visualize import Visualize
 from setup import GenerateDriver
-from io import save_full_simulation_results
+from data_io import save_full_simulation_results
 
 
 
@@ -21,26 +22,32 @@ if __name__ == '__main__':
 
     wavespeed = 330
 
-    simulation = Simulate(gridsize=gridsize, gridstep=gridstep, duration=duration, timestep=timestep,
-                          wavespeed=wavespeed)
-    driver_gen = GenerateDriver(gridsize=gridsize)
-
-    number_of_speakers = np.random.randint(low=1, high=6)
-    for i in range(number_of_speakers):
-        driver, driver_params = driver_gen.get_random_cosine(verbose=True)
-        simulation.add_driver(driver=driver)
-        print(driver_params)
-
-    simulation.check_stability()
-
-    history = simulation.run()
-
-    filename = 'single_simulation.hdf5'
-    with h5py.File('/training_data/', 'w') as hdf5_file:
-        save_full_simulation_results(simulation_object=simulation, hdf5_file=hdf5_file, simulation_id=1)
 
 
-    visualize = True
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    number_of_runs = 1
+    filename = f"simulation_archive_{timestamp}_{number_of_runs}_runs.hdf5"
+
+    with h5py.File('./training_data/'+filename, 'w') as hdf5_file:
+        for i in range(number_of_runs):
+            simulation = Simulate(gridsize=gridsize, gridstep=gridstep, duration=duration, timestep=timestep,
+                                  wavespeed=wavespeed)
+            driver_gen = GenerateDriver(gridsize=gridsize)
+
+            number_of_speakers = np.random.randint(low=1, high=6)
+            for i in range(number_of_speakers):
+                driver, driver_params = driver_gen.get_random_cosine(verbose=True)
+                simulation.add_driver(driver=driver)
+                print(driver_params)
+
+            simulation.check_stability()
+
+            history = simulation.run()
+
+            save_full_simulation_results(simulation_object=simulation, hdf5_file=hdf5_file, simulation_id=1)
+
+
+    visualize = False
     if visualize:
         params = None
 

@@ -13,16 +13,16 @@ def save_full_simulation_results(simulation_object: Simulate, hdf5_file, simulat
             value = str(value)
         sim_group.attrs[key] = value
 
-        driver_group = sim_group.create_group('drivers')
-        for i, driver in enumerate(simulation_object.drivers):
-            driver_subgroup = driver_group.create_group(f'driver_{i}')
-            # Save the waveform's class name
-            waveform_class_name = driver.waveform.__class__.__name__
-            driver_subgroup.attrs['waveform_class'] = waveform_class_name
+    driver_group = sim_group.create_group('drivers')
+    for i, driver in enumerate(simulation_object.drivers):
+        driver_subgroup = driver_group.create_group(f'driver_{i}')
+        # Save the waveform's class name
+        waveform_class_name = driver.waveform.__class__.__name__
+        driver_subgroup.attrs['waveform_class'] = waveform_class_name
 
-            # Save the waveform's parameters (kwargs)
-            for key, value in driver.waveform.__dict__.items():
-                driver_subgroup.attrs[key] = value
+        # Save the waveform's parameters (kwargs)
+        for key, value in driver.waveform.__dict__.items():
+            driver_subgroup.attrs[key] = value
 
 
 def load_simulation_from_archive(archive_file, sim_id):
