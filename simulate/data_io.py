@@ -80,10 +80,6 @@ class SaveSimulationResults:
         saver_func(simulation_object, simulation_id, **kwargs)
 
 
-# In your data_io.py file
-import h5py
-
-
 class LoadSimulationResults:
     """Loads raw data from an HDF5 archive without reconstructing objects."""
 
