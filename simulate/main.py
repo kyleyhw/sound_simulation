@@ -2,7 +2,7 @@ import numpy as np
 
 from simulate import Simulate
 from visualize import Visualize
-from setup import Driver
+from setup import Driver, Sensor
 import waveforms
 
 if __name__ == '__main__':
@@ -28,7 +28,13 @@ if __name__ == '__main__':
     waveform2 = waveforms.Cosine(frequency=5, amplitude=0.5)
     driver2 = Driver(location=(int(gridsize[0]*3/4),) * dims, waveform=waveform2)
     simulation.add_driver(driver=driver2)
+
+    for i in range(3):
+        sensor = Sensor(location=(int(gridsize[0]/4 * i),) * dims, timeseries=None)
+        simulation.add_sensor(sensor=sensor)
+
     history = simulation.run()
+    sensors = simulation.assign_sensors(verbose=True)
 
     simulation.check_stability()
 
@@ -37,7 +43,8 @@ if __name__ == '__main__':
 
     if dims == 2:
         visualize = Visualize(history=history, params=simulation.get_params())
-        visualize.plot2D(show=True, save=False)
+        # visualize.plot2D(show=True, save=False)
+        visualize.plot_sensor_timeseries(sensors=sensors, show=True, save=True)
     if dims == 3:
         # visualize = Visualize(history=history[:, 4, :, :], params=simulation.get_params())
         # visualize.plot2D(show=True, save=False)
