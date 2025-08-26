@@ -1,31 +1,71 @@
 from simulate import Simulate
 from waveforms import waveform_registry
-from setup import Driver
+from setup import Driver, Sensor
 
-def save_full_simulation_results(simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
-    """Saves a simulation into an already open HDF5 file object."""
-    sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
-    sim_group.create_dataset('history', data=simulation_object.history, compression="gzip")
+class SaveSimulationResults:
+    def __init__(self, hdf5_file):
+        self.hdf5_file = hdf5_file
 
-    params = simulation_object.get_params()
-    for key, value in params.items():
-        if isinstance(value, tuple):
-            value = str(value)
-        sim_group.attrs[key] = value
+    def _save_history(self, simulation_object, sim_group):
+        sim_group.create_dataset('history', data=simulation_object.history, compression="gzip")
+        return
 
-    driver_group = sim_group.create_group('drivers')
-    for i, driver in enumerate(simulation_object.drivers):
-        driver_subgroup = driver_group.create_group(f'driver_{i}')
-        # Save the waveform's class name
-        waveform_class_name = driver.waveform.__class__.__name__
-        driver_subgroup.attrs['waveform_class'] = waveform_class_name
+    def _save_params(self, simulation_object, sim_group):
+        params = simulation_object.get_params()
+        for key, value in params.items():
+            if isinstance(value, tuple):
+                value = str(value)
+            sim_group.attrs[key] = value
 
-        # Save the waveform's parameters (kwargs)
-        for key, value in driver.waveform.__dict__.items():
-            driver_subgroup.attrs[key] = value
+        return
 
-    if verbose:
-        print(f'saved {simulation_id}')
+    def _save_drivers(self, simulation_object, sim_group):
+        driver_group = sim_group.create_group('drivers')
+        for i, driver in enumerate(simulation_object.drivers):
+            driver_subgroup = driver_group.create_group(f'driver_{i}')
+            # Save the waveform's class name
+            waveform_class_name = driver.waveform.__class__.__name__
+            driver_subgroup.attrs['waveform_class'] = waveform_class_name
+
+            # Save the waveform's parameters (kwargs)
+            for key, value in driver.waveform.__dict__.items():
+                driver_subgroup.attrs[key] = value
+
+        return
+
+    def _save_sensors(self, simulation_object, sim_group):
+        sensor_group = sim_group.create_group('sensors')
+        for i, sensor in enumerate(simulation_object.sensors):
+            sensor_subgroup = sensor_group.create_group(f'sensor_{i}')
+            sensor_subgroup.attrs['location'] = sensor.location
+            sensor_subgroup.create_dataset('timeseries', data=sensor.timeseries, compression="gzip")
+        return
+
+    def save_full_simulation_results(self, simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
+        """Saves a simulation into an already open HDF5 file object."""
+        sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
+
+        self._save_history(simulation_object=simulation_object, sim_group=sim_group)
+        self._save_params(simulation_object=simulation_object, sim_group=sim_group)
+        self._save_drivers(simulation_object=simulation_object, sim_group=sim_group)
+
+        if verbose:
+            print(f'saved full history for {simulation_id}')
+
+        return
+
+    def save_sensor_results(self, simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
+        """Saves a simulation into an already open HDF5 file object."""
+        sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
+
+        self._save_sensors(simulation_object=simulation_object, sim_group=sim_group)
+        self._save_params(simulation_object=simulation_object, sim_group=sim_group)
+        self._save_drivers(simulation_object=simulation_object, sim_group=sim_group)
+
+        if verbose:
+            print(f'saved full history for {simulation_id}')
+
+        return
 
 
 def load_simulation_from_archive(archive_file, sim_id):
