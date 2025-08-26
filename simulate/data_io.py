@@ -80,29 +80,68 @@ class SaveSimulationResults:
         saver_func(simulation_object, simulation_id, **kwargs)
 
 
-def load_simulation_from_archive(archive_file, sim_id):
-    """Loads a full simulation object, including drivers, from the archive."""
-    sim_group = archive_file[sim_id]
+# In your data_io.py file
+import h5py
 
-    loaded_drivers = []
-    if 'drivers' in sim_group:
-        for driver_name in sim_group['drivers']:
-            driver_subgroup = sim_group['drivers'][driver_name]
 
-            # 1. Get the class name and look it up in the registry
-            waveform_class_name = driver_subgroup.attrs['waveform_class']
-            WaveformClass = waveform_registry[waveform_class_name]
+class LoadSimulationResults:
+    """Loads raw data from an HDF5 archive without reconstructing objects."""
 
-            # 2. Recreate the kwargs from ALL other saved attributes
-            kwargs = {key: val for key, val in driver_subgroup.attrs.items()
-                      if key not in ['location', 'waveform_class']}
+    def __init__(self, hdf5_file):
+        self.hdf5_file = hdf5_file
 
-            # 3. Create the waveform and driver objects
-            waveform_obj = WaveformClass(**kwargs)
-            location = tuple(eval(driver_subgroup.attrs['location']))
-            loaded_drivers.append(Driver(location=location, waveform=waveform_obj))
+        # 1. Read the file-level attribute once during initialization
+        self.save_type = self.hdf5_file.attrs.get('save_type')
+        if not self.save_type:
+            raise ValueError("HDF5 file is missing the required 'save_type' attribute.")
 
-    # ... you would then load the main params and history and
-    #     return a fully reconstructed Simulate object
-    # For now, we'll just return the drivers to show it works
-    return loaded_drivers
+        # The loader registry remains the same
+        self._loader_registry = {
+            'full_history': self._load_full_history_raw,
+            'sensor_results': self._load_sensor_results_raw,
+        }
+
+    def _load_full_history_raw(self, sim_group):
+        """Loads raw data for a full history simulation."""
+        data = {
+            'type': 'full_history',
+            'params': dict(sim_group.attrs),
+            'history': sim_group['history'][:],
+            'drivers': []
+        }
+        if 'drivers' in sim_group:
+            for name in sim_group['drivers']:
+                data['drivers'].append(dict(sim_group['drivers'][name].attrs))
+        return data
+
+    def _load_sensor_results_raw(self, sim_group):
+        """Loads raw data for a sensor results simulation."""
+        data = {
+            'type': 'sensor_results',
+            'params': dict(sim_group.attrs),
+            'sensors': [],
+            'drivers': []
+        }
+        if 'sensors' in sim_group:
+            for name in sim_group['sensors']:
+                sensor_group = sim_group['sensors'][name]
+                sensor_data = dict(sensor_group.attrs)
+                sensor_data['timeseries'] = sensor_group['timeseries'][:]
+                data['sensors'].append(sensor_data)
+        if 'drivers' in sim_group:
+            for name in sim_group['drivers']:
+                data['drivers'].append(dict(sim_group['drivers'][name].attrs))
+        return data
+
+    def load_raw_results(self, simulation_id):
+        """Loads the raw data for a single simulation."""
+        sim_group_name = f'simulation_{simulation_id:04d}'
+        sim_group = self.hdf5_file[sim_group_name]
+
+        # 2. Use the save_type that was read from the file attribute
+        loader_func = self._loader_registry.get(self.save_type)
+
+        if loader_func:
+            return loader_func(sim_group)
+        else:
+            raise ValueError(f"Unknown save_type: '{self.save_type}' found in file attributes.")
