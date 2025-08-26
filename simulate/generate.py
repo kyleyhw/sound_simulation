@@ -22,7 +22,7 @@ if __name__ == '__main__':
 
     wavespeed = 330
 
-    save_type = 'full_history'
+    save_type = 'sensor_results'
     number_of_runs = 3
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -50,7 +50,7 @@ if __name__ == '__main__':
 
             history = simulation.run()
 
-            simsaver.save_full_simulation_results(simulation_object=simulation, hdf5_file=hdf5_file, simulation_id=run_number)
+            simsaver.save_results(simulation_object=simulation, simulation_id=run_number, save_type='full_history')
 
 
 
