@@ -2,7 +2,7 @@ import numpy as np
 from tqdm import tqdm
 import warnings
 
-from setup import Driver
+from setup import Driver, Sensor
 from calculate import Calculate
 from utils import set_edge_values
 laplacian_operator = Calculate().laplacian_operator
@@ -21,6 +21,7 @@ class Simulate:
         self.history = np.zeros(shape=tuple((self.total_iterations,) + gridsize))
         # self.boundary_conditions = {}
         self.drivers = []
+        self.sensors = []
 
     def get_params(self):
         params = {'gridsize' : self.gridsize,
@@ -68,7 +69,7 @@ class Simulate:
         pressure = set_edge_values(arr=pressure, value=0)
         return pressure
 
-    def add_driver(self, driver:Driver):
+    def add_driver(self, driver: Driver):
         """Adds a driver object to the simulation."""
         # Check if the driver location is valid for the grid dimensions
         if len(driver.location) != self.dims:
@@ -83,6 +84,16 @@ class Simulate:
             driver_value = driver.get_value(time)
             pressure[driver.location] += driver_value
         return pressure
+
+    def add_sensor(self, sensor: Sensor):
+        """Adds a sensor object to the simulation."""
+        # Check if the driver location is valid for the grid dimensions
+        if len(sensor.location) != self.dims:
+            raise ValueError(f"Sensor location has {len(sensor.location)} dims, but grid has {self.dims} dims.")
+        if sensor.location > self.gridsize:
+            raise ValueError('sensor is out of bounds')
+        self.sensors.append(sensor)
+        return
 
     def _simulation_loop(self, pressure_prev, pressure_curr, time):
         laplacian = laplacian_operator(grid=pressure_curr, gridstep=self.gridstep)
@@ -106,4 +117,13 @@ class Simulate:
             pressure_prev, pressure_curr, time = self._simulation_loop(pressure_prev=pressure_prev,
                                                                        pressure_curr=pressure_curr, time=time)
             self.history[iteration] = pressure_curr
+
         return self.history
+
+    def assign_sensors(self, verbose=False):
+        timeseries_grid = np.moveaxis(a=self.history, source=0, destination=2)
+        for sensor in self.sensors:
+            sensor.timeseries = timeseries_grid[sensor.location]
+            if verbose:
+                print(f'sensor at {sensor.location} assigned')
+        return self.sensors
