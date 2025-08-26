@@ -20,13 +20,27 @@ class Sensor:
     location: Tuple[int, ...]
     timeseries: np.ndarray
 
+class GenerateSensor:
+    def __init__(self, gridsize: tuple):
+        self.gridsize = gridsize
+
+    def get_random_basic(self, location=None, detailed=False):
+        if not location:
+            location = LocationGenerator(gridsize=self.gridsize).get_new_location()
+
+        sensor = Sensor(location=location, timeseries=None)
+
+        if detailed:
+            print(sensor, (location,))
+            return sensor, (location,)
+        return sensor
+
 
 class GenerateDriver:
     def __init__(self, gridsize: tuple):
         self.gridsize = gridsize
-        self.dims = len(self.gridsize)
 
-    def get_random_cosine(self, verbose=False, location=None, frequency=None, amplitude=None):
+    def get_random_cosine(self, location=None, frequency=None, amplitude=None, detailed=False):
         if not location:
             location = LocationGenerator(gridsize=self.gridsize).get_new_location()
         if not frequency:
@@ -37,6 +51,7 @@ class GenerateDriver:
 
         driver = Driver(location=location, waveform=waveform)
 
-        if verbose:
+        if detailed:
+            print(driver, (location, frequency, amplitude))
             return driver, (location, frequency, amplitude)
         return driver
