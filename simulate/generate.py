@@ -49,8 +49,9 @@ if __name__ == '__main__':
             simulation.check_stability()
 
             history = simulation.run()
+            sensors = simulation.assign_sensors(verbose=False)
 
-            simsaver.save_results(simulation_object=simulation, simulation_id=run_number, save_type='full_history')
+            simsaver.save_results(simulation_object=simulation, simulation_id=run_number, save_type=save_type)
 
 
 
