@@ -6,6 +6,11 @@ class SaveSimulationResults:
     def __init__(self, hdf5_file):
         self.hdf5_file = hdf5_file
 
+        self._saver_registry = {
+            'full_history': self._save_full_history,
+            'sensor_results': self._save_sensor_results
+        }
+
     def _save_history(self, simulation_object, sim_group):
         sim_group.create_dataset('history', data=simulation_object.history, compression="gzip")
         return
@@ -41,9 +46,9 @@ class SaveSimulationResults:
             sensor_subgroup.create_dataset('timeseries', data=sensor.timeseries, compression="gzip")
         return
 
-    def save_full_simulation_results(self, simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
+    def _save_full_history(self, simulation_object: Simulate, simulation_id, verbose=False):
         """Saves a simulation into an already open HDF5 file object."""
-        sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
+        sim_group = self.hdf5_file.create_group(f'simulation_{simulation_id:04d}')
 
         self._save_history(simulation_object=simulation_object, sim_group=sim_group)
         self._save_params(simulation_object=simulation_object, sim_group=sim_group)
@@ -54,9 +59,9 @@ class SaveSimulationResults:
 
         return
 
-    def save_sensor_results(self, simulation_object: Simulate, hdf5_file, simulation_id, verbose=False):
+    def _save_sensor_results(self, simulation_object: Simulate, simulation_id, verbose=False):
         """Saves a simulation into an already open HDF5 file object."""
-        sim_group = hdf5_file.create_group(f'simulation_{simulation_id:04d}')
+        sim_group = self.hdf5_file.create_group(f'simulation_{simulation_id:04d}')
 
         self._save_sensors(simulation_object=simulation_object, sim_group=sim_group)
         self._save_params(simulation_object=simulation_object, sim_group=sim_group)
@@ -66,6 +71,13 @@ class SaveSimulationResults:
             print(f'saved full history for {simulation_id}')
 
         return
+
+    def save_results(self, simulation_object, simulation_id, save_type='full_history', **kwargs):
+        saver_func = self._saver_registry.get(save_type)
+        if not saver_func:
+            raise ValueError(f"Unknown save_type: '{save_type}'")
+
+        saver_func(simulation_object, simulation_id, **kwargs)
 
 
 def load_simulation_from_archive(archive_file, sim_id):
