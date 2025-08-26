@@ -33,10 +33,10 @@ if __name__ == '__main__':
         sensor = Sensor(location=(int(gridsize[0]/4 * i),) * dims, timeseries=None)
         simulation.add_sensor(sensor=sensor)
 
+    simulation.check_stability()
+
     history = simulation.run()
     sensors = simulation.assign_sensors(verbose=True)
-
-    simulation.check_stability()
 
     # print(history)
 
