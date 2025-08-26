@@ -14,6 +14,11 @@ class Visualize:
         self.number_of_frames = history.shape[0]
         self.params = params
 
+    def set_params_as_title(self, fig):
+        if self.params:
+            params_string = '|'.join([str(key) + ' ' + str(self.params[key]) for key in self.params.keys()])
+            fig.suptitle(params_string)
+
     def _update2D(self, frame, plot_object):
         plot_object.set_data(self.history[frame])
         return (plot_object,)
@@ -31,9 +36,8 @@ class Visualize:
                                   fargs=(plot_object,),
                                   interval=10,
                                   blit=False)
-        if self.params:
-            params_string = '|'.join([str(key) + ' ' + str(self.params[key]) for key in self.params.keys()])
-            fig.suptitle(params_string)
+
+        self.set_params_as_title(fig=fig)
 
         if show:
             plt.show()
@@ -97,6 +101,26 @@ class Visualize:
         # Run the animation and show the window
         anim()
         mlab.show()
+
+    def plot_sensor_timeseries(self, sensors, show=False, save=False):
+        number_of_sensors = len(sensors)
+
+        fig, axs = plt.subplots(number_of_sensors, sharex=True, figsize=(16,9))
+        axs = np.array(axs)
+        axs = np.reshape(axs, number_of_sensors)
+
+        for i, sensor in enumerate(sensors):
+            axs[i].plot(sensor.timeseries)
+            axs[i].set_ylabel(f'amplitude at {sensor.location}')
+
+        axs[-1].set_xlabel('frame')
+
+        self.set_params_as_title(fig=fig)
+
+        if save:
+            plt.savefig('./simulate/plots/sensor_timeseries.png')
+        if show:
+            plt.show()
 
 
 if __name__ == '__main__':
