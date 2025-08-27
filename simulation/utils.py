@@ -1,5 +1,4 @@
 import numpy as np
-from typing import List, Tuple
 
 def get_edge_indices(arr: np.ndarray) -> np.ndarray:
     """
