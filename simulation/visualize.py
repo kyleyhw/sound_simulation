@@ -14,10 +14,11 @@ class Visualize:
         self.number_of_frames = history.shape[0]
         self.params = params
 
-    def set_params_as_title(self, fig):
+    def set_params_as_title(self, fig, **kwargs):
         if self.params:
             params_string = '|'.join([str(key) + ' ' + str(self.params[key]) for key in self.params.keys()])
-            fig.suptitle(params_string)
+            title = params_string + '\n' + '|'.join([str(key) + ' = ' + str(kwargs[key]) for key in kwargs.keys()])
+            fig.suptitle(title)
 
     def _update2D(self, frame, plot_object):
         plot_object.set_data(self.history[frame])
@@ -102,6 +103,7 @@ class Visualize:
         anim()
         mlab.show()
 
+
     def plot_sensor_timeseries(self, sensors, show=False, save=False):
         number_of_sensors = len(sensors)
 
@@ -115,10 +117,33 @@ class Visualize:
 
         axs[-1].set_xlabel('frame')
 
-        self.set_params_as_title(fig=fig)
+        self.set_params_as_title(fig=fig, plot_type='timeseries')
 
         if save:
-            plt.savefig('./simulate/plots/sensor_timeseries.png')
+            plt.savefig('./plots/sensor_timeseries.png')
+        if show:
+            plt.show()
+
+    def plot_sensor_fft(self, sensors, show=False, save=False):
+        number_of_sensors = len(sensors)
+
+        fig, axs = plt.subplots(number_of_sensors, sharex=True, figsize=(16,9))
+        axs = np.array(axs)
+        axs = np.reshape(axs, number_of_sensors)
+
+
+        for i, sensor in enumerate(sensors):
+            fft = np.fft.fftshift(np.abs(np.fft.fft(sensor.timeseries)))
+            freqs = np.fft.fftshift(np.fft.fftfreq(n=len(sensor.timeseries), d=1/sensor.sample_rate))
+            axs[i].plot(freqs, fft)
+            axs[i].set_ylabel(f'amplitude at {sensor.location}')
+
+        axs[-1].set_xlabel('frequency / Hz')
+
+        self.set_params_as_title(fig=fig, plot_type='fft of timeseries')
+
+        if save:
+            plt.savefig('./plots/sensor_fft.png')
         if show:
             plt.show()
 
