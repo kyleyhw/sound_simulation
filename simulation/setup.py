@@ -19,6 +19,7 @@ class Driver:
 class Sensor:
     location: Tuple[int, ...]
     timeseries: np.ndarray
+    sample_rate: float
 
 class GenerateSensor:
     def __init__(self, gridsize: tuple):
@@ -28,7 +29,7 @@ class GenerateSensor:
         if not location:
             location = LocationGenerator(gridsize=self.gridsize).get_new_location()
 
-        sensor = Sensor(location=location, timeseries=None)
+        sensor = Sensor(location=location, timeseries=None, sample_rate=None)
 
         if detailed:
             print(sensor, (location,))
