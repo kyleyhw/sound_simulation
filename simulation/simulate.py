@@ -124,6 +124,7 @@ class Simulate:
         timeseries_grid = np.moveaxis(a=self.history, source=0, destination=2)
         for sensor in self.sensors:
             sensor.timeseries = timeseries_grid[sensor.location]
+            sensor.sample_rate = 1 / self.timestep
             if verbose:
                 print(f'sensor at {sensor.location} assigned')
         return self.sensors
