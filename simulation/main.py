@@ -30,7 +30,7 @@ if __name__ == '__main__':
     simulation.add_driver(driver=driver2)
 
     for i in range(3):
-        sensor = Sensor(location=(int(gridsize[0]/4 * i),) * dims, timeseries=None)
+        sensor = Sensor(location=(int(gridsize[0]/4 * i),) * dims, timeseries=None, sample_rate=None)
         simulation.add_sensor(sensor=sensor)
 
     simulation.check_stability()
@@ -44,7 +44,8 @@ if __name__ == '__main__':
     if dims == 2:
         visualize = Visualize(history=history, params=simulation.get_params())
         # visualize.plot2D(show=True, save=False)
-        visualize.plot_sensor_timeseries(sensors=sensors, show=True, save=True)
+        visualize.plot_sensor_timeseries(sensors=sensors, show=False, save=True)
+        visualize.plot_sensor_fft(sensors=sensors, show=False, save=True)
     if dims == 3:
         # visualize = Visualize(history=history[:, 4, :, :], params=simulation.get_params())
         # visualize.plot2D(show=True, save=False)
