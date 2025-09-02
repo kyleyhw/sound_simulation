@@ -5,8 +5,12 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from tqdm import tqdm
+import os
 # from mayavi import mlab
 # from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
+
+directory_path = "plots"
+os.makedirs(directory_path, exist_ok=True)
 
 class Visualize:
     def __init__(self, history, params):
@@ -120,7 +124,7 @@ class Visualize:
         self.set_params_as_title(fig=fig, plot_type='timeseries')
 
         if save:
-            plt.savefig('./plots/sensor_timeseries.png')
+            plt.savefig(f'./{directory_path}/sensor_timeseries.png')
         if show:
             plt.show()
 
@@ -143,7 +147,7 @@ class Visualize:
         self.set_params_as_title(fig=fig, plot_type='fft of timeseries')
 
         if save:
-            plt.savefig('./plots/sensor_fft.png')
+            plt.savefig(f'./{directory_path}/sensor_fft.png')
         if show:
             plt.show()
 
