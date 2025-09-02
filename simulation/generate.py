@@ -2,6 +2,7 @@ import numpy as np
 import h5py
 from datetime import datetime
 from tqdm import tqdm
+import os
 
 from simulate import Simulate
 from setup import GenerateDriver, GenerateSensor
@@ -25,6 +26,8 @@ if __name__ == '__main__':
     save_type = 'sensor_results'
     number_of_runs = 3
 
+    directory_path = "training_data"
+    os.makedirs(directory_path, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"simulation_archive_{timestamp}_{number_of_runs}x_{save_type}.hdf5"
 
