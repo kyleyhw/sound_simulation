@@ -32,7 +32,7 @@ if __name__ == '__main__':
     filename = f"simulation_archive_{timestamp}_{number_of_runs}x_{save_type}.hdf5"
 
 
-    with h5py.File('./training_data/'+filename, 'w') as hdf5_file:
+    with h5py.File(f'./{directory_path}/{filename}', 'w') as hdf5_file:
         simsaver = SaveSimulationResults(hdf5_file=hdf5_file)
         hdf5_file.attrs['save_type'] = save_type
         for run_number in tqdm(range(number_of_runs), desc='generating data'):
