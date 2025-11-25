@@ -4,14 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import socketio
 import numpy as np
 
-# Adjusting the path to allow imports from the simulation package
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from acoustic_system.simulation.simulate import Simulate
 from acoustic_system.simulation.setup import Driver, Sensor
-from acoustic_system.simulation.waveforms import sinusoidal_packet, blackman_harris_window
+from acoustic_system.simulation.waveforms import Cosine
 
 # --- Simulation State Management ---
 class SimulationManager:
@@ -29,12 +25,9 @@ class SimulationManager:
         # Example driver and sensor setup
         driver_pos = tuple(config.get('driver_pos', (grid_shape[0] // 4, grid_shape[1] // 4)))
         
-        duration = 500
-        sample_rate = 2000
         frequency = 20
         
-        waveform = sinusoidal_packet(duration, sample_rate, frequency,-1)
-        # waveform = blackman_harris_window(duration)
+        waveform = Cosine(frequency=frequency, amplitude=1.0)
         
         driver = Driver(position=driver_pos, waveform=waveform)
         self.simulation = Simulate(grid_shape=grid_shape, drivers=[driver])
