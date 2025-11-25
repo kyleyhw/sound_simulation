@@ -8,13 +8,14 @@ from .utils import set_edge_values
 laplacian_operator = Calculate().laplacian_operator
 
 class Simulate:
-        def __init__(self, grid_shape=(100, 100), drivers=None, sensors=None, wavespeed=1.0, timestep=0.1):
+        def __init__(self, grid_shape=(100, 100), drivers=None, sensors=None, wavespeed=1.0, timestep=0.1, gridstep=1.0):
             """
             A stateful class for running FDTD simulations step-by-step.
             """
             self.grid_shape = grid_shape
             self.wavespeed = wavespeed
             self.timestep = timestep
+            self.gridstep = gridstep
     
             self.dims = len(grid_shape)
     
@@ -29,7 +30,7 @@ class Simulate:
         def step(self):
             """Advances the simulation by a single time step."""
             # Calculate Laplacian
-            laplacian = laplacian_operator(grid=self.p)
+            laplacian = laplacian_operator(grid=self.p, gridstep=self.gridstep)
     
             # Update pressure grid
             p_next = 2 * self.p - self.p_prev + (self.wavespeed * self.timestep)**2 * laplacian
