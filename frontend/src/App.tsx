@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 
-const socket = io('http://127.0.0.1:8000'); // Connect to the Python backend
+const socket = io('http://127.0.0.1:8000', {
+  path: '/socket.io/',
+}); // Connect to the Python backend
 
 // --- Main App Component ---
 function App() {
