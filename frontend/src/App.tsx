@@ -54,14 +54,10 @@ function App() {
         const normalizedValue = value / absMax; // Normalize to [-1, 1]
 
         let r=0, g=0, b=0;
-        if (normalizedValue > 0) {
+        if (normalizedValue > 0) { // Positive values -> Red
             r = 255 * normalizedValue;
-            g = 255 * normalizedValue;
-            b = 255;
-        } else {
-            r = 255;
-            g = 255 * (1 + normalizedValue);
-            b = 255 * (1 + normalizedValue);
+        } else { // Negative values -> Blue
+            b = 255 * -normalizedValue;
         }
 
         ctx.fillStyle = `rgb(${r},${g},${b})`;
