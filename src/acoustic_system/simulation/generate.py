@@ -4,9 +4,9 @@ from datetime import datetime
 from tqdm import tqdm
 import os
 
-from simulate import Simulate
-from setup import GenerateDriver, GenerateSensor
-from data_io import SaveSimulationResults
+from .simulate import Simulate
+from .setup import GenerateDriver, GenerateSensor
+from .data_io import SaveSimulationResults
 
 
 
