@@ -34,15 +34,15 @@ class Simulate:
             # Update pressure grid
             p_next = 2 * self.p - self.p_prev + (self.wavespeed * self.timestep)**2 * laplacian
     
+            # Apply simple boundary conditions (hard walls)
+            set_edge_values(arr=p_next, value=0)
+
             # Apply drivers
             for driver in self.drivers:
                 driver_value = driver.get_value(self.time)
                 # Ensure driver position is within grid bounds
                 if all(0 <= pos < size for pos, size in zip(driver.position, self.grid_shape)):
                     p_next[driver.position] += driver_value
-    
-            # Apply simple boundary conditions (hard walls)
-            set_edge_values(arr=p_next, value=0)
     
             # Update state for the next step
             self.p_prev = self.p.copy()
