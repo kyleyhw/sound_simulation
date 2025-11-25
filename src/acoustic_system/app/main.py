@@ -30,7 +30,7 @@ class SimulationManager:
         waveform = Cosine(frequency=frequency, amplitude=1.0)
         
         driver = Driver(position=driver_pos, waveform=waveform)
-        self.simulation = Simulate(grid_shape=grid_shape, drivers=[driver], timestep=0.1)
+        self.simulation = Simulate(grid_shape=grid_shape, drivers=[driver], timestep=0.1, gridstep=1.0)
         print("Simulation configured:", config)
 
     async def run_simulation_loop(self):
