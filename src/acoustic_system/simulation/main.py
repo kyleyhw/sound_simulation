@@ -1,54 +1,60 @@
 import numpy as np
+from .simulate import Simulate
+from .visualize import Visualize
+from .setup import Driver, Sensor
+from .waveforms import Cosine
 
-from simulate import Simulate
-from visualize import Visualize
-from setup import Driver, Sensor
-import waveforms
+def main():
+    """
+    A standalone script for running and visualizing a simulation.
+    This is not used by the web UI but serves as a useful testbed.
+    """
+    dims = 2
+    grid_shape = (256, 256)
+    duration = 500  # Number of steps
+    
+    # Initialize Simulation
+    simulation = Simulate(grid_shape=grid_shape, wavespeed=1.0, timestep=0.1, gridstep=1.0)
+
+    # Add Drivers
+    waveform1 = Cosine(frequency=2, amplitude=1)
+    driver1 = Driver(position=(grid_shape[0] // 4,) * dims, waveform=waveform1)
+    simulation.drivers.append(driver1)
+
+    waveform2 = Cosine(frequency=5, amplitude=0.5)
+    driver2 = Driver(position=(grid_shape[0] * 3 // 4,) * dims, waveform=waveform2)
+    simulation.drivers.append(driver2)
+
+    # Add Sensors
+    for i in range(3):
+        sensor_pos = (grid_shape[0] // 4 * (i + 1),) * dims
+        simulation.sensors.append(Sensor(position=sensor_pos, timeseries=None, sample_rate=None))
+
+    # --- Run Simulation and Collect History ---
+    history = np.zeros((duration,) + grid_shape, dtype=np.float32)
+    for i in range(duration):
+        simulation.step()
+        history[i] = simulation.p
+        # Simple progress indicator
+        if (i % 100) == 0:
+            print(f"Step {i}/{duration}")
+            
+    print("Simulation finished.")
+
+    # --- Assign Sensor Data ---
+    # Manually extract timeseries for each sensor from the history
+    for sensor in simulation.sensors:
+        timeseries_list = [history[t][sensor.position] for t in range(duration)]
+        sensor.timeseries = np.array(timeseries_list)
+        sensor.sample_rate = 1 / simulation.timestep
+
+    # --- Visualize ---
+    if dims == 2:
+        params = {'grid_shape': grid_shape, 'wavespeed': simulation.wavespeed, 'timestep': simulation.timestep}
+        visualize = Visualize(history=history, params=params)
+        visualize.plot2D(show=True, save=False)
+        visualize.plot_sensor_timeseries(sensors=simulation.sensors, show=True, save=False)
+        visualize.plot_sensor_fft(sensors=simulation.sensors, show=True, save=False)
 
 if __name__ == '__main__':
-    dims = 2
-
-    if dims == 2:
-        gridsize = (256, 256)
-    if dims == 3:
-        gridsize = (32, 32, 32)
-
-    gridstep = 8
-
-    duration = 5
-    timestep = 0.01
-
-    wavespeed = 330
-
-    simulation = Simulate(gridsize=gridsize, gridstep=gridstep, duration=duration, timestep=timestep,
-                          wavespeed=wavespeed)
-    waveform = waveforms.Cosine(frequency=2, amplitude=1)
-    driver = Driver(location=(int(gridsize[0]/4),) * dims, waveform=waveform)
-    simulation.add_driver(driver=driver)
-    waveform2 = waveforms.Cosine(frequency=5, amplitude=0.5)
-    driver2 = Driver(location=(int(gridsize[0]*3/4),) * dims, waveform=waveform2)
-    simulation.add_driver(driver=driver2)
-
-    for i in range(3):
-        sensor = Sensor(location=(int(gridsize[0]/4 * i),) * dims, timeseries=None, sample_rate=None)
-        simulation.add_sensor(sensor=sensor)
-
-    simulation.check_stability()
-
-    history = simulation.run()
-    sensors = simulation.assign_sensors(verbose=True)
-
-    # print(history)
-
-
-    if dims == 2:
-        visualize = Visualize(history=history, params=simulation.get_params())
-        # visualize.plot2D(show=True, save=False)
-        visualize.plot_sensor_timeseries(sensors=sensors, show=False, save=True)
-        visualize.plot_sensor_fft(sensors=sensors, show=False, save=True)
-    if dims == 3:
-        # visualize = Visualize(history=history[:, 4, :, :], params=simulation.get_params())
-        # visualize.plot2D(show=True, save=False)
-        visualize = Visualize(history=history, params=simulation.get_params())
-        visualize.plot3D(show=False, save=True)
-        # print(history)
+    main()
