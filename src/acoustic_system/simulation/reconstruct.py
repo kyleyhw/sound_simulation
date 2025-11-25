@@ -1,6 +1,6 @@
 import h5py
 
-from data_io import LoadSimulationResults
+from .data_io import LoadSimulationResults
 
 
 if __name__ == '__main__':
