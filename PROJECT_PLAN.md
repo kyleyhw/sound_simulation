@@ -34,6 +34,9 @@ Work on each task or phase will only commence with explicit user permission.
 *   `[ ]` **Task 1.4: Enable Live Interaction (Advanced)**
     *   `[ ]` 1.4.1: Modify the core simulation engine to allow for the addition or removal of objects (obstacles, drivers) *during* a run, without requiring a full reset.
     *   `[ ]` 1.4.2: Connect the UI and backend to support these live modifications, providing a truly dynamic interaction experience.
+*   `[ ]` **Task 1.5: Implement GPU Acceleration**
+    *   `[ ]` 1.5.1: Integrate CuPy into the core simulation logic, replacing NumPy operations in `calculate.py` with their GPU-accelerated counterparts.
+    *   `[ ]` 1.5.2: Ensure efficient data transfer between the CPU and GPU.
 
 ---
 
