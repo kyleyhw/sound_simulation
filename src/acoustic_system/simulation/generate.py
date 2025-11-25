@@ -5,23 +5,16 @@ from tqdm import tqdm
 import os
 
 from .simulate import Simulate
-from .setup import GenerateDriver, GenerateSensor
+from .setup import GenerateDriver, GenerateSensor, Sensor
 from .data_io import SaveSimulationResults
 
-
-
-if __name__ == '__main__':
+def main():
     dims = 2
-
-    if dims == 2:
-        gridsize = (256, 256)
-
-    gridstep = 8
-
-    duration = 5
-    timestep = 0.01
-
-    wavespeed = 330
+    grid_shape = (256, 256)
+    duration = 500  # Number of steps
+    wavespeed = 1.0
+    timestep = 0.1
+    gridstep = 1.0
 
     save_type = 'sensor_results'
     number_of_runs = 3
@@ -31,30 +24,55 @@ if __name__ == '__main__':
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"simulation_archive_{timestamp}_{number_of_runs}x_{save_type}.hdf5"
 
+    params = {'grid_shape': grid_shape, 'wavespeed': wavespeed, 'timestep': timestep, 'gridstep': gridstep}
 
     with h5py.File(f'./{directory_path}/{filename}', 'w') as hdf5_file:
         simsaver = SaveSimulationResults(hdf5_file=hdf5_file)
         hdf5_file.attrs['save_type'] = save_type
+
         for run_number in tqdm(range(number_of_runs), desc='generating data'):
-            simulation = Simulate(gridsize=gridsize, gridstep=gridstep, duration=duration, timestep=timestep,
-                                  wavespeed=wavespeed)
-            driver_gen = GenerateDriver(gridsize=gridsize)
-            sensor_gen = GenerateSensor(gridsize=gridsize)
+            # --- Setup Simulation ---
+            simulation = Simulate(grid_shape=grid_shape, wavespeed=wavespeed, timestep=timestep, gridstep=gridstep)
+            driver_gen = GenerateDriver(gridsize=grid_shape)
+            sensor_gen = GenerateSensor(gridsize=grid_shape)
 
+            # Add random drivers
             number_of_speakers = np.random.randint(low=1, high=6)
-            for i in range(number_of_speakers):
-                driver = driver_gen.get_random_cosine(detailed=False)
-                simulation.add_driver(driver=driver)
+            for _ in range(number_of_speakers):
+                driver = driver_gen.get_random_cosine()
+                simulation.drivers.append(driver)
 
-            sensor = sensor_gen.get_random_basic(detailed=False)
-            simulation.add_sensor(sensor=sensor)
+            # Add a random sensor
+            sensor = sensor_gen.get_random_basic()
+            simulation.sensors.append(sensor)
 
-            simulation.check_stability()
+            # --- Run Simulation and Collect History ---
+            history = np.zeros((duration,) + grid_shape, dtype=np.float32)
+            for i in range(duration):
+                simulation.step()
+                history[i] = simulation.p
+            
+            # --- Assign Sensor Data ---
+            for s in simulation.sensors:
+                timeseries_list = [history[t][s.position] for t in range(duration)]
+                s.timeseries = np.array(timeseries_list)
+                s.sample_rate = 1 / simulation.timestep
 
-            history = simulation.run()
-            sensors = simulation.assign_sensors(verbose=False)
+            # --- Save Results ---
+            if save_type == 'sensor_results':
+                simsaver.save_sensor_results(
+                    simulation_id=run_number,
+                    sensors=simulation.sensors,
+                    params=params,
+                    drivers=simulation.drivers
+                )
+            elif save_type == 'full_history':
+                 simsaver.save_full_history(
+                    simulation_id=run_number,
+                    history=history,
+                    params=params,
+                    drivers=simulation.drivers
+                )
 
-            simsaver.save_results(simulation_object=simulation, simulation_id=run_number, save_type=save_type)
-
-
-
+if __name__ == '__main__':
+    main()
