@@ -16,9 +16,3 @@ This index provides an overview and links to the detailed documentation for each
 - [**`reconstruct.py`**](./reconstruct.md): An example script for loading and inspecting saved data.
 - [**`utils.py`**](./utils.md): Contains miscellaneous helper functions.
 
-## Inference Scripts
-
-- [**`cnn1d.py`**](./cnn1d.md): Defines the 1D Convolutional Neural Network model.
-- [**`datasetformat.py`**](./datasetformat.md): Defines the PyTorch `Dataset` for loading simulation data.
-- [**`trainingtest.py`**](./trainingtest.md): The main script for training the CNN model.
-- [**`quicktest.py`**](./quicktest.md): A utility script to generate dummy data for testing the training pipeline.
