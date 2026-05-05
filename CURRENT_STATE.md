@@ -1,31 +1,52 @@
-# Project Status as of 2025-11-25
+# Project Status as of 2026-05-05
 
-## 1. Objective
+## 1. Resolution
 
-The immediate goal is to get the Task 1.3 deliverable—the interactive, browser-based simulation UI—fully functional. The UI currently loads, but the simulation does not appear to run when the "Start" button is pressed.
+The web UI (Phase 1, Task 1.3) is functional end-to-end. Wave
+propagation is visible on the canvas; Start, Stop, and Reset behave as
+expected; backend and frontend states stay in sync via a `status`
+event channel.
 
-## 2. Current State
+## 2. Root causes that had blocked it
 
-*   **Backend:** A FastAPI/Socket.IO server is in place (`scripts/run_ui_server.py`). It is designed to create a `Simulate` object, run the simulation in a background thread, and stream grid updates to the frontend.
-*   **Frontend:** A React application (`frontend/`) is set up to display the simulation grid received via WebSockets and to send control commands (start, stop, reset) to the backend.
-*   **Core Simulation:** The FDTD simulation engine (`src/acoustic_system/simulation/`) has been heavily refactored to support a step-by-step execution model required for the interactive UI. This was a major change from its original batch-processing design.
+The previous status note (2025-11-25) reported that the UI loaded but
+no simulation ran. The actual blockers, all now fixed, were:
 
-## 3. Debugging Summary
+1. **DC source bug.** Default `Cosine(frequency=20)` with
+   `timestep=0.1` evaluated to $\cos(4 \pi n) = 1$ for every integer
+   step $n$. The "oscillator" was a constant DC injection; the field
+   grew monotonically with no propagation.
+2. **Start race.** `is_running` was set inside the broadcast
+   coroutine after the first `await`, so duplicated `start_simulation`
+   events (auto-start on connect + manual click) spawned multiple
+   parallel step loops on the same field.
+3. **Orphan emits.** `asyncio.create_task(sio.emit(...))` swallowed
+   exceptions and dropped back-pressure.
+4. **No reset.** Stop → Start resumed with the previous field intact.
+5. **`numpy.float32` payload.** `max_val` was sent as a numpy scalar,
+   not a native Python float.
+6. **Slow renderer.** Per-cell `fillRect` + `fillStyle` strings.
+7. **Local-only running flag.** UI state desynced from backend.
 
-The process of getting the UI to its current state has involved fixing a cascade of bugs, primarily stemming from the recent refactoring of the simulation engine.
+See `docs/web_ui.md` for the full breakdown and the architectural fix.
 
-### Completed Fixes:
+## 3. What changed
 
-1.  **Dependency Errors:** Resolved backend crashes by installing missing packages (`uvicorn`, `fastapi`, `python-socketio`).
-2.  **Codebase/Documentation Sync:** Performed a full repository audit to align the documentation with the actual code. This involved removing all references to non-existent GPU acceleration and a legacy CNN model from the `README.md`, `docs/`, and `environment.yml` files.
-3.  **System-Wide Import Errors:** Corrected all Python imports to be robust and relative within the `acoustic_system` package, fixing numerous `ModuleNotFoundError` and `ImportError` issues.
-4.  **Simulation Initialization Bug:** Fixed a `TypeError` caused by a mismatch between `position` and `location` parameter names in the `Driver` class, which was preventing the simulation object from being created on the backend.
-5.  **Core Physics Bugs:**
-    *   Re-introduced a `timestep` to the simulation engine to ensure the `Cosine` waveform could generate a propagating wave.
-    *   Corrected the order of operations in the `step` function, applying boundary conditions *before* adding driver energy to prevent sources on the edge from being cancelled out.
-    *   Resolved a `TypeError` by ensuring the `gridstep` parameter was correctly passed to the `laplacian_operator`.
-6.  **Frontend Rendering Bug:** Corrected the frontend's colormap, which was rendering the initial simulation state (all zeros) as white, making it impossible to see the waves. The new map uses a diverging red/blue scheme.
+| layer | change |
+| ----- | ------ |
+| `simulation/simulate.py` | added `reset()`, CFL stability check, automatic `timestep` derivation when one is not supplied |
+| `simulation/waveforms.py` | added `RickerWavelet` (mean-zero, broadband, the new default UI source) |
+| `simulation/setup.py` | `Driver.waveform` now takes an instance, not a bare class |
+| `app/main.py` | rewrote `SimulationManager` with an `asyncio.Lock`, awaited emits, status broadcasts, no auto-start, native-Python type casting |
+| `scripts/run_ui_server.py` | tidier startup, configurable host/port via env |
+| `frontend/src/App.tsx` | lazy-init socket, `ImageData` blit renderer, decoupled rAF render loop, status-driven button state, live engine readout |
+| `frontend/vite.config.ts` | added `changeOrigin`, pinned host/port |
 
-## 4. Next Steps
+## 4. Next steps
 
-Despite these fixes, the UI still does not display a running simulation. The buttons work, and there are no apparent crashes on either the frontend or the backend. This indicates a more subtle issue, likely in the data communication or state management between the client and server. The immediate next step is to investigate this communication channel.
+The interactive UI is ready for the next deliverable batch in
+`PROJECT_PLAN.md`: enabling click-to-place obstacles and drivers
+(Task 1.3.2 / 1.4) and runtime configuration of waveform / grid
+parameters from the UI (Task 1.4.2). The wire protocol already
+supports `update_config`; the only missing piece is the corresponding
+UI controls.
