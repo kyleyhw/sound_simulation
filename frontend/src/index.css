@@ -5,17 +5,57 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #1a1a1a;
-  color: #f0f0f0;
+  background-color: #14171c;
+  color: #e6e8eb;
 }
 
 .App {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 2rem;
   text-align: center;
-  padding: 1rem;
 }
 
-header {
-  margin-bottom: 1rem;
+header h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+}
+
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.status-line .pill {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.status-line .pill.ok {
+  background: #1f6f3f;
+  color: #d6f5e1;
+}
+
+.status-line .pill.bad {
+  background: #6f2230;
+  color: #fad3d6;
+}
+
+.status-line .pill.idle {
+  background: #404858;
+  color: #c8cfd8;
+}
+
+.status-line .meta {
+  font-variant-numeric: tabular-nums;
+  color: #aab1bb;
 }
 
 .controls {
@@ -23,27 +63,62 @@ header {
 }
 
 .controls button {
-  font-size: 1rem;
-  padding: 0.5rem 1rem;
-  margin: 0 0.5rem;
+  font-size: 0.95rem;
+  padding: 0.45rem 1.1rem;
+  margin: 0 0.4rem;
   cursor: pointer;
-  border: 1px solid #646cff;
-  background-color: #2a2a2a;
-  color: #f0f0f0;
-  border-radius: 8px;
-  transition: background-color 0.2s;
+  border: 1px solid #4f5b73;
+  background-color: #232a36;
+  color: #e6e8eb;
+  border-radius: 6px;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.controls button:hover:not(:disabled) {
+  background-color: #2e3747;
+  border-color: #6c7b96;
 }
 
 .controls button:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.controls button:hover:not(:disabled) {
-  background-color: #3a3a3a;
+  opacity: 0.45;
 }
 
 .canvas-container {
   display: flex;
   justify-content: center;
+  margin-bottom: 0.75rem;
+}
+
+.canvas-container canvas {
+  max-width: 100%;
+  height: auto;
+  background: #0a0d12;
+}
+
+.meta-block {
+  font-size: 0.8rem;
+  color: #99a1ad;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.legend span {
+  display: inline-block;
+  width: 1.5rem;
+  height: 0.7rem;
+  margin-right: 0.25rem;
+  border-radius: 2px;
+  vertical-align: middle;
 }

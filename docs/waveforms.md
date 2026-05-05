@@ -2,35 +2,63 @@
 
 ## 1. Purpose
 
-This script defines the mathematical functions for the various sound sources (drivers) that can be used in the simulation. It establishes a clear, extensible system for adding new types of waveforms.
+Defines callable `Waveform` objects $p_{\text{src}}(t)$ that drive
+point-source injection in the FDTD engine. A `Driver` holds a grid
+position and one of these waveforms; on every step the engine evaluates
+`waveform(t)` and adds the value to the pressure field.
 
-## 2. Scientific Principles
+## 2. Available waveforms
 
-The script implements standard mathematical functions that are commonly used to model physical wave sources.
+### `Cosine`
 
--   **Cosine Wave**: A simple, continuous sinusoidal wave defined by its frequency and amplitude. It represents a pure tone.
-    $$ f(t) = A \cos(2\pi f t) $$
-    Where `A` is amplitude and `f` is frequency.
+A continuous monochromatic source,
 
--   **Gaussian Pulse**: A pulse with a Gaussian-shaped envelope. It is localized in time and is useful for simulating transient events like a click or a tap. Its shape in the frequency domain is also a Gaussian, meaning it is localized in frequency as well.
-    $$ f(t) = A \exp\left(-\frac{(t - t_0)^2}{2\sigma^2}\right) $$
-    Where `A` is amplitude, `t_0` is the center time of the pulse, and `σ` is the width.
+$$ p_{\text{src}}(t) = A \cos(2 \pi f t). $$
 
-## 3. Implementation Details
+For a leap-frog FDTD with timestep $\Delta t$, the sample-rate Nyquist
+constraint is $f \Delta t < 0.5$; ten or more samples per period
+($f \Delta t \le 0.1$) is recommended for visually clean propagation.
+Choosing $f \Delta t \ge 0.5$ silently aliases or — at the exact
+half-rate — collapses the source to a constant DC injection that
+monotonically pumps energy into the field. This was the dominant bug in
+the initial web UI demo and is the reason the default UI source was
+switched to a Ricker wavelet.
 
-### Base Class
+### `GaussianPulse`
 
--   **`class Waveform`**: This is an abstract base class that defines the interface for all waveform types.
-    -   **`__call__(self, t)`**: The key feature of this class is the `__call__` method. This is a special Python method that allows an *instance* of a class to be called as if it were a function. This provides a clean and intuitive way for the `Driver` object to get a value from its waveform at a specific time `t` (e.g., `driver.waveform(time)`).
+$$ p_{\text{src}}(t) = A \exp\!\left( -\frac{(t - t_0)^2}{2 \sigma^2} \right). $$
 
-### Waveform Implementations
+Single-lobe transient, low-pass and DC-rich. Useful for impulse-response
+work but can leave a quasi-static residual in closed hard-walled
+domains.
 
--   **`@dataclass class Cosine(Waveform)`**: Implements a cosine wave. It inherits from `Waveform` and its `__call__` method returns the value of the cosine function for a given time `t`.
+### `RickerWavelet`
 
--   **`@dataclass class GaussianPulse(Waveform)`**: Implements a Gaussian pulse. It also inherits from `Waveform` and implements the corresponding mathematical function.
+The Ricker (Mexican-hat) wavelet — the second derivative of a Gaussian:
 
-### Design Rationale
+$$ p_{\text{src}}(t) = A \, \big( 1 - 2 (\pi f (t - t_0))^2 \big) \exp\!\left( -(\pi f (t - t_0))^2 \right). $$
 
--   **Object-Oriented Approach**: Using a base class and inheriting from it makes the system highly extensible. To add a new waveform (e.g., a sine wave or a square wave), one only needs to create a new class that inherits from `Waveform` and implements the `__call__` method with the desired mathematical function.
--   **Dataclasses**: Using the `@dataclass` decorator automatically generates methods like `__init__` and `__repr__`, reducing boilerplate code and making the waveform definitions clean and readable.
--   **`waveform_registry`**: This dictionary acts as a registry that maps string names to the actual waveform classes. This is a powerful pattern that allows for selecting and instantiating waveforms based on a string name, which can be useful for setting up simulations from configuration files or user input.
+Three properties make it the standard FDTD excitation:
+
+1. **Mean-zero in the limit.** The integral over $\mathbb{R}$ is zero,
+   so the source deposits no net mass / DC into the field.
+2. **Dominant-frequency control.** The amplitude spectrum peaks at $f$,
+   making it easy to band-limit the simulation against the grid's
+   numerical dispersion budget.
+3. **Compact temporal support.** Negligible amplitude outside
+   $|t - t_0| \gtrsim 2/f$, so taking $t_0 \ge 1/f$ guarantees the
+   pulse starts and ends near zero.
+
+Defaults (`amplitude=1`, `frequency=0.1`, `delay=20.0`) are tuned for
+the demo grid: dominant period $\approx 10$ steps at $\Delta t = 0.5$,
+pulse width $\approx 4/f = 40$ time units centred at $t = 20$.
+
+## 3. Design notes
+
+- All waveforms inherit from `Waveform` and override `__call__(t)`. The
+  callable interface lets `Driver.get_value(time)` be agnostic to the
+  source family.
+- `waveform_registry` maps string names to classes for reconstruction
+  from JSON configuration sent by the frontend.
+- Adding a new family is a one-class change: subclass `Waveform`,
+  implement `__call__`, and register the name.
