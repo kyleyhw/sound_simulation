@@ -117,7 +117,7 @@ class Visualize:
 
         for i, sensor in enumerate(sensors):
             axs[i].plot(sensor.timeseries)
-            axs[i].set_ylabel(f'amplitude at {sensor.location}')
+            axs[i].set_ylabel(f'amplitude at {sensor.position}')
 
         axs[-1].set_xlabel('frame')
 
@@ -140,7 +140,7 @@ class Visualize:
             fft = np.fft.fftshift(np.abs(np.fft.fft(sensor.timeseries)))
             freqs = np.fft.fftshift(np.fft.fftfreq(n=len(sensor.timeseries), d=1/sensor.sample_rate))
             axs[i].plot(freqs, fft)
-            axs[i].set_ylabel(f'amplitude at {sensor.location}')
+            axs[i].set_ylabel(f'amplitude at {sensor.position}')
 
         axs[-1].set_xlabel('frequency / Hz')
 
