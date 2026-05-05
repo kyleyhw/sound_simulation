@@ -1,17 +1,20 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-// https://vitejs.dev/config/
+// Vite dev server. The Python backend listens on 127.0.0.1:8001;
+// we proxy /socket.io (HTTP + WebSocket) to it.
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000, // We'll run the frontend on port 3000
+    host: '127.0.0.1',
+    port: 3000,
+    strictPort: true,
     proxy: {
-      // Proxy API requests to the Python backend server
       '/socket.io': {
-        target: 'ws://127.0.0.1:8000',
-        ws: true
-      }
-    }
-  }
-})
+        target: 'http://127.0.0.1:8001',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
+  },
+});
