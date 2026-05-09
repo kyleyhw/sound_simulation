@@ -1,5 +1,4 @@
 import warnings
-from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -58,15 +57,15 @@ class Simulate:
 
     def __init__(
         self,
-        grid_shape: Tuple[int, ...] = (200, 200),
-        drivers: Optional[List[Driver]] = None,
-        sensors: Optional[List[Sensor]] = None,
+        grid_shape: tuple[int, ...] = (200, 200),
+        drivers: list[Driver] | None = None,
+        sensors: list[Sensor] | None = None,
         wavespeed: float = 1.0,
-        timestep: Optional[float] = None,
+        timestep: float | None = None,
         gridstep: float = 1.0,
         courant: float = 0.5,
     ) -> None:
-        self.grid_shape: Tuple[int, ...] = tuple(grid_shape)
+        self.grid_shape: tuple[int, ...] = tuple(grid_shape)
         self.wavespeed: float = float(wavespeed)
         self.gridstep: float = float(gridstep)
         self.dims: int = len(self.grid_shape)
@@ -85,10 +84,11 @@ class Simulate:
                     f"CFL violated: Courant={actual_courant:.3f} >= 1/sqrt({self.dims})={cfl_limit:.3f}. "
                     f"Simulation will be unstable.",
                     RuntimeWarning,
+                    stacklevel=2,
                 )
 
-        self.drivers: List[Driver] = list(drivers) if drivers is not None else []
-        self.sensors: List[Sensor] = list(sensors) if sensors is not None else []
+        self.drivers: list[Driver] = list(drivers) if drivers is not None else []
+        self.sensors: list[Sensor] = list(sensors) if sensors is not None else []
 
         self.time: float = 0.0
         self.step_count: int = 0
@@ -104,9 +104,7 @@ class Simulate:
         #   coeff = (c * dt / dx) ** 2
         # Equivalent to (c * dt) ** 2 * (1 / dx ** 2) used by the legacy path,
         # but precomputed once so the inner kernel takes a plain float32.
-        self._coeff: np.float32 = np.float32(
-            (self.wavespeed * self.timestep / self.gridstep) ** 2
-        )
+        self._coeff: np.float32 = np.float32((self.wavespeed * self.timestep / self.gridstep) ** 2)
 
         # Pre-bind hot-path callables as plain attributes. The @njit dispatcher
         # is hashable and can be stored on the instance; assigning it to a
@@ -116,7 +114,7 @@ class Simulate:
 
         # Cached 2D dispatch predicate. Avoids re-evaluating ``self.dims == 2``
         # on every step; in 2D this is overwhelmingly the common path.
-        self._is_2d: bool = (self.dims == 2)
+        self._is_2d: bool = self.dims == 2
 
         # Single-driver fast path bookkeeping. When exactly one driver exists
         # and its position is in-bounds, we precompute the integer tuple index
@@ -125,11 +123,11 @@ class Simulate:
         # is set once); the position check is therefore safe to cache at
         # construction time. Out-of-bounds single drivers fall through to
         # the generic loop, where the original guard runs unchanged.
-        self._fast_driver: Optional[Driver] = None
-        self._fast_driver_pos: Optional[Tuple[int, ...]] = None
+        self._fast_driver: Driver | None = None
+        self._fast_driver_pos: tuple[int, ...] | None = None
         if len(self.drivers) == 1:
             d0 = self.drivers[0]
-            if all(0 <= pos < size for pos, size in zip(d0.position, self.grid_shape)):
+            if all(0 <= pos < size for pos, size in zip(d0.position, self.grid_shape, strict=True)):
                 self._fast_driver = d0
                 self._fast_driver_pos = tuple(d0.position)
 
@@ -168,11 +166,7 @@ class Simulate:
         else:
             # Legacy generic-dimension path for 1D / 3D simulations.
             laplacian = laplacian_operator(grid=self.p, gridstep=self.gridstep)
-            p_next = (
-                2.0 * self.p
-                - self.p_prev
-                + (self.wavespeed * self.timestep) ** 2 * laplacian
-            )
+            p_next = 2.0 * self.p - self.p_prev + (self.wavespeed * self.timestep) ** 2 * laplacian
             # Hard-wall (Dirichlet, p=0) boundaries first so interior drivers
             # are not erased.
             set_edge_values(arr=p_next, value=0)
@@ -196,7 +190,9 @@ class Simulate:
             grid_shape = self.grid_shape
             for driver in self.drivers:
                 value = driver.get_value(time)
-                if all(0 <= pos < size for pos, size in zip(driver.position, grid_shape)):
+                if all(
+                    0 <= pos < size for pos, size in zip(driver.position, grid_shape, strict=True)
+                ):
                     p_next[tuple(driver.position)] += value
 
         # Three-way pointer rotation: p_prev <- p, p <- p_next, _p_next <- old p_prev.

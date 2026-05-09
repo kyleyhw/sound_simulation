@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -11,7 +10,7 @@ from .waveforms import Cosine, Waveform
 class Driver:
     """A point source: a grid position and a callable waveform p_src(t)."""
 
-    position: Tuple[int, ...]
+    position: tuple[int, ...]
     waveform: Waveform = field(default_factory=Cosine)
 
     def get_value(self, time: float) -> float:
@@ -20,13 +19,13 @@ class Driver:
 
 @dataclass
 class Sensor:
-    position: Tuple[int, ...]
-    timeseries: Optional[np.ndarray] = None
-    sample_rate: Optional[float] = None
+    position: tuple[int, ...]
+    timeseries: np.ndarray | None = None
+    sample_rate: float | None = None
 
 
 class GenerateSensor:
-    def __init__(self, gridsize: Tuple[int, ...]):
+    def __init__(self, gridsize: tuple[int, ...]):
         self.gridsize = gridsize
 
     def get_random_basic(self, position=None, detailed: bool = False):
@@ -39,10 +38,12 @@ class GenerateSensor:
 
 
 class GenerateDriver:
-    def __init__(self, gridsize: Tuple[int, ...]):
+    def __init__(self, gridsize: tuple[int, ...]):
         self.gridsize = gridsize
 
-    def get_random_cosine(self, position=None, frequency=None, amplitude=None, detailed: bool = False):
+    def get_random_cosine(
+        self, position=None, frequency=None, amplitude=None, detailed: bool = False
+    ):
         if position is None:
             position = LocationGenerator(gridsize=self.gridsize).get_new_location()
         if frequency is None:

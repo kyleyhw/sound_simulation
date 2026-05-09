@@ -1,9 +1,11 @@
 import matplotlib
+
 matplotlib.use('WebAgg')
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.backend_bases import MouseEvent  #, ScrollEvent
 from matplotlib.colors import ListedColormap
-from matplotlib.backend_bases import MouseEvent#, ScrollEvent
+
 
 class InteractiveSetup:
     """

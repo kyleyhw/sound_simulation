@@ -1,9 +1,13 @@
+# LEGACY: this file is retained for reference. Use `uv sync` against
+# pyproject.toml instead — see the project README. The two environments
+# resolve the same runtime libraries; pyproject.toml is the source of
+# truth for any new install.
 name: sound_simulation
 channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.9
+  - python=3.11
   - h5py
   - matplotlib
   - numpy
@@ -13,4 +17,10 @@ dependencies:
   - fastapi
   - uvicorn
   - python-socketio
-
+  - numba
+  - pip
+  - pip:
+    - detect-secrets
+    - pre-commit
+    - ruff
+    - ty

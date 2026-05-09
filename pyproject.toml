@@ -1,0 +1,114 @@
+[project]
+name = "sound-simulation"
+version = "0.1.0"
+description = "An N-dimensional simulation of sound wave propagation via the FDTD method. Written with the goal of generating acoustic data to train machine learning models for environmental echolocation mapping."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Kyle Wong", email = "kyleyhw@gmail.com" },
+]
+keywords = ["fdtd", "acoustics", "wave-propagation", "simulation", "echolocation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    # Core numerical stack
+    "numpy>=1.26",
+    "scipy>=1.11",
+    # 1D / 3D fall-back path uses scipy.ndimage.laplace; the optimised
+    # 2D fast path uses an @njit kernel from numba (see
+    # docs/web_ui.md and src/acoustic_system/simulation/calculate.py).
+    "numba>=0.59",
+    # Storage
+    "h5py>=3.10",
+    # Visualisation (offline plots/animations)
+    "matplotlib>=3.8",
+    "tqdm>=4.66",
+    # 3D viewer (optional but installed by default for parity with the
+    # original conda environment).
+    "pyvista>=0.43",
+    # Web UI backend
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-socketio>=5.10",
+]
+
+[dependency-groups]
+# uv reads `[dependency-groups]` (PEP 735). Install with `uv sync`
+# (default: installs all groups) or `uv sync --no-dev` to skip.
+dev = [
+    "ruff>=0.4",
+    "ty>=0.0.1a1",
+    "detect-secrets>=1.5",
+    "pre-commit>=3.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# src layout: the `acoustic_system` package lives under `src/`.
+packages = ["src/acoustic_system"]
+
+
+# --- Ruff (linter + formatter) ---------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    "frontend/node_modules",
+    "data",
+    "docs",
+    # Legacy matplotlib scene editor — has a pre-existing __init__/setup()
+    # ordering bug and is being superseded by the web UI's draw-tools work.
+    # Excluded until rewritten or removed.
+    "src/acoustic_system/simulation/interactive_setup.py",
+]
+
+[tool.ruff.lint]
+extend-select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort import ordering
+    "B",   # bugbear (likely-buggy patterns)
+    "UP",  # pyupgrade (modernise syntax)
+    "N",   # pep8-naming
+]
+ignore = [
+    "E501",  # line too long: defer to ruff format which handles wrapping
+    "B008",  # function call in default argument: common in dataclasses
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and one-off scripts may bend a few rules:
+"tests/**" = ["E402"]      # late imports after sys.path manipulation
+"scripts/**" = ["E402"]
+"src/acoustic_system/simulation/main.py" = ["N999"]  # legacy script-style entry
+# `plot2D` / `plot3D` / `_update2D` are intentional public-API names that
+# match matplotlib convention; pep8-naming N802 false-positives here.
+"src/acoustic_system/simulation/visualize.py" = ["N802"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["acoustic_system"]
+
+
+# --- ty (type checker) -----------------------------------------------------
+# ty is still in early-alpha; use defaults and only narrow scope for now.
+[tool.ty.src]
+include = ["src", "scripts"]
+exclude = [
+    # Legacy paths to surface gradually rather than all at once.
+    "src/acoustic_system/simulation/interactive_setup.py",
+    # The 2D fast-path kernel uses numba-only constructs (`prange`, the
+    # `@njit` signature DSL) that ty's static analyser does not model;
+    # type-checking the JIT body produces noisy false positives.
+    # Behaviour is gated by tests/perf/check_simulate.py instead.
+    "src/acoustic_system/simulation/calculate.py",
+]
