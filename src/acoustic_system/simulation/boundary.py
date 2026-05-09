@@ -1,5 +1,3 @@
-import numpy as np
-
 class Boundary:
     def __init__(self, gridsize):
         self.gridsize = gridsize

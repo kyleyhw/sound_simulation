@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def get_edge_indices(arr: np.ndarray) -> np.ndarray:
     """
     Gets the indices of elements on the edges of a NumPy ndarray.
@@ -16,16 +17,18 @@ def get_edge_indices(arr: np.ndarray) -> np.ndarray:
     # Create a boolean mask to mark the positions of edge elements.
     edge_mask = np.zeros(arr.shape, dtype=bool)
 
-    # Iterate over each axis of the array.
+    # Iterate over each axis of the array. The per-axis selector mixes a
+    # full-slice for unrelated axes with an integer (0 or -1) for the axis
+    # whose edge is being marked, so the list element type is `slice | int`.
     for axis in range(arr.ndim):
         # Mark the "start" edge of the current axis.
-        start_slice = [slice(None)] * arr.ndim
+        start_slice: list[slice | int] = [slice(None)] * arr.ndim
         start_slice[axis] = 0
         edge_mask[tuple(start_slice)] = True
 
         # Mark the "end" edge, avoiding re-marking on axes of size 1.
         if arr.shape[axis] > 1:
-            end_slice = [slice(None)] * arr.ndim
+            end_slice: list[slice | int] = [slice(None)] * arr.ndim
             end_slice[axis] = -1
             edge_mask[tuple(end_slice)] = True
 
@@ -51,6 +54,7 @@ def get_edge_values(arr: np.ndarray) -> np.ndarray:
     # We transpose the (N, D) array of indices to a (D, N) tuple of arrays.
     return arr[tuple(indices.T)]
 
+
 def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     """
     Sets the values of elements on the edges of a NumPy ndarray in-place.
@@ -69,10 +73,12 @@ def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     arr[tuple(indices.T)] = value
     return arr
 
+
 class LocationGenerator:
     """
     Generates random coordinates for a grid of a fixed size.
     """
+
     def __init__(self, gridsize: tuple):
         """
         Initializes the generator for a specific grid size.
@@ -92,19 +98,13 @@ class LocationGenerator:
         Returns:
             tuple: A random N-dimensional coordinate.
         """
-        location = np.random.randint(low=self.low,
-                                     high=self.high,
-                                     size=self.dims,
-                                     dtype=int)
+        location = np.random.randint(low=self.low, high=self.high, size=self.dims, dtype=int)
         return tuple(location)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     print("--- Array Demonstration ---")
-    test_array = np.array([
-        [10, 11, 12, 13],
-        [14, 15, 16, 17],
-        [18, 19, 20, 21]
-    ])
+    test_array = np.array([[10, 11, 12, 13], [14, 15, 16, 17], [18, 19, 20, 21]])
 
     print("Original Array:")
     print(test_array)

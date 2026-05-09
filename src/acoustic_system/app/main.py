@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import socketio
@@ -28,8 +28,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from acoustic_system.simulation.setup import Driver
 from acoustic_system.simulation.simulate import Simulate
 from acoustic_system.simulation.waveforms import (
-    Cosine,
-    GaussianPulse,
     RickerWavelet,
     waveform_registry,
 )
@@ -38,7 +36,7 @@ logger = logging.getLogger("acoustic_system")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "grid_shape": [200, 200],
     "wavespeed": 1.0,
     "gridstep": 1.0,
@@ -58,7 +56,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
-def build_waveform(spec: Dict[str, Any]):
+def build_waveform(spec: dict[str, Any]):
     """Instantiate a Waveform from a {type, ...kwargs} dict.
 
     Unknown types fall back to a Ricker wavelet so the UI stays demo-able.
@@ -78,9 +76,9 @@ class SimulationManager:
 
     def __init__(self, sio: socketio.AsyncServer) -> None:
         self.sio = sio
-        self.config: Dict[str, Any] = dict(DEFAULT_CONFIG)
-        self.simulation: Optional[Simulate] = None
-        self.task: Optional[asyncio.Task] = None
+        self.config: dict[str, Any] = dict(DEFAULT_CONFIG)
+        self.simulation: Simulate | None = None
+        self.task: asyncio.Task | None = None
         self.is_running: bool = False
         self._lock = asyncio.Lock()
         self._build_simulation()
@@ -93,7 +91,9 @@ class SimulationManager:
         waveform = build_waveform(cfg["waveform"])
 
         position = tuple(cfg["driver_position"])
-        position = tuple(int(np.clip(p, 1, s - 2)) for p, s in zip(position, grid_shape))
+        position = tuple(
+            int(np.clip(p, 1, s - 2)) for p, s in zip(position, grid_shape, strict=True)
+        )
         driver = Driver(position=position, waveform=waveform)
 
         self.simulation = Simulate(
@@ -114,7 +114,7 @@ class SimulationManager:
             cfg["waveform"],
         )
 
-    async def configure(self, partial: Dict[str, Any]) -> None:
+    async def configure(self, partial: dict[str, Any]) -> None:
         """Merge user-provided fields into the config and rebuild the engine.
 
         Stops any running loop first so the rebuild is safe.
@@ -157,7 +157,7 @@ class SimulationManager:
         if task is not None and not task.done():
             try:
                 await asyncio.wait_for(task, timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 task.cancel()
 
     async def reset(self) -> None:
@@ -174,7 +174,6 @@ class SimulationManager:
         assert self.simulation is not None
         sim = self.simulation
         broadcast_period = 1.0 / float(self.config.get("broadcast_hz", 30.0))
-        downsample = max(1, int(self.config.get("downsample", 2)))
         try:
             while self.is_running:
                 # Run several physics steps per broadcast to keep wall-clock
@@ -223,10 +222,10 @@ class SimulationManager:
             },
         )
 
-    def _safe_config(self) -> Dict[str, Any]:
+    def _safe_config(self) -> dict[str, Any]:
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.config.items()}
 
-    def _engine_info(self) -> Dict[str, Any]:
+    def _engine_info(self) -> dict[str, Any]:
         if self.simulation is None:
             return {}
         sim = self.simulation
@@ -259,7 +258,10 @@ sim_manager = SimulationManager(sio)
 
 @app.get("/")
 async def read_root():
-    return {"message": "Acoustic Simulation Server is running", "engine": sim_manager._engine_info()}
+    return {
+        "message": "Acoustic Simulation Server is running",
+        "engine": sim_manager._engine_info(),
+    }
 
 
 @app.get("/healthz")
