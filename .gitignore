@@ -208,3 +208,19 @@ __marimo__/
 
 # Simulation data hdf5 files
 *.hdf5
+
+# OS / editor metadata
+.DS_Store
+Thumbs.db
+
+# Frontend build artefacts
+frontend/node_modules/
+frontend/dist/
+
+# Tooling caches and ad-hoc artefacts
+.playwright-mcp/
+.claude/
+.gemini/
+sim-*.png
+post-*.png
+*-screenshot.png
