@@ -1,0 +1,38 @@
+# Pre-commit hooks. Install with `uv run pre-commit install` after `uv sync`.
+#
+# Rev pins are kept in sync with the dev-dep versions in pyproject.toml so
+# `uv run ruff format` and `pre-commit run ruff-format --all-files` produce
+# the same output. Run `pre-commit autoupdate` periodically to bump them
+# together.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.12
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]
+        exclude: |
+          (?x)^(
+            frontend/package-lock\.json |
+            frontend/node_modules/.* |
+            data/.* |
+            tests/perf/reference\.npz
+          )$
+
+  - repo: local
+    hooks:
+      # ty is still alpha; we run it via the project's uv-managed env so the
+      # hook tracks the version pinned in uv.lock.
+      - id: ty
+        name: ty (type check)
+        entry: uv run ty check
+        language: system
+        types: [python]
+        pass_filenames: false
