@@ -177,6 +177,35 @@ class AudioFileWaveform(Waveform):
         b = self._samples[idx0 + 1]
         return float(self.amplitude * ((1.0 - frac) * a + frac * b))
 
+    @classmethod
+    def from_samples(
+        cls,
+        samples: np.ndarray,
+        sample_rate: float,
+        amplitude: float = 1.0,
+        delay: float = 0.0,
+        sim_time_per_second: float = 1.0,
+    ) -> "AudioFileWaveform":
+        """Build an AudioFileWaveform directly from an in-memory sample array.
+
+        Useful for synthetic test sources (chirps, sweeps, noise) that the
+        dataset generator produces on the fly when the user has no audio
+        corpus. The constructed object behaves identically to one loaded
+        from a WAV; the ``path`` field is left empty so the HDF5 metadata
+        records that the source was programmatic.
+        """
+        wf = cls(
+            path="",
+            amplitude=amplitude,
+            delay=delay,
+            sim_time_per_second=sim_time_per_second,
+        )
+        wf._samples = np.ascontiguousarray(samples, dtype=np.float32)
+        wf._native_fs = float(sample_rate)
+        wf._fs_audio = wf._native_fs * float(sim_time_per_second)
+        wf._duration = len(wf._samples) / wf._fs_audio if wf._fs_audio > 0 else 0.0
+        return wf
+
 
 waveform_registry = {
     "Cosine": Cosine,
