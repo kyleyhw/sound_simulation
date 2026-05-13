@@ -103,7 +103,52 @@ preserves the driver's contribution at every interior cell — including
 cells one step inside the boundary, where the edge zeroing nominally
 would not touch them but the build-order made it ambiguous.
 
-## 4. Interior obstacles
+## 4. 3D fused kernel
+
+Same architecture as the 2D path, generalised to a 7-point central
+second-order Laplacian:
+
+$$
+p^{n+1}_{i,j,k} = 2 p^{n}_{i,j,k} - p^{n-1}_{i,j,k}
++ \sigma^2 \bigl( p^{n}_{i\pm 1,j,k} + p^{n}_{i,j\pm 1,k} + p^{n}_{i,j,k\pm 1} - 6 p^{n}_{i,j,k} \bigr),
+$$
+
+with $\sigma = c \Delta t / \Delta x$ as in 2D and the CFL bound now
+$\sigma \le 1/\sqrt{3} \approx 0.577$. The kernel
+(`fused_leapfrog_step_3d` in `calculate.py`) carries the same
+`@njit(parallel=True, fastmath=True)` flag set as its 2D sibling and
+parallelises the outer $i$ loop with `prange`; $j$ and $k$ stay serial,
+with $k$ innermost so the unit-stride axis matches numpy's default
+C-order layout. Six faces of `p_next` are zeroed in the same kernel
+pass, giving the same Dirichlet hard-wall semantics as the outer
+boundary in 2D.
+
+The `Simulate.__init__` dispatch picks the kernel by
+`self.dims`: 2 → `fused_leapfrog_step_2d`, 3 → `fused_leapfrog_step_3d`,
+otherwise the 1D `scipy.ndimage.laplace` fallback is used. The hot loop
+in `step()` checks `self._kernel is not None` and goes straight to
+`kernel(p, p_prev, p_next, coeff)` — no extra branches per step,
+identical surrounding plumbing (buffer rotation, obstacle scrub,
+driver injection) as in 2D.
+
+Measured per-step wall clock on a 16-thread workstation (median of 5
+trials, 50 steps each):
+
+| grid | cells | ms / step | sim-only FPS |
+| --- | --- | --- | --- |
+| $32^3$ | 32 768 | 0.04 | 25 000 |
+| $64^3$ | 262 144 | 0.21 | 4 700 |
+| $100^3$ | 1 000 000 | 0.95 | 1 050 |
+| $128^3$ | 2 097 152 | 2.10 | 476 |
+| $200^3$ | 8 000 000 | 7.00 | 143 |
+
+Per-cell cost in 3D is roughly $2\times$ that of the 2D kernel for the
+same total cell count (e.g. 2D $512^2 \approx 0.11$ ms/step vs 3D $64^3
+\approx 0.21$ ms/step, both at 262 144 cells). The factor accounts for
+two extra stencil reads (7-point vs 5-point) and worse L2 reuse along
+the slowest axis.
+
+## 5. Interior obstacles
 
 A boolean `obstacle_mask` attribute of shape `grid_shape` marks
 interior cells that should behave as rigid Dirichlet walls. Conceptually

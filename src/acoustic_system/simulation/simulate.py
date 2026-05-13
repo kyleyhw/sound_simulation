@@ -3,7 +3,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .calculate import Calculate, fused_leapfrog_step_2d
+from .calculate import Calculate, fused_leapfrog_step_2d, fused_leapfrog_step_3d
 from .setup import Driver, Sensor
 from .utils import set_edge_values
 
@@ -128,14 +128,27 @@ class Simulate:
         # but precomputed once so the inner kernel takes a plain float32.
         self._coeff: np.float32 = np.float32((self.wavespeed * self.timestep / self.gridstep) ** 2)
 
-        # Pre-bind hot-path callables as plain attributes. The @njit dispatcher
-        # is hashable and can be stored on the instance; assigning it to a
-        # local at the top of step() collapses the chained name resolution
-        # ``self._kernel(...)`` into a single load-fast local-variable call.
-        self._kernel = fused_leapfrog_step_2d
+        # Pre-bind the active fused kernel as a plain attribute. Picked once
+        # at construction by dimensionality:
+        #   * 2D -> fused_leapfrog_step_2d (5-point stencil)
+        #   * 3D -> fused_leapfrog_step_3d (7-point stencil)
+        #   * other -> None (1D falls through to the legacy scipy path)
+        # Assigning to a local at the top of step() collapses the chained
+        # ``self._kernel(...)`` lookup into a single load-fast call.
+        if self.dims == 2:
+            self._kernel = fused_leapfrog_step_2d
+        elif self.dims == 3:
+            self._kernel = fused_leapfrog_step_3d
+        else:
+            self._kernel = None
 
-        # Cached 2D dispatch predicate. Avoids re-evaluating ``self.dims == 2``
-        # on every step; in 2D this is overwhelmingly the common path.
+        # Cached fast-path predicate. The 2D AND 3D paths share the same
+        # surrounding plumbing — they only differ in which @njit kernel
+        # they call, which is already encoded in self._kernel. The 1D path
+        # still uses the scipy.ndimage.laplace fallback.
+        self._fast_path: bool = self._kernel is not None
+        # Kept for backwards compatibility with any external code that
+        # referenced ``_is_2d`` directly. Value remains correct.
         self._is_2d: bool = self.dims == 2
 
         # Single-driver fast path bookkeeping. When exactly one driver exists
@@ -239,19 +252,28 @@ class Simulate:
         # Bind every per-call value used more than once as a local.
         # This converts O(N_uses) attribute lookups to O(N_uses) of cheaper
         # local-variable loads after a fixed O(N_distinct) attribute snapshot.
-        if self._is_2d:
-            kernel = self._kernel
+        # Bind the kernel once. The ``is not None`` test both selects the
+        # fast path AND narrows self._kernel's type for ty (the 1D
+        # fallback below leaves self._kernel = None).
+        kernel = self._kernel
+        if kernel is not None:
+            # 2D and 3D both go through a fused @njit kernel. Which one
+            # was bound to self._kernel depends on dimensionality (set
+            # once in __init__); the surrounding plumbing — buffer
+            # rotation, obstacle scrub, driver injection — is identical.
             p = self.p
             p_prev = self.p_prev
             p_next = self._p_next
             coeff = self._coeff
 
-            # Fused 2D njit kernel: writes into p_next, also zeroing the four
-            # edges to enforce the Dirichlet hard-wall BC. Operands are
+            # Fused njit kernel: writes p_next, also zeroing the outer
+            # faces to enforce the Dirichlet hard-wall BC. Operands are
             # passed positionally to skip any kwarg dict construction.
             kernel(p, p_prev, p_next, coeff)
         else:
-            # Legacy generic-dimension path for 1D / 3D simulations.
+            # Legacy 1D path: scipy.ndimage.laplace fallback. Kept for
+            # behavioural compatibility with any caller that builds a 1D
+            # Simulate; the fused kernels are 2D and 3D only.
             laplacian = laplacian_operator(grid=self.p, gridstep=self.gridstep)
             p_next = 2.0 * self.p - self.p_prev + (self.wavespeed * self.timestep) ** 2 * laplacian
             # Hard-wall (Dirichlet, p=0) boundaries first so interior drivers
