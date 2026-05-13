@@ -71,6 +71,44 @@ def build_waveform(spec: Dict[str, Any]):
         return cls()
 
 
+def quantize_to_uint8_bytes(view: np.ndarray, max_val: float) -> bytes:
+    """Map a float pressure array to ``uint8`` bytes with 128 = zero pressure.
+
+    Encoding
+    --------
+    Each voxel ``p`` is normalised against the per-frame peak
+
+    $$ p_{\\text{norm}} = \\operatorname{clip}\\!\\left(p / p_{\\max},\\; -1,\\; 1\\right), $$
+
+    and quantised to an 8-bit unsigned integer
+
+    $$ b = \\operatorname{round}\\!\\bigl(127.5 \\cdot (p_{\\text{norm}} + 1)\\bigr), $$
+
+    so 0 maps to the most negative pressure, 128 maps to silence, and
+    255 maps to the most positive pressure. The receiver inverts this
+    in the fragment shader as ``p_norm = 2 * sample - 1`` before
+    feeding the diverging colormap.
+
+    256 levels is comfortably more than the eye can resolve in a
+    transparent volume — this is the same reasoning medical-imaging
+    pipelines use to ship CT volumes as uint8. The quantisation noise
+    floor is $p_{\\max} / 128 \\approx 0.78\\%$ of peak amplitude, well
+    below the per-frame normalisation jitter.
+
+    Returns the contiguous C-order byte buffer ready for socket.io's
+    binary-attachment serialisation. An empty input returns ``b""``;
+    a zero ``max_val`` returns an all-128 (silent) buffer of the
+    expected length.
+    """
+    if view.size == 0:
+        return b""
+    if max_val <= 0.0:
+        return bytes(np.full(view.size, 128, dtype=np.uint8))
+    norm = np.clip(view / np.float32(max_val), -1.0, 1.0).astype(np.float32)
+    quantised = np.rint((norm + 1.0) * 127.5).astype(np.uint8)
+    return quantised.tobytes(order="C")
+
+
 class SimulationManager:
     """Encapsulates the FDTD engine and its broadcast loop."""
 
@@ -90,8 +128,15 @@ class SimulationManager:
         grid_shape = tuple(cfg["grid_shape"])
         waveform = build_waveform(cfg["waveform"])
 
-        position = tuple(cfg["driver_position"])
-        position = tuple(int(np.clip(p, 1, s - 2)) for p, s in zip(position, grid_shape))
+        raw_position = list(cfg["driver_position"])
+        if len(raw_position) != len(grid_shape):
+            # Dimensionality switched (typically 2D <-> 3D via update_config).
+            # The previous driver_position no longer fits the new grid; fall
+            # back to the centre and update the config so subsequent rebuilds
+            # start from a consistent state.
+            raw_position = [s // 2 for s in grid_shape]
+            cfg["driver_position"] = list(raw_position)
+        position = tuple(int(np.clip(p, 1, s - 2)) for p, s in zip(raw_position, grid_shape))
         driver = Driver(position=position, waveform=waveform)
 
         self.simulation = Simulate(
@@ -291,15 +336,42 @@ class SimulationManager:
         slicing = (slice(None, None, downsample),) * sim.dims
         view = sim.p[slicing]
         max_val = float(np.max(np.abs(view))) if view.size else 0.0
-        await self.sio.emit(
-            "simulation_update",
-            {
-                "grid": view.tolist(),
-                "max_val": max_val,
-                "step": int(sim.step_count),
-                "time": float(sim.time),
-            },
-        )
+
+        if sim.dims == 3:
+            # Binary path: a downsampled 3D pressure field is far too
+            # large to JSON-encode as nested floats (a 100^3 view is
+            # 1 MB raw, ~10 MB as JSON text). Quantise to uint8 with
+            # 128 = silence and ship the contiguous byte buffer via
+            # socket.io's binary-attachment mechanism. The receiver
+            # uploads it directly into a Three.js Data3DTexture and
+            # de-quantises in the volume-rendering fragment shader.
+            await self.sio.emit(
+                "simulation_update",
+                {
+                    "dims": 3,
+                    "shape": list(view.shape),
+                    "max_val": max_val,
+                    "step": int(sim.step_count),
+                    "time": float(sim.time),
+                    "data": quantize_to_uint8_bytes(view, max_val),
+                },
+            )
+        else:
+            # 2D / 1D JSON path. Kept verbatim for backward compatibility
+            # with the existing canvas frontend; the new ``dims`` and
+            # ``shape`` fields are additive and let any future client
+            # dispatch on dim without re-checking ``engine.dims``.
+            await self.sio.emit(
+                "simulation_update",
+                {
+                    "dims": int(sim.dims),
+                    "shape": list(view.shape),
+                    "grid": view.tolist(),
+                    "max_val": max_val,
+                    "step": int(sim.step_count),
+                    "time": float(sim.time),
+                },
+            )
 
     async def _broadcast_status(self) -> None:
         await self.sio.emit(
@@ -314,22 +386,38 @@ class SimulationManager:
         )
 
     def _obstacle_payload(self) -> Dict[str, Any]:
-        """Downsampled obstacle mask + dimensions, ready for JSON.
+        """Downsampled obstacle mask + dimensions, ready for the wire.
 
         Geometry is broadcast on every status (not every frame): obstacles
-        change at human pace, so this lives outside the hot ``simulation_update``
-        path. Shape is the *downsampled* shape so the frontend can blit it
-        directly onto the same canvas-sized ImageData it already builds for
-        the pressure field.
+        change at human pace, so this lives outside the hot
+        ``simulation_update`` path. The shape is the *downsampled* shape so
+        the frontend can blit it directly onto the same renderer it uses
+        for the pressure field.
+
+        Wire format depends on dim:
+          * 2D — ``mask`` is a nested list of 0/1 ints (current schema).
+          * 3D — ``mask`` is a contiguous ``bytes`` buffer of 0 / 1 uint8
+            voxels in C order, shape ``Nz * Ny * Nx``. This is the natural
+            input for the Three.js volume renderer's mask texture and
+            keeps the wire size at one byte per voxel.
         """
         if self.simulation is None:
-            return {"shape": [0, 0], "downsample": 1, "mask": []}
+            return {"shape": [0, 0], "downsample": 1, "dims": 2, "mask": []}
+        sim = self.simulation
         downsample = max(1, int(self.config.get("downsample", 2)))
-        slicing = (slice(None, None, downsample),) * self.simulation.dims
-        view = self.simulation.obstacle_mask[slicing]
+        slicing = (slice(None, None, downsample),) * sim.dims
+        view = sim.obstacle_mask[slicing]
+        if sim.dims == 3:
+            return {
+                "shape": list(view.shape),
+                "downsample": downsample,
+                "dims": 3,
+                "mask": np.ascontiguousarray(view, dtype=np.uint8).tobytes(order="C"),
+            }
         return {
             "shape": list(view.shape),
             "downsample": downsample,
+            "dims": int(sim.dims),
             "mask": view.astype(np.uint8).tolist(),
         }
 
@@ -362,6 +450,7 @@ class SimulationManager:
         courant = sim.wavespeed * sim.timestep / sim.gridstep
         return {
             "grid_shape": list(sim.grid_shape),
+            "dims": int(sim.dims),
             "timestep": float(sim.timestep),
             "wavespeed": float(sim.wavespeed),
             "gridstep": float(sim.gridstep),
