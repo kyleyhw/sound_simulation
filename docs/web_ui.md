@@ -49,16 +49,45 @@ by the brush size.
 
 Server → client events:
 
-| event               | payload | meaning |
-| ------------------- | ------- | ------- |
-| `simulation_update` | `{ grid: number[][], max_val: number, step: int, time: float }` | downsampled pressure field |
-| `status`            | `{ is_running: bool, engine: {...}, config: {...}, obstacles: {shape, downsample, mask}, drivers: [{position, waveform}] }` | manager state for UI sync, including current geometry |
+| event               | 2D payload | 3D payload |
+| ------------------- | ---------- | ---------- |
+| `simulation_update` | `{ dims: 2, shape: [Nx, Ny], grid: number[][], max_val, step, time }` | `{ dims: 3, shape: [Nx, Ny, Nz], data: bytes(Nx*Ny*Nz uint8), max_val, step, time }` |
+| `status`            | `{ is_running, engine: {dims:2, ...}, config, obstacles: {dims:2, shape, downsample, mask: number[][]}, drivers }` | `{ is_running, engine: {dims:3, ...}, config, obstacles: {dims:3, shape, downsample, mask: bytes}, drivers }` |
 
-Geometry (`obstacles`, `drivers`) lives on the `status` channel rather
-than `simulation_update` because it changes at human pace, not per
-frame. The frontend caches the latest mask and driver list in refs and
-re-uses them across rAF ticks; the only network cost is a single
-`status` per mutation, which the manager already emits.
+Both directions of the schema are tagged with `dims`, so the frontend can
+dispatch the renderer (canvas vs Three.js) on a single field rather than
+inferring it from `engine.grid_shape.length`. Geometry (`obstacles`,
+`drivers`) is broadcast on the `status` channel because it changes at
+human pace, not per frame.
+
+### 3D binary encoding
+
+For 3D the pressure field is quantised to `uint8` with the convention
+$0 \mapsto -p_{\max}$, $128 \mapsto 0$, $255 \mapsto +p_{\max}$:
+
+$$
+b = \operatorname{round}\!\bigl(127.5 \cdot (\operatorname{clip}(p / p_{\max}, -1, 1) + 1)\bigr).
+$$
+
+The receiver inverts this in the volume-shader as
+$p_{\text{norm}} = 2 b / 255 - 1$ before applying the diverging
+colormap. 256 levels is more than the eye can resolve in a transparent
+volume; the quantisation noise floor is $p_{\max}/128 \approx 0.78\%$
+of peak amplitude, well below the per-frame normalisation jitter.
+The bytes ship via socket.io's binary-attachment mechanism (the
+`bytes` value in the payload dict is detected automatically by
+python-socketio and arrives at the client as an `ArrayBuffer`), so no
+JSON expansion happens — wire size is exactly `Nx * Ny * Nz` bytes
+plus the small JSON envelope.
+
+Wire-cost reference at common downsampled sizes:
+
+| downsampled grid | bytes / frame | @ 30 FPS |
+| ---------------- | ------------- | -------- |
+| $32^3$ | 32 KB | 1.0 MB/s |
+| $64^3$ | 262 KB | 7.7 MB/s |
+| $100^3$ | 1.0 MB | 30 MB/s |
+| $128^3$ | 2.1 MB | 60 MB/s |
 
 ## 3. Why the previous version did not work
 
