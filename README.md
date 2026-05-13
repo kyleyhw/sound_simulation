@@ -81,30 +81,31 @@ This index provides an overview and links to the detailed documentation for each
 - [**`reconstruct.py`**](./docs/reconstruct.md): An example script for loading and inspecting saved data.
 - [**`utils.py`**](./docs/utils.md): Contains miscellaneous helper functions.
 
-### Inference Scripts
+### Web UI
 
-- [**`cnn1d.py`**](./docs/cnn1d.md): Defines the 1D Convolutional Neural Network model.
-- [**`datasetformat.py`**](./docs/datasetformat.md): Defines the PyTorch `Dataset` for loading simulation data.
-- [**`trainingtest.py`**](./docs/trainingtest.md): The main script for training the CNN model.
-- [**`quicktest.py`**](./docs/quicktest.md): A utility script to generate dummy data for testing the training pipeline.
+- [**`web_ui.md`**](./docs/web_ui.md): Architecture and wire protocol of the FastAPI / Socket.IO backend + React frontend that hosts the live interactive simulation.
+
+### Phase 2 (in progress)
+
+The inference-side scripts (1D CNN model, PyTorch dataset, training loop) referenced in earlier revisions of this document have not yet been implemented. The data-generation infrastructure is now in place — see [`scripts/generate_active_sensing.py`](./scripts/generate_active_sensing.py) and the `dataset.py` helpers — and the CNN itself is Task 2.1.2 in [`PROJECT_PLAN.md`](./PROJECT_PLAN.md).
 
 ## Dependencies & Installation
 
-It is recommended to use Conda to manage the project environment.
+The project is managed with [`uv`](https://docs.astral.sh/uv/) and a `pyproject.toml`. Install `uv` (a single static binary), then resolve and install dependencies in one step:
 
-1.  **Create the Conda Environment:**
-    Use the provided `environment.yml` file to create the environment. This will install all necessary dependencies.
-    ```bash
-    conda env create -f environment.yml
-    ```
+```bash
+uv sync --extra dev
+```
 
-2.  **Activate the Environment:**
-    Before running the simulation, activate the new environment:
-    ```bash
-    conda activate sound_simulation
-    ```
+This creates a `.venv/` in the repo root with the runtime + dev toolchains (ruff, ty, detect-secrets, pre-commit). To run any command inside the environment, prefix it with `uv run`:
 
-The core dependencies include `numpy`, `scipy`, `numba` (JIT-compiles the 2D FDTD kernel), `matplotlib`, `h5py`, `pyvista`, and `fastapi` / `uvicorn` / `python-socketio` for the web UI backend.
+```bash
+uv run python tests/perf/check_simulate.py
+uv run python scripts/run_ui_server.py
+uv run pre-commit install
+```
+
+Core runtime dependencies: `numpy`, `scipy`, `numba` (JIT-compiles the 2D FDTD kernel), `h5py`, `matplotlib`, `tqdm`, and `fastapi` / `uvicorn` / `python-socketio` for the web UI backend. The lockfile (`uv.lock`) pins exact versions for reproducibility.
 
 ## Visuals
 

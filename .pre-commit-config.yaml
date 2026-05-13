@@ -1,22 +1,18 @@
 # Pre-commit configuration.
 #
 # Run `pre-commit autoupdate` periodically to refresh the pinned versions.
-# The repo's git hook is already installed (see .git/hooks/pre-commit), so any
+# The repo's git hook is installed via `pre-commit install`, so any
 # `git commit` invokes the hooks listed below.
 #
-# Tooling status
-# --------------
-# Lint + format:  ruff via pre-commit-hooks (isolated env — no local install).
-# Secret scan:    detect-secrets via pre-commit-hooks. Baseline at
-#                 .secrets.baseline lists pre-existing matches that are
-#                 known-safe; new commits must not introduce findings outside
-#                 that baseline.
-# Type check:     ty (Astral's static type checker) is NOT wired here yet.
-#                 The global template runs it via `uv run ty check`, but this
-#                 project still uses the conda env defined in environment.yml.
-#                 Migrating from conda to uv is a substantive change tracked
-#                 separately; until then the ty hook is intentionally absent
-#                 rather than half-wired to the conda venv.
+# Tooling
+# -------
+# Lint + format: ruff via the upstream pre-commit hook (isolated venv).
+# Secret scan:   detect-secrets. The .secrets.baseline file lists known-safe
+#                pre-existing findings; new commits may not introduce
+#                findings outside that baseline.
+# Type check:    ty (Astral). Run as a local hook through `uv run ty check`,
+#                so it picks up the version pinned in pyproject.toml /
+#                uv.lock and stays consistent across contributors.
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -32,3 +28,12 @@ repos:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
         exclude: package-lock.json
+
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty
+        entry: uv run ty check
+        language: system
+        types: [python]
+        pass_filenames: false
