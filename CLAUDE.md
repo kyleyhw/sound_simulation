@@ -79,10 +79,10 @@ with the standard central second-order stencil. `Simulate` owns `p`, `p_prev`, t
 
 Interior obstacles are a boolean mask of the same shape as the field. Between the stencil pass and driver injection, `step()` zeroes `p_next` at the masked cells (rigid Dirichlet wall, $\Gamma = -1$). The hot path is guarded by `_has_obstacles`, so a `Simulate` with no obstacles is bit-identical to the pre-feature numerics and `check_simulate.py` keeps matching `reference.npz`.
 
-Two code paths:
+Two code paths, dispatched once at construction by `self.dims`:
 
-- **2D hot path**: `fused_leapfrog_step_2d` in `simulation/calculate.py` — a numba `@njit(parallel=True, fastmath=True)` kernel that fuses the 5-point Laplacian, the leap-frog combine, and Dirichlet edge zeroing into a single pass over the interior. Roughly 65–70× faster than the legacy path at 512×512 / 1000 steps.
-- **1D / 3D fallback**: `scipy.ndimage.laplace` divided by `gridstep**2`, then the leap-frog combine in NumPy, then `set_edge_values(arr, 0)` to enforce hard walls.
+- **2D / 3D fast path**: a numba `@njit(parallel=True, fastmath=True)` fused kernel — `fused_leapfrog_step_2d` (5-point stencil) or `fused_leapfrog_step_3d` (7-point stencil) — fuses the Laplacian, the leap-frog combine, and Dirichlet face-zeroing into one pass. The outer `i` loop is parallelised with `prange`; the innermost loop is unit-stride for SIMD. Per-step measured wall clock on the bench machine: 0.05 ms at 2D 256², 0.11 ms at 2D 512², 0.04 ms at 3D 32³, 0.21 ms at 3D 64³, 0.95 ms at 3D 100³, 2.1 ms at 3D 128³, 7.0 ms at 3D 200³. 3D costs ~2× per cell vs 2D for the same cell count (extra reads + worse cache reuse along the slowest axis).
+- **1D fallback**: `scipy.ndimage.laplace` divided by `gridstep**2`, then the leap-frog combine in NumPy, then `set_edge_values(arr, 0)` to enforce hard walls. Kept for behavioural compatibility with anyone building a 1D `Simulate`.
 
 Both paths inject driver values **after** boundary zeroing — a driver placed on a wall intentionally overwrites the zero. Do not reorder this.
 
@@ -138,10 +138,12 @@ Geometry (`obstacles`, `drivers`) is broadcast on the `status` channel, not the 
 
 ## Evolve harness
 
-`tests/perf/check_simulate.py` and `bench_simulate.py` exist because the FDTD kernel has been the target of an evolutionary optimisation run (see the per-round attribution in `simulation/calculate.py`'s docstring and the `evolve/fdtd-runtime/round-*` branch lineage). Any change to the kernel must:
+`tests/perf/check_simulate.py` and `bench_simulate.py` exist because the 2D FDTD kernel has been the target of an evolutionary optimisation run (see the per-round attribution in `simulation/calculate.py`'s docstring and the `evolve/fdtd-runtime/round-*` branch lineage). Any change to the 2D kernel must:
 
 1. Keep `check_simulate.py` green within `atol=1e-5`, `rtol=1e-4`.
 2. Be benchmarked with `bench_simulate.py` (median of ≥5 trials), not ad-hoc timing — the first trial absorbs JIT/page-fault cost.
+
+The 3D fused kernel has parallel scripts: `tests/perf/check_simulate_3d.py` (asserts the fused 7-point output matches a `scipy.ndimage.laplace` reference within `atol=1e-4`, `rtol=1e-3` — looser than 2D because the reference is computed inline rather than restored from a stored snapshot, so the fastmath FMA error budget compounds across 100 steps) and `tests/perf/bench_simulate_3d.py` (sweep `--grids 32 64 100 128`, opt into `--include-large` for the slow `200^3` case).
 
 The kernel's public attribute surface (listed in `REQUIRED_ATTRS` in `check_simulate.py`) is part of the contract: `p`, `p_prev`, `time`, `step_count`, `grid_shape`, `timestep`, `wavespeed`, `gridstep`.
 

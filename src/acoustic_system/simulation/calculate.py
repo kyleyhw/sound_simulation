@@ -181,11 +181,94 @@ def fused_leapfrog_step_2d(
         p_next[i, nj - 1] = 0.0
 
 
+# =====================================================================
+# 3D fused leapfrog kernel
+# =====================================================================
+#
+# Mathematical formulation
+# ------------------------
+# Identical leap-frog discretisation as the 2D kernel, just with the
+# 7-point central second-order Laplacian:
+#
+#   p_next[i, j, k] = 2 p[i, j, k] - p_prev[i, j, k]
+#                   + coeff * (p[i+1, j, k] + p[i-1, j, k]
+#                            + p[i, j+1, k] + p[i, j-1, k]
+#                            + p[i, j, k+1] + p[i, j, k-1]
+#                            - 6 p[i, j, k])
+#
+# evaluated on the interior 1 <= i <= Ni - 2, 1 <= j <= Nj - 2,
+# 1 <= k <= Nk - 2. The six faces of p_next are zeroed in the same pass
+# to enforce the Dirichlet hard-wall BC; the caller injects drivers
+# AFTER the kernel returns so a driver located on a face still emits.
+#
+# Loop order and parallelism
+# --------------------------
+# C-order numpy arrays have stride 1 along k (innermost), nk along j,
+# and nk * nj along i (outermost). To minimise cache misses we keep:
+#   * outer i loop parallel (prange) — disjoint i-slabs per thread,
+#     no write-after-read hazards because each thread only writes
+#     p_next[i, :, :] and reads p[i ± 1, :, :], never p_next.
+#   * middle j loop serial.
+#   * inner k loop serial — the unit-stride, vectorisable axis.
+#
+# CFL stability in 3D requires sigma = c dt / dx <= 1/sqrt(3); the
+# Simulate constructor already enforces this whenever timestep is
+# auto-derived, and emits a RuntimeWarning otherwise.
+@njit(
+    "void(float32[:, :, :], float32[:, :, :], float32[:, :, :], float32)",
+    cache=True,
+    fastmath=True,
+    boundscheck=False,
+    error_model="numpy",
+    parallel=True,
+)
+def fused_leapfrog_step_3d(
+    p: np.ndarray,
+    p_prev: np.ndarray,
+    p_next: np.ndarray,
+    coeff: np.float32,
+) -> None:
+    """Fused 3D seven-point Laplacian + leap-frog update with hard-wall faces."""
+    ni, nj, nk = p.shape
+
+    # Interior stencil. Each thread owns an i-slab; reads from p / p_prev
+    # only, writes p_next only — no cross-thread hazards.
+    for i in prange(1, ni - 1):  # ty: ignore[not-iterable]
+        for j in range(1, nj - 1):
+            for k in range(1, nk - 1):
+                lap = (
+                    p[i + 1, j, k]
+                    + p[i - 1, j, k]
+                    + p[i, j + 1, k]
+                    + p[i, j - 1, k]
+                    + p[i, j, k + 1]
+                    + p[i, j, k - 1]
+                    - 6.0 * p[i, j, k]
+                )
+                p_next[i, j, k] = 2.0 * p[i, j, k] - p_prev[i, j, k] + coeff * lap
+
+    # Dirichlet hard-wall boundary: zero the six faces of p_next.
+    # Edge writes are O(ni nj + nj nk + ni nk), negligible vs the
+    # O(ni nj nk) interior stencil — kept serial.
+    for j in range(nj):
+        for k in range(nk):
+            p_next[0, j, k] = 0.0
+            p_next[ni - 1, j, k] = 0.0
+    for i in range(ni):
+        for k in range(nk):
+            p_next[i, 0, k] = 0.0
+            p_next[i, nj - 1, k] = 0.0
+    for i in range(ni):
+        for j in range(nj):
+            p_next[i, j, 0] = 0.0
+            p_next[i, j, nk - 1] = 0.0
+
+
 # Re-apply the thread cap after kernel registration. The first @njit(parallel=True)
 # decoration lazily initializes numba's threading runtime; calling
 # ``set_num_threads`` before that initialisation is harmless but its effect
 # may be reset. Re-asserting the cap here makes the desired thread count the
-# steady-state value seen by the kernel.
+# steady-state value seen by both kernels.
 try:
     numba.set_num_threads(_FDTD_THREAD_CAP)
 except Exception:
