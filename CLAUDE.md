@@ -51,13 +51,17 @@ python tests/perf/make_reference.py     # ONLY on the protected baseline — reg
 
 ### Environment
 
-Conda, via `environment.yml`:
+Managed by `uv` with `pyproject.toml` + `uv.lock`. To bootstrap:
 
 ```
-conda env create -f environment.yml && conda activate sound_simulation
+uv sync --extra dev
 ```
 
-Python 3.9. Key deps: numpy, scipy, h5py, matplotlib, fastapi, uvicorn, python-socketio. **Numba is required by the 2D FDTD kernel but is NOT in `environment.yml`** — install with `pip install numba` (or add it to the env file) before running anything that calls `Simulate.step()` in 2D.
+This creates `.venv/` and installs the project editable, so `import acoustic_system` works from anywhere. Run commands inside the env with `uv run <cmd>` (e.g. `uv run python tests/perf/check_simulate.py`).
+
+Python `>=3.10`. Runtime deps: numpy, scipy, numba (required by the 2D FDTD kernel), h5py, matplotlib, tqdm, fastapi, uvicorn, python-socketio. Dev toolchain (via `--extra dev`): ruff, ty, detect-secrets, pre-commit. Exact versions are pinned in `uv.lock`.
+
+The legacy `environment.yml` is gone — do not re-introduce a conda workflow. If you're tempted to `pip install` something, add it to `pyproject.toml` and run `uv sync` instead.
 
 ## Architecture
 
@@ -146,4 +150,4 @@ The kernel's public attribute surface (listed in `REQUIRED_ATTRS` in `check_simu
 - Per-script documentation lives in `docs/<script>.md`; the index is `docs/index.md`. Update both when adding or renaming a module.
 - `CURRENT_STATE.md` is the rolling status note. Update it when the "what works / what's blocked" picture shifts.
 - `PROJECT_PLAN.md` uses the phased `[pending|in-progress|completed]` format from the user's global CLAUDE.md.
-- The repo does NOT yet use the uv / ruff / ty workflow from the global instructions; `environment.yml` (conda) is the canonical env. Propose migration before introducing it.
+- The repo uses the uv / ruff / ty workflow from the global instructions. `pyproject.toml` declares deps + dev toolchain; `uv.lock` pins; pre-commit runs ruff, ruff-format, detect-secrets, and `uv run ty check` on every commit. `pre-commit run --all-files` is the way to apply the formatter sweep across the codebase.

@@ -1,0 +1,82 @@
+[project]
+name = "acoustic-system"
+version = "0.1.0"
+description = "An N-dimensional simulation of sound wave propagation via the FDTD method. Written with the goal of generating acoustic data to train machine learning models for environmental echolocation mapping."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Kyle", email = "kyleyhw@gmail.com" }]
+
+# Runtime dependencies. These are the libraries directly imported by the
+# package and the entry-point scripts. Transitive deps (anyio, h11, ...) are
+# resolved by uv into uv.lock and do not appear here.
+dependencies = [
+    # Numerics
+    "numpy>=1.26",
+    "scipy>=1.11",                # ndimage.laplace, io.wavfile
+    "numba>=0.59",                # @njit kernel in calculate.py
+    # I/O & UI batch tools
+    "h5py>=3.10",
+    "matplotlib>=3.7",
+    "tqdm>=4.66",
+    # Web UI backend
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-socketio>=5.10",
+]
+
+[project.optional-dependencies]
+# `uv sync --extra dev` installs the toolchain.
+dev = [
+    "ruff>=0.4",
+    "detect-secrets>=1.5",
+    "ty>=0.0.34",
+    "pre-commit>=3.7",
+]
+
+[project.urls]
+Repository = "https://github.com/kyleyhw/sound_simulation"
+
+# -----------------------------------------------------------------------------
+# Build backend: hatchling. Required so `uv sync` can install the project
+# itself (editable by default) and `acoustic_system` becomes importable
+# without manual sys.path tinkering.
+# -----------------------------------------------------------------------------
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/acoustic_system"]
+
+# -----------------------------------------------------------------------------
+# Ruff configuration. Mirrors the rule-set the pre-commit hook applies; kept
+# here so `ruff check` from the repo root behaves identically to the hook.
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    "tests/perf/reference.npz",   # binary artefact
+    "frontend",                   # JS / TS, not Python
+]
+
+[tool.ruff.lint]
+# Pyflakes (F), pycodestyle (E, W), import sort (I).
+select = ["E", "F", "W", "I"]
+# E501 (line too long) is handled by ruff-format; suppressing avoids
+# whitespace noise on long math-heavy comments.
+ignore = ["E501"]
+
+# -----------------------------------------------------------------------------
+# ty: Astral static type-checker. Wired into pre-commit as a local hook
+# (entry: uv run ty check). Strictness is left at defaults until the
+# typing pass is run; tightening can be added incrementally.
+# -----------------------------------------------------------------------------
+[tool.ty.src]
+include = ["src", "scripts", "tests"]
+
+# Files that intentionally stay loosely typed (matplotlib glue, h5py with
+# its untyped stubs, the evolve-harness scripts) can be added here as the
+# main typing sweep happens.
+# exclude = []
