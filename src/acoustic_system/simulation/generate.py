@@ -1,12 +1,13 @@
-import numpy as np
-import h5py
-from datetime import datetime
-from tqdm import tqdm
 import os
+from datetime import datetime
 
-from .simulate import Simulate
-from .setup import GenerateDriver, GenerateSensor
+import h5py
+import numpy as np
+from tqdm import tqdm
+
 from .data_io import SaveSimulationResults
+from .setup import GenerateDriver, GenerateSensor
+from .simulate import Simulate
 
 
 def main():

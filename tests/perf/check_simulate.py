@@ -60,9 +60,7 @@ def build_sim() -> Simulate:
 
 
 def fail(msg: str, max_abs: float = float("nan"), l2_rel: float = float("nan")) -> None:
-    print(
-        f"CHECK pass=false  max_abs={max_abs:.3e}  l2_rel={l2_rel:.3e}  failure={msg}"
-    )
+    print(f"CHECK pass=false  max_abs={max_abs:.3e}  l2_rel={l2_rel:.3e}  failure={msg}")
     sys.exit(1)
 
 

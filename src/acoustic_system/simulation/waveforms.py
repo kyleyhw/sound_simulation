@@ -40,9 +40,7 @@ class GaussianPulse(Waveform):
     width: float = 0.1
 
     def __call__(self, t: float) -> float:
-        return self.amplitude * np.exp(
-            -((t - self.center_time) ** 2) / (2.0 * self.width**2)
-        )
+        return self.amplitude * np.exp(-((t - self.center_time) ** 2) / (2.0 * self.width**2))
 
 
 @dataclass
@@ -157,9 +155,7 @@ class AudioFileWaveform(Waveform):
         # Audio samples per *simulation-time* unit.
         self._fs_audio = self._native_fs * float(self.sim_time_per_second)
         # Audible duration in simulation time.
-        self._duration = (
-            len(self._samples) / self._fs_audio if self._fs_audio > 0 else 0.0
-        )
+        self._duration = len(self._samples) / self._fs_audio if self._fs_audio > 0 else 0.0
 
     def __call__(self, t: float) -> float:
         if self._samples.size == 0 or self._fs_audio <= 0.0:

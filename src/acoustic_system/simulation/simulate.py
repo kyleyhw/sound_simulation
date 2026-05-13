@@ -126,9 +126,7 @@ class Simulate:
         #   coeff = (c * dt / dx) ** 2
         # Equivalent to (c * dt) ** 2 * (1 / dx ** 2) used by the legacy path,
         # but precomputed once so the inner kernel takes a plain float32.
-        self._coeff: np.float32 = np.float32(
-            (self.wavespeed * self.timestep / self.gridstep) ** 2
-        )
+        self._coeff: np.float32 = np.float32((self.wavespeed * self.timestep / self.gridstep) ** 2)
 
         # Pre-bind hot-path callables as plain attributes. The @njit dispatcher
         # is hashable and can be stored on the instance; assigning it to a
@@ -255,11 +253,7 @@ class Simulate:
         else:
             # Legacy generic-dimension path for 1D / 3D simulations.
             laplacian = laplacian_operator(grid=self.p, gridstep=self.gridstep)
-            p_next = (
-                2.0 * self.p
-                - self.p_prev
-                + (self.wavespeed * self.timestep) ** 2 * laplacian
-            )
+            p_next = 2.0 * self.p - self.p_prev + (self.wavespeed * self.timestep) ** 2 * laplacian
             # Hard-wall (Dirichlet, p=0) boundaries first so interior drivers
             # are not erased.
             set_edge_values(arr=p_next, value=0)
@@ -293,9 +287,7 @@ class Simulate:
             grid_shape = self.grid_shape
             for driver in self.drivers:
                 value = driver.get_value(time)
-                if all(
-                    0 <= pos < size for pos, size in zip(driver.position, grid_shape)
-                ):
+                if all(0 <= pos < size for pos, size in zip(driver.position, grid_shape)):
                     p_next[tuple(driver.position)] += value
 
         # Three-way pointer rotation: p_prev <- p, p <- p_next, _p_next <- old p_prev.

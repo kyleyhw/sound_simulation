@@ -1,10 +1,12 @@
+from typing import Tuple
+
 import matplotlib
 
 matplotlib.use("WebAgg")
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.colors import ListedColormap
-from matplotlib.backend_bases import MouseEvent  # , ScrollEvent
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+from matplotlib.backend_bases import Event, MouseEvent  # noqa: E402
+from matplotlib.colors import ListedColormap  # noqa: E402
 
 
 class InteractiveSetup:
@@ -20,9 +22,7 @@ class InteractiveSetup:
         self.driver_locations = []
 
         # --- Setup the plot ---
-        self.fig, self.ax = plt.subplots(
-            figsize=(8, 8)
-        )  # Fixed size for better interaction
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))  # Fixed size for better interaction
 
         # Define custom colormap: 0=Empty (light gray), 1=Obstacle (black), 2=Driver (blue)
         colors = ["#DDDDDD", "black", "#4682B4"]  # Light gray, Black, SteelBlue
@@ -31,21 +31,15 @@ class InteractiveSetup:
 
         # Initialize the plot with the combined display grid
         self.display_grid = self._get_combined_display_grid()
-        self.plot_object = self.ax.imshow(
-            self.display_grid.T, cmap=cmap, norm=norm, origin="lower"
-        )
+        self.plot_object = self.ax.imshow(self.display_grid.T, cmap=cmap, norm=norm, origin="lower")
 
         self.ax.set_title(self._get_title())
 
         # Grid lines and ticks for clarity
         self.ax.set_xticks(np.arange(-0.5, self.gridsize[0], 1), minor=True)
         self.ax.set_yticks(np.arange(-0.5, self.gridsize[1], 1), minor=True)
-        self.ax.grid(
-            True, which="minor", color="gray", linestyle="-", linewidth=0.5, alpha=0.5
-        )
-        self.ax.set_xticks(
-            np.arange(0, self.gridsize[0], 10)
-        )  # Major ticks every 10 units
+        self.ax.grid(True, which="minor", color="gray", linestyle="-", linewidth=0.5, alpha=0.5)
+        self.ax.set_xticks(np.arange(0, self.gridsize[0], 10))  # Major ticks every 10 units
         self.ax.set_yticks(np.arange(0, self.gridsize[1], 10))
         self.ax.tick_params(
             which="both", bottom=False, left=False, labelbottom=False, labelleft=False
@@ -57,7 +51,9 @@ class InteractiveSetup:
 
     def _get_title(self):
         """Helper to generate the title string."""
-        return f"Brush Size: {self.brush_size} | Left-Click: Draw Boundary | Right-Click: Add Driver"
+        return (
+            f"Brush Size: {self.brush_size} | Left-Click: Draw Boundary | Right-Click: Add Driver"
+        )
 
     def _connect_events(self):
         """Connects the Matplotlib event callbacks to the handler methods."""
@@ -66,10 +62,16 @@ class InteractiveSetup:
         self.fig.canvas.mpl_connect("motion_notify_event", self.on_motion)
         self.fig.canvas.mpl_connect("scroll_event", self.on_scroll)
 
-    # Add the 'MouseEvent' type hint to all event handlers
-    def on_press(self, event: MouseEvent):
+    # Matplotlib's mpl_connect stub types its callback as `Callable[[Event], ...]`,
+    # so we accept the base Event class and narrow inside the body. event.xdata
+    # / event.ydata are typed as `int | float | None` because matplotlib emits
+    # None when the cursor is outside any axes; the inaxes guard usually filters
+    # those out but an explicit None check makes it type-safe.
+    def on_press(self, event: Event):
         """Callback for mouse button press. Handles left and right clicks."""
-        if event.inaxes != self.ax:
+        if not isinstance(event, MouseEvent) or event.inaxes != self.ax:
+            return
+        if event.xdata is None or event.ydata is None:
             return
 
         ix, iy = int(round(event.xdata)), int(round(event.ydata))
@@ -85,24 +87,29 @@ class InteractiveSetup:
 
         print("press detected")
 
-    def on_release(self, event: MouseEvent):
+    def on_release(self, event: Event):
         """Callback for mouse button release."""
+        if not isinstance(event, MouseEvent):
+            return
         if event.button == 1:
             self.is_drawing_obstacles = False
 
         print("release detected")
 
-    def on_motion(self, event: MouseEvent):
+    def on_motion(self, event: Event):
         """Callback for mouse motion (for drawing obstacles)."""
-        if self.is_drawing_obstacles and event.inaxes == self.ax:
-            ix, iy = int(round(event.xdata)), int(round(event.ydata))
-            self._draw_obstacle_at_point(ix, iy)
+        if not isinstance(event, MouseEvent):
+            return
+        if not self.is_drawing_obstacles or event.inaxes != self.ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        ix, iy = int(round(event.xdata)), int(round(event.ydata))
+        self._draw_obstacle_at_point(ix, iy)
 
         print("motion detected")
 
-    def on_scroll(
-        self, event
-    ):  # ScrollEvent type cannot be imported from matplotlib.backend_bases
+    def on_scroll(self, event):  # ScrollEvent type cannot be imported from matplotlib.backend_bases
         """Callback for mouse wheel scroll."""
         if event.inaxes != self.ax:
             return
@@ -146,7 +153,7 @@ class InteractiveSetup:
         self.plot_object.set_data(self.display_grid.T)
         self.fig.canvas.draw_idle()
 
-    def setup(self) -> (np.ndarray, list):
+    def setup(self) -> Tuple[np.ndarray, list]:
         self._connect_events()
         self._update_display()  # Initial display update
         plt.show()

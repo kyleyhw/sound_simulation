@@ -32,9 +32,7 @@ class SaveSimulationResults:
         for i, sensor in enumerate(sensors):
             sensor_subgroup = sensor_group.create_group(f"sensor_{i}")
             sensor_subgroup.attrs["position"] = sensor.position
-            sensor_subgroup.create_dataset(
-                "timeseries", data=sensor.timeseries, compression="gzip"
-            )
+            sensor_subgroup.create_dataset("timeseries", data=sensor.timeseries, compression="gzip")
 
     def save_full_history(self, simulation_id, history, params, drivers, verbose=False):
         sim_group = self.hdf5_file.create_group(f"simulation_{simulation_id:04d}")
@@ -44,9 +42,7 @@ class SaveSimulationResults:
         if verbose:
             print(f"saved full history for {simulation_id}")
 
-    def save_sensor_results(
-        self, simulation_id, sensors, params, drivers, verbose=False
-    ):
+    def save_sensor_results(self, simulation_id, sensors, params, drivers, verbose=False):
         sim_group = self.hdf5_file.create_group(f"simulation_{simulation_id:04d}")
         self._save_sensors(sensors, sim_group)
         self._save_params(params, sim_group)
@@ -105,6 +101,4 @@ class LoadSimulationResults:
         if loader_func:
             return loader_func(sim_group)
         else:
-            raise ValueError(
-                f"Unknown save_type: '{self.save_type}' found in file attributes."
-            )
+            raise ValueError(f"Unknown save_type: '{self.save_type}' found in file attributes.")
