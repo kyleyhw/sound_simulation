@@ -24,7 +24,6 @@ import numpy as np
 from .setup import Sensor
 from .simulate import Simulate
 
-
 # =====================================================================
 # Synthetic acoustic geometry
 # =====================================================================
@@ -126,9 +125,7 @@ def random_free_position(
     interior[margin : ni - margin, margin : nj - margin] = True
     free = np.argwhere(interior & ~obstacle_mask)
     if free.size == 0:
-        raise RuntimeError(
-            "no free interior cells: obstacle_mask fills the entire interior"
-        )
+        raise RuntimeError("no free interior cells: obstacle_mask fills the entire interior")
     idx = int(rng.integers(len(free)))
     return tuple(int(c) for c in free[idx])
 

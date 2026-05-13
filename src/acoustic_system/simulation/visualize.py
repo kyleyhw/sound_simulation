@@ -1,11 +1,13 @@
-from tqdm import tqdm
 import matplotlib
 import numpy as np
+from tqdm import tqdm
 
 matplotlib.use("TkAgg")
+import os
+
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-import os
+
 # from mayavi import mlab
 # from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
 
@@ -27,9 +29,7 @@ class Visualize:
             title = (
                 params_string
                 + "\n"
-                + "|".join(
-                    [str(key) + " = " + str(kwargs[key]) for key in kwargs.keys()]
-                )
+                + "|".join([str(key) + " = " + str(kwargs[key]) for key in kwargs.keys()])
             )
             fig.suptitle(title)
 

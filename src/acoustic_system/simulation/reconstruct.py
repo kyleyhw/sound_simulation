@@ -2,7 +2,6 @@ import h5py
 
 from .data_io import LoadSimulationResults
 
-
 if __name__ == "__main__":
     # filename = 'simulation_archive_2025-08-26_03-57-30_3x_full_history.hdf5'
     filename = "simulation_archive_2025-08-26_03-59-07_3x_sensor_results.hdf5"

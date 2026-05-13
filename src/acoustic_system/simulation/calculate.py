@@ -50,11 +50,10 @@ the per-step measurements that drove each decision.
 
 import os
 
+import numba
 import numpy as np
 import scipy as sp
-import numba
 from numba import njit, prange
-
 
 # Cap numba's parallel-region thread count for the FDTD stencil. The
 # 5-point leap-frog kernel mixes memory-bandwidth pressure (4 MB of
@@ -162,7 +161,9 @@ def fused_leapfrog_step_2d(
     # parallelized with prange; inner j loop kept serial for unit-stride
     # contiguous access of the float32[:, :] (C-order) arrays, which gives
     # the best cache and SIMD behaviour per thread.
-    for i in prange(1, ni - 1):
+    # ty does not model numba's `prange` as iterable; suppress the
+    # not-iterable diagnostic since the construct is correct under numba.
+    for i in prange(1, ni - 1):  # ty: ignore[not-iterable]
         for j in range(1, nj - 1):
             lap = p[i + 1, j] + p[i - 1, j] + p[i, j + 1] + p[i, j - 1] - 4.0 * p[i, j]
             p_next[i, j] = 2.0 * p[i, j] - p_prev[i, j] + coeff * lap

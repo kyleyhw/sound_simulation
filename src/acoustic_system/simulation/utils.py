@@ -1,3 +1,5 @@
+from typing import Any, List
+
 import numpy as np
 
 
@@ -20,13 +22,15 @@ def get_edge_indices(arr: np.ndarray) -> np.ndarray:
     # Iterate over each axis of the array.
     for axis in range(arr.ndim):
         # Mark the "start" edge of the current axis.
-        start_slice = [slice(None)] * arr.ndim
+        # Mixed list of slice + int: declare as list[Any] so the int
+        # assignment below does not trip the type-checker.
+        start_slice: List[Any] = [slice(None)] * arr.ndim
         start_slice[axis] = 0
         edge_mask[tuple(start_slice)] = True
 
         # Mark the "end" edge, avoiding re-marking on axes of size 1.
         if arr.shape[axis] > 1:
-            end_slice = [slice(None)] * arr.ndim
+            end_slice: List[Any] = [slice(None)] * arr.ndim
             end_slice[axis] = -1
             edge_mask[tuple(end_slice)] = True
 
@@ -96,9 +100,7 @@ class LocationGenerator:
         Returns:
             tuple: A random N-dimensional coordinate.
         """
-        location = np.random.randint(
-            low=self.low, high=self.high, size=self.dims, dtype=int
-        )
+        location = np.random.randint(low=self.low, high=self.high, size=self.dims, dtype=int)
         return tuple(location)
 
 

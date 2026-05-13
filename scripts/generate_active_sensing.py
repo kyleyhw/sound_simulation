@@ -98,7 +98,10 @@ def build_source(
     # the dimensionless sandbox (c=1, dx=1). For a physical-units
     # simulation the caller should override --sim-time-per-second.
     if audio_files:
-        path = rng.choice(audio_files)
+        # rng.choice does not accept a list[pathlib.Path] (none of its
+        # numpy-typed overloads cover that signature). Use integer indexing
+        # against rng.integers instead — semantically identical, type-clean.
+        path = audio_files[int(rng.integers(len(audio_files)))]
         wf = AudioFileWaveform(
             path=str(path),
             amplitude=args.audio_amplitude,
@@ -193,9 +196,7 @@ def main() -> None:
     parser.add_argument("--gridstep", type=float, default=1.0)
     parser.add_argument("--courant", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
-    parser.add_argument(
-        "--verbose", action="store_true", help="Print per-sample status to stderr."
-    )
+    parser.add_argument("--verbose", action="store_true", help="Print per-sample status to stderr.")
     args = parser.parse_args()
 
     rng = np.random.default_rng(args.seed)
