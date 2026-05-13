@@ -211,3 +211,10 @@ __marimo__/
 
 # Playwright MCP smoke-test artifacts
 .playwright-mcp/
+
+# Node / Vite (frontend)
+node_modules/
+.vite/
+
+# detect-secrets baseline log noise (the file itself is tracked)
+.secrets.baseline.new
