@@ -1,5 +1,5 @@
 import warnings
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -54,6 +54,17 @@ class Simulate:
     Numerics are unchanged: same kernel, same operand ordering, same
     leap-frog combine, same hard-wall-before-driver ordering, same buffer
     rotation. Only the surrounding Python plumbing is leaner.
+
+    Interior obstacles
+    ------------------
+    A boolean ``obstacle_mask`` of the same shape as the field marks cells
+    that act as rigid Dirichlet walls inside the domain. After the stencil
+    pass and before driver injection, ``step()`` zeroes ``p_next`` at the
+    masked cells; the cached ``_has_obstacles`` flag lets the hot loop
+    skip this work entirely when the mask is empty, preserving bit-identical
+    behaviour against the no-obstacle reference. Drivers placed on
+    obstacle cells still emit (just like drivers placed on the outer wall),
+    which matches the boundary semantics already encoded in the kernel.
     """
 
     def __init__(
@@ -95,6 +106,17 @@ class Simulate:
         self.p_prev: np.ndarray = np.zeros(self.grid_shape, dtype=np.float32)
         self.p: np.ndarray = np.zeros(self.grid_shape, dtype=np.float32)
 
+        # Interior Dirichlet obstacles: a boolean mask the same shape as the
+        # field. Cells flagged True are forced to p=0 each step before driver
+        # injection, which gives them the same rigid-wall semantics as the
+        # outer boundary. The mask defaults to all-False so behaviour is
+        # bit-identical to the no-obstacle case (and check_simulate.py keeps
+        # passing without regenerating the reference). The ``_has_obstacles``
+        # flag is an O(1) hot-loop guard: ``mask.any()`` would re-scan the
+        # whole grid every step, so we cache it and update it only on mutation.
+        self.obstacle_mask: np.ndarray = np.zeros(self.grid_shape, dtype=bool)
+        self._has_obstacles: bool = False
+
         # Pre-allocated next-step buffer. Rotated each step rather than
         # allocated each step, eliminating per-step heap traffic. Kept private
         # to avoid expanding the public attribute surface tested by the gate.
@@ -120,18 +142,83 @@ class Simulate:
 
         # Single-driver fast path bookkeeping. When exactly one driver exists
         # and its position is in-bounds, we precompute the integer tuple index
-        # and skip the per-step Python ``zip`` + ``all`` predicate. Driver
-        # positions are immutable on Driver (a frozen-style dataclass field
-        # is set once); the position check is therefore safe to cache at
-        # construction time. Out-of-bounds single drivers fall through to
-        # the generic loop, where the original guard runs unchanged.
+        # and skip the per-step Python ``zip`` + ``all`` predicate. The cache
+        # is now refreshed on every driver mutation rather than only at
+        # construction, so live add/remove during a UI session still hits the
+        # fast path. Out-of-bounds single drivers fall through to the generic
+        # loop, where the original guard runs unchanged.
         self._fast_driver: Optional[Driver] = None
         self._fast_driver_pos: Optional[Tuple[int, ...]] = None
+        self._refresh_driver_cache()
+
+    # ----- Driver mutation ---------------------------------------------- #
+
+    def _refresh_driver_cache(self) -> None:
+        """Recompute the single-driver fast-path cache.
+
+        Called by ``__init__`` and by every driver-list mutation method.
+        Cheap: one length check and at most one bounds check on the position.
+        """
+        self._fast_driver = None
+        self._fast_driver_pos = None
         if len(self.drivers) == 1:
             d0 = self.drivers[0]
             if all(0 <= pos < size for pos, size in zip(d0.position, self.grid_shape)):
                 self._fast_driver = d0
                 self._fast_driver_pos = tuple(d0.position)
+
+    def add_driver(self, driver: Driver) -> None:
+        """Append a driver and refresh the fast-path cache."""
+        self.drivers.append(driver)
+        self._refresh_driver_cache()
+
+    def remove_driver(self, index: int) -> None:
+        """Remove the driver at ``index`` (raises IndexError if invalid)."""
+        del self.drivers[index]
+        self._refresh_driver_cache()
+
+    def set_drivers(self, drivers: Sequence[Driver]) -> None:
+        """Replace the entire driver list."""
+        self.drivers = list(drivers)
+        self._refresh_driver_cache()
+
+    # ----- Obstacle mutation -------------------------------------------- #
+
+    def set_obstacle(
+        self,
+        positions: Iterable[Tuple[int, ...]],
+        value: bool = True,
+    ) -> None:
+        """Mark (``value=True``) or clear (``value=False``) obstacle cells.
+
+        Out-of-bounds positions are silently ignored — the UI sends grid
+        indices from a downsampled view, and rounding can put a stray
+        coordinate one cell past the edge.
+
+        When marking new obstacles, also zero the existing field at those
+        cells in ``p``, ``p_prev`` and ``_p_next``. Otherwise stale pressure
+        from before the cell was an obstacle would leak into one final
+        stencil read before the next ``step()`` scrubs it.
+        """
+        shape = self.grid_shape
+        v = bool(value)
+        for pos in positions:
+            tpos = tuple(int(c) for c in pos)
+            if len(tpos) != len(shape):
+                continue
+            if not all(0 <= c < s for c, s in zip(tpos, shape)):
+                continue
+            self.obstacle_mask[tpos] = v
+            if v:
+                self.p[tpos] = 0.0
+                self.p_prev[tpos] = 0.0
+                self._p_next[tpos] = 0.0
+        self._has_obstacles = bool(self.obstacle_mask.any())
+
+    def clear_obstacles(self) -> None:
+        """Remove every obstacle. Field is left untouched."""
+        self.obstacle_mask.fill(False)
+        self._has_obstacles = False
 
     def reset(self) -> None:
         """Zero pressure fields and the clock; preserve geometry and drivers."""
@@ -178,6 +265,16 @@ class Simulate:
             set_edge_values(arr=p_next, value=0)
             p = self.p
             p_prev = self.p_prev
+
+        # Interior Dirichlet obstacle scrub. Mirrors the outer wall: zero
+        # the masked cells in p_next AFTER the stencil pass but BEFORE driver
+        # injection, so a driver placed on an obstacle cell still emits
+        # (matches the documented boundary semantics where a driver at the
+        # edge overwrites the wall). Guarded by the cached flag so the
+        # no-obstacle path is bit-identical to the pre-obstacle code and
+        # check_simulate.py keeps matching reference.npz.
+        if self._has_obstacles:
+            p_next[self.obstacle_mask] = np.float32(0.0)
 
         # Driver injection happens after the boundary zeroing in BOTH paths
         # (the 2D kernel zeros edges internally). This ordering matters and

@@ -47,15 +47,18 @@ By substituting these approximations into the wave equation and rearranging the 
 
 ```
 sound_simulation/
-├── simulation/
-│   ├── main.py
-│   ├── simulate.py
-│   ├── boundary.py
-│   ├── generate.py
-│   ├── visualize.py
-│   ├── data_io.py
-│   ├── interactive_setup.py
-│   └── plots/ (contains output plots and videos)
+├── src/acoustic_system/
+│   ├── simulation/         # FDTD engine: Simulate, calculate (numba kernel), waveforms, setup, data_io, ...
+│   ├── app/main.py         # FastAPI + Socket.IO server (SimulationManager wraps Simulate)
+│   ├── control/            # placeholder for Phase 3 beamformer
+│   ├── learning/           # placeholder for Phase 2 inference models
+│   └── utils/
+├── frontend/               # Vite + React + TypeScript UI (talks to backend over /socket.io)
+├── scripts/run_ui_server.py
+├── tests/perf/             # check_simulate.py, bench_simulate.py, reference.npz
+├── docs/                   # per-module docs; index at docs/index.md
+├── PROJECT_PLAN.md
+├── CURRENT_STATE.md
 ├── environment.yml
 └── README.md
 ```
@@ -101,7 +104,7 @@ It is recommended to use Conda to manage the project environment.
     conda activate sound_simulation
     ```
 
-The core dependencies include `numpy`, `scipy`, `matplotlib`, `h5py`, and `pyvista`.
+The core dependencies include `numpy`, `scipy`, `numba` (JIT-compiles the 2D FDTD kernel), `matplotlib`, `h5py`, `pyvista`, and `fastapi` / `uvicorn` / `python-socketio` for the web UI backend.
 
 ## Visuals
 
