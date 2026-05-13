@@ -53,6 +53,55 @@ Defaults (`amplitude=1`, `frequency=0.1`, `delay=20.0`) are tuned for
 the demo grid: dominant period $\approx 10$ steps at $\Delta t = 0.5$,
 pulse width $\approx 4/f = 40$ time units centred at $t = 20$.
 
+### `AudioFileWaveform`
+
+Drives the simulation from a `.wav` file. Given a discrete audio signal
+$u_k$ at native sample rate $f_a^{\text{native}}$ (Hz, as written by the
+recording device), the constructor converts it to a simulation-time
+sample rate
+
+$$ f_a = f_a^{\text{native}} \cdot \tau, $$
+
+where $\tau$ (`sim_time_per_second`, default 1.0) is the user's chosen
+conversion factor between physical seconds and simulation time units.
+For the dimensionless $c = 1, \Delta x = 1$ sandbox $\tau = 1$ keeps the
+audio at its native speed; for a physical air simulation with
+$c = 343 \text{ m/s}, \Delta x = 0.005 \text{ m}$ (where $\Delta t \approx 7 \mu\text{s}$
+gives $f_s^{\text{sim}} \approx 137$ kHz), one would pass $\tau = 1$
+again because both clocks are in seconds.
+
+The source value at simulation time $t$ is computed by linear
+interpolation between the two adjacent samples:
+
+$$
+p_{\text{src}}(t) = A \cdot \bigl[(1 - \alpha)\, u_k + \alpha\, u_{k+1}\bigr],
+\quad k = \lfloor f_a (t - t_0) \rfloor, \quad \alpha = f_a (t - t_0) - k,
+$$
+
+for $t_0 \le t < t_0 + N / f_a$ (the audio's support window with delay
+$t_0$ and length $N$). Outside that window $p_{\text{src}} = 0$.
+
+**Aliasing constraint.** The simulation samples the source at rate
+$1 / \Delta t$. Any audio content above $1 / (2 \Delta t)$ aliases. The
+default 2D demo grid runs at $\Delta t = 0.5$, giving a sim-Nyquist of
+1 cycle per simulation-time unit; an audio clip whose dominant
+frequencies exceed that limit will be distorted. In a physical-units
+simulation $\Delta t$ is typically $\sim 10^{-5}$ s so the sim-Nyquist
+sits at $\sim 50$ kHz, comfortably above audible content.
+
+**Sample-rate conversion.** Reading an int16 WAV normalises to float32
+in $[-1, 1]$; stereo is converted to mono by averaging channels. The
+raw float buffer is held on the private `_samples` attribute so
+`data_io.SaveSimulationResults` skips it when dumping driver metadata
+to HDF5 (HDF5 attrs cap at 64 KiB; even a one-second 16 kHz clip would
+exceed that as an attr).
+
+The default constructor (`path=""`) yields a silent source that returns
+zero everywhere, which is what `build_waveform` in the backend falls
+back to when a UI client sends an `AudioFileWaveform` spec without a
+valid path. This keeps the engine demo-able even when the user has not
+selected a file yet.
+
 ## 3. Design notes
 
 - All waveforms inherit from `Waveform` and override `__call__(t)`. The

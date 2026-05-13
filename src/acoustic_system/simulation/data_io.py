@@ -17,7 +17,14 @@ class SaveSimulationResults:
             driver_subgroup = driver_group.create_group(f"driver_{i}")
             waveform_class_name = driver.waveform.__class__.__name__
             driver_subgroup.attrs["waveform_class"] = waveform_class_name
+            # Skip private (_-prefixed) attrs. HDF5 attributes have a
+            # 64 KiB size limit; waveforms like AudioFileWaveform stash
+            # their decoded sample buffer on a private attribute
+            # (``_samples``) to avoid blowing past that limit when
+            # serialising driver metadata.
             for key, value in driver.waveform.__dict__.items():
+                if key.startswith("_"):
+                    continue
                 driver_subgroup.attrs[key] = value
 
     def _save_sensors(self, sensors, sim_group):
