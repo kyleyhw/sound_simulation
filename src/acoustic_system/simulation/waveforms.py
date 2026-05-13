@@ -40,7 +40,9 @@ class GaussianPulse(Waveform):
     width: float = 0.1
 
     def __call__(self, t: float) -> float:
-        return self.amplitude * np.exp(-((t - self.center_time) ** 2) / (2.0 * self.width ** 2))
+        return self.amplitude * np.exp(
+            -((t - self.center_time) ** 2) / (2.0 * self.width**2)
+        )
 
 
 @dataclass

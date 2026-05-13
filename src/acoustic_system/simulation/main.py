@@ -4,6 +4,7 @@ from .visualize import Visualize
 from .setup import Driver, Sensor
 from .waveforms import Cosine
 
+
 def main():
     """
     A standalone script for running and visualizing a simulation.
@@ -12,9 +13,11 @@ def main():
     dims = 2
     grid_shape = (256, 256)
     duration = 500  # Number of steps
-    
+
     # Initialize Simulation
-    simulation = Simulate(grid_shape=grid_shape, wavespeed=1.0, timestep=0.1, gridstep=1.0)
+    simulation = Simulate(
+        grid_shape=grid_shape, wavespeed=1.0, timestep=0.1, gridstep=1.0
+    )
 
     # Add Drivers
     waveform1 = Cosine(frequency=2, amplitude=1)
@@ -28,7 +31,9 @@ def main():
     # Add Sensors
     for i in range(3):
         sensor_pos = (grid_shape[0] // 4 * (i + 1),) * dims
-        simulation.sensors.append(Sensor(position=sensor_pos, timeseries=None, sample_rate=None))
+        simulation.sensors.append(
+            Sensor(position=sensor_pos, timeseries=None, sample_rate=None)
+        )
 
     # --- Run Simulation and Collect History ---
     history = np.zeros((duration,) + grid_shape, dtype=np.float32)
@@ -38,7 +43,7 @@ def main():
         # Simple progress indicator
         if (i % 100) == 0:
             print(f"Step {i}/{duration}")
-            
+
     print("Simulation finished.")
 
     # --- Assign Sensor Data ---
@@ -50,11 +55,18 @@ def main():
 
     # --- Visualize ---
     if dims == 2:
-        params = {'grid_shape': grid_shape, 'wavespeed': simulation.wavespeed, 'timestep': simulation.timestep}
+        params = {
+            "grid_shape": grid_shape,
+            "wavespeed": simulation.wavespeed,
+            "timestep": simulation.timestep,
+        }
         visualize = Visualize(history=history, params=params)
         visualize.plot2D(show=True, save=False)
-        visualize.plot_sensor_timeseries(sensors=simulation.sensors, show=True, save=False)
+        visualize.plot_sensor_timeseries(
+            sensors=simulation.sensors, show=True, save=False
+        )
         visualize.plot_sensor_fft(sensors=simulation.sensors, show=True, save=False)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

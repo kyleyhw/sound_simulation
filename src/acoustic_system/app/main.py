@@ -28,14 +28,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from acoustic_system.simulation.setup import Driver
 from acoustic_system.simulation.simulate import Simulate
 from acoustic_system.simulation.waveforms import (
-    Cosine,
-    GaussianPulse,
     RickerWavelet,
     waveform_registry,
 )
 
 logger = logging.getLogger("acoustic_system")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -69,7 +69,9 @@ def build_waveform(spec: Dict[str, Any]):
     try:
         return cls(**kwargs)
     except TypeError:
-        logger.warning("Bad waveform kwargs for %s: %s — falling back to defaults", wf_type, kwargs)
+        logger.warning(
+            "Bad waveform kwargs for %s: %s — falling back to defaults", wf_type, kwargs
+        )
         return cls()
 
 
@@ -93,7 +95,9 @@ class SimulationManager:
         waveform = build_waveform(cfg["waveform"])
 
         position = tuple(cfg["driver_position"])
-        position = tuple(int(np.clip(p, 1, s - 2)) for p, s in zip(position, grid_shape))
+        position = tuple(
+            int(np.clip(p, 1, s - 2)) for p, s in zip(position, grid_shape)
+        )
         driver = Driver(position=position, waveform=waveform)
 
         self.simulation = Simulate(
@@ -192,7 +196,11 @@ class SimulationManager:
                 len(self.simulation.grid_shape),
             )
             return
-        spec = waveform_spec if isinstance(waveform_spec, dict) else self.config["waveform"]
+        spec = (
+            waveform_spec
+            if isinstance(waveform_spec, dict)
+            else self.config["waveform"]
+        )
         waveform = build_waveform(spec)
         clipped = tuple(
             int(np.clip(c, 1, s - 2)) for c, s in zip(pos, self.simulation.grid_shape)
@@ -267,12 +275,13 @@ class SimulationManager:
         assert self.simulation is not None
         sim = self.simulation
         broadcast_period = 1.0 / float(self.config.get("broadcast_hz", 30.0))
-        downsample = max(1, int(self.config.get("downsample", 2)))
         try:
             while self.is_running:
                 # Run several physics steps per broadcast to keep wall-clock
                 # cadence reasonable even when broadcast_hz is low.
-                steps_per_frame = max(1, int(broadcast_period / max(sim.timestep, 1e-9) / 4))
+                steps_per_frame = max(
+                    1, int(broadcast_period / max(sim.timestep, 1e-9) / 4)
+                )
                 for _ in range(steps_per_frame):
                     sim.step()
 
@@ -358,7 +367,9 @@ class SimulationManager:
         return out
 
     def _safe_config(self) -> Dict[str, Any]:
-        return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.config.items()}
+        return {
+            k: (list(v) if isinstance(v, tuple) else v) for k, v in self.config.items()
+        }
 
     def _engine_info(self) -> Dict[str, Any]:
         if self.simulation is None:
@@ -393,7 +404,10 @@ sim_manager = SimulationManager(sio)
 
 @app.get("/")
 async def read_root():
-    return {"message": "Acoustic Simulation Server is running", "engine": sim_manager._engine_info()}
+    return {
+        "message": "Acoustic Simulation Server is running",
+        "engine": sim_manager._engine_info(),
+    }
 
 
 @app.get("/healthz")
@@ -462,7 +476,9 @@ async def set_obstacle(sid, data):
     """
     if not isinstance(data, dict):
         return
-    await sim_manager.set_obstacle(data.get("positions", []), bool(data.get("value", True)))
+    await sim_manager.set_obstacle(
+        data.get("positions", []), bool(data.get("value", True))
+    )
 
 
 @sio.event

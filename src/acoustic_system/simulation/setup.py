@@ -42,7 +42,9 @@ class GenerateDriver:
     def __init__(self, gridsize: Tuple[int, ...]):
         self.gridsize = gridsize
 
-    def get_random_cosine(self, position=None, frequency=None, amplitude=None, detailed: bool = False):
+    def get_random_cosine(
+        self, position=None, frequency=None, amplitude=None, detailed: bool = False
+    ):
         if position is None:
             position = LocationGenerator(gridsize=self.gridsize).get_new_location()
         if frequency is None:
