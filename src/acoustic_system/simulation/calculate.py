@@ -102,7 +102,7 @@ class Calculate:
         self.dims: int = dims
 
     def laplacian_operator(self, grid: np.ndarray, gridstep: float) -> np.ndarray:
-        return sp.ndimage.laplace(grid) / (gridstep ** 2)
+        return sp.ndimage.laplace(grid) / (gridstep**2)
 
 
 # Decorator flag rationale:
@@ -164,13 +164,7 @@ def fused_leapfrog_step_2d(
     # the best cache and SIMD behaviour per thread.
     for i in prange(1, ni - 1):
         for j in range(1, nj - 1):
-            lap = (
-                p[i + 1, j]
-                + p[i - 1, j]
-                + p[i, j + 1]
-                + p[i, j - 1]
-                - 4.0 * p[i, j]
-            )
+            lap = p[i + 1, j] + p[i - 1, j] + p[i, j + 1] + p[i, j - 1] - 4.0 * p[i, j]
             p_next[i, j] = 2.0 * p[i, j] - p_prev[i, j] + coeff * lap
 
     # Dirichlet hard-wall boundary: zero the four edges of p_next.

@@ -138,7 +138,7 @@ class Simulate:
 
         # Cached 2D dispatch predicate. Avoids re-evaluating ``self.dims == 2``
         # on every step; in 2D this is overwhelmingly the common path.
-        self._is_2d: bool = (self.dims == 2)
+        self._is_2d: bool = self.dims == 2
 
         # Single-driver fast path bookkeeping. When exactly one driver exists
         # and its position is in-bounds, we precompute the integer tuple index
@@ -293,7 +293,9 @@ class Simulate:
             grid_shape = self.grid_shape
             for driver in self.drivers:
                 value = driver.get_value(time)
-                if all(0 <= pos < size for pos, size in zip(driver.position, grid_shape)):
+                if all(
+                    0 <= pos < size for pos, size in zip(driver.position, grid_shape)
+                ):
                     p_next[tuple(driver.position)] += value
 
         # Three-way pointer rotation: p_prev <- p, p <- p_next, _p_next <- old p_prev.
