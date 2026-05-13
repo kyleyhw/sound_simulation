@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import socketio
@@ -117,7 +117,11 @@ class SimulationManager:
     async def configure(self, partial: Dict[str, Any]) -> None:
         """Merge user-provided fields into the config and rebuild the engine.
 
-        Stops any running loop first so the rebuild is safe.
+        Stops any running loop first so the rebuild is safe. Structural
+        changes (grid shape, wavespeed, gridstep, courant) discard the field
+        because the geometry itself has changed; live changes (drivers,
+        obstacles) go through the dedicated mutation methods below and do
+        not lose state.
         """
         async with self._lock:
             await self._stop_locked()
@@ -128,6 +132,95 @@ class SimulationManager:
                     else:
                         self.config[key] = value
             self._build_simulation()
+        await self._broadcast_status()
+
+    # ----- Live geometry mutation --------------------------------------- #
+
+    async def set_obstacle(
+        self,
+        positions: Any,
+        value: bool = True,
+    ) -> None:
+        """Mark (``value=True``) or clear (``value=False``) a batch of cells.
+
+        Positions are expected as an iterable of ``[i, j]`` lists from the
+        wire. We coerce defensively because the JSON encoder happily lets a
+        client send strings; the engine ignores anything out-of-bounds.
+        """
+        coerced: List[Tuple[int, ...]] = []
+        try:
+            for pos in positions or []:
+                if isinstance(pos, (list, tuple)) and len(pos) >= 1:
+                    coerced.append(tuple(int(c) for c in pos))
+        except (TypeError, ValueError):
+            logger.warning("set_obstacle: malformed positions %r", positions)
+            return
+        if not coerced:
+            return
+        async with self._lock:
+            if self.simulation is None:
+                return
+            self.simulation.set_obstacle(coerced, bool(value))
+        await self._broadcast_status()
+
+    async def clear_obstacles(self) -> None:
+        async with self._lock:
+            if self.simulation is None:
+                return
+            self.simulation.clear_obstacles()
+        await self._broadcast_status()
+
+    async def add_driver(
+        self,
+        position: Any,
+        waveform_spec: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Append a driver. Position is clipped one cell inside each wall so
+        a click anywhere on the canvas (including the outer ring) still
+        lands on a legal interior cell."""
+        if self.simulation is None:
+            return
+        try:
+            pos = tuple(int(c) for c in position)
+        except (TypeError, ValueError):
+            logger.warning("add_driver: malformed position %r", position)
+            return
+        if len(pos) != len(self.simulation.grid_shape):
+            logger.warning(
+                "add_driver: position dim %d != grid dim %d",
+                len(pos),
+                len(self.simulation.grid_shape),
+            )
+            return
+        spec = waveform_spec if isinstance(waveform_spec, dict) else self.config["waveform"]
+        waveform = build_waveform(spec)
+        clipped = tuple(
+            int(np.clip(c, 1, s - 2)) for c, s in zip(pos, self.simulation.grid_shape)
+        )
+        async with self._lock:
+            self.simulation.add_driver(Driver(position=clipped, waveform=waveform))
+        await self._broadcast_status()
+
+    async def remove_driver(self, index: int) -> None:
+        try:
+            idx = int(index)
+        except (TypeError, ValueError):
+            return
+        async with self._lock:
+            if self.simulation is None:
+                return
+            try:
+                self.simulation.remove_driver(idx)
+            except IndexError:
+                logger.warning("remove_driver: index %d out of range", idx)
+                return
+        await self._broadcast_status()
+
+    async def clear_drivers(self) -> None:
+        async with self._lock:
+            if self.simulation is None:
+                return
+            self.simulation.set_drivers([])
         await self._broadcast_status()
 
     # ----- Lifecycle ----------------------------------------------------- #
@@ -220,8 +313,49 @@ class SimulationManager:
                 "is_running": bool(self.is_running),
                 "config": self._safe_config(),
                 "engine": self._engine_info(),
+                "obstacles": self._obstacle_payload(),
+                "drivers": self._driver_payload(),
             },
         )
+
+    def _obstacle_payload(self) -> Dict[str, Any]:
+        """Downsampled obstacle mask + dimensions, ready for JSON.
+
+        Geometry is broadcast on every status (not every frame): obstacles
+        change at human pace, so this lives outside the hot ``simulation_update``
+        path. Shape is the *downsampled* shape so the frontend can blit it
+        directly onto the same canvas-sized ImageData it already builds for
+        the pressure field.
+        """
+        if self.simulation is None:
+            return {"shape": [0, 0], "downsample": 1, "mask": []}
+        downsample = max(1, int(self.config.get("downsample", 2)))
+        slicing = (slice(None, None, downsample),) * self.simulation.dims
+        view = self.simulation.obstacle_mask[slicing]
+        return {
+            "shape": list(view.shape),
+            "downsample": downsample,
+            "mask": view.astype(np.uint8).tolist(),
+        }
+
+    def _driver_payload(self) -> List[Dict[str, Any]]:
+        """List of {position, waveform: {type, ...kwargs}} for the UI."""
+        if self.simulation is None:
+            return []
+        out: List[Dict[str, Any]] = []
+        for driver in self.simulation.drivers:
+            wf = driver.waveform
+            wf_kwargs = {
+                k: (float(v) if isinstance(v, (np.floating, float, int)) else v)
+                for k, v in wf.__dict__.items()
+            }
+            out.append(
+                {
+                    "position": [int(c) for c in driver.position],
+                    "waveform": {"type": wf.__class__.__name__, **wf_kwargs},
+                }
+            )
+        return out
 
     def _safe_config(self) -> Dict[str, Any]:
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.config.items()}
@@ -313,3 +447,49 @@ async def update_config(sid, config):
 @sio.event
 async def request_status(sid, data=None):
     await sim_manager._broadcast_status()
+
+
+# --- Live geometry events ------------------------------------------------ #
+
+
+@sio.event
+async def set_obstacle(sid, data):
+    """Batched obstacle mutation.
+
+    Payload: ``{"positions": [[i, j], ...], "value": bool}``. Batched on
+    the frontend so a brush stroke arrives as one socket event rather than
+    one per cell, keeping the wire and the lock-contention low.
+    """
+    if not isinstance(data, dict):
+        return
+    await sim_manager.set_obstacle(data.get("positions", []), bool(data.get("value", True)))
+
+
+@sio.event
+async def clear_obstacles(sid, data=None):
+    await sim_manager.clear_obstacles()
+
+
+@sio.event
+async def add_driver(sid, data):
+    """Payload: ``{"position": [i, j], "waveform": {type, ...kwargs}}``.
+
+    Waveform is optional — if omitted, the manager falls back to the
+    current default in ``config['waveform']``.
+    """
+    if not isinstance(data, dict):
+        return
+    await sim_manager.add_driver(data.get("position"), data.get("waveform"))
+
+
+@sio.event
+async def remove_driver(sid, data):
+    """Payload: ``{"index": int}``."""
+    if not isinstance(data, dict):
+        return
+    await sim_manager.remove_driver(data.get("index"))
+
+
+@sio.event
+async def clear_drivers(sid, data=None):
+    await sim_manager.clear_drivers()

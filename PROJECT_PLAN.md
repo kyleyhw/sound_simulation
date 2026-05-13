@@ -19,24 +19,24 @@ Work on each task or phase will only commence with explicit user permission.
 ### Phase 1: Interactive Browser-Based Simulation UI
 **Objective:** Create the first major deliverable: a web-based user interface to interactively define, run, and visualize simulations in real-time.
 
-*   `[ ]` **Task 1.1: Technology Stack Selection & Setup**
-    *   `[ ]` 1.1.1: **Backend:** Establish a Python-based web server using a lightweight framework (e.g., FastAPI or Flask) to manage and run the simulation.
-    *   `[ ]` 1.1.2: **Communication:** Implement a WebSocket protocol for low-latency, bidirectional communication between the browser frontend and the simulation backend.
-    *   `[ ]` 1.1.3: **Frontend:** Set up a modern JavaScript framework (e.g., React, Vue, or Svelte) to build the interactive UI components.
-*   `[ ]` **Task 1.2: Backend Development for Simulation Control**
-    *   `[ ]` 1.2.1: Develop a WebSocket endpoint to receive commands from the UI (e.g., `start_simulation`, `add_obstacle`, `place_driver`).
-    *   `[ ]` 1.2.2: Refactor the core FDTD simulation logic (`Simulate` class) to run in a separate, non-blocking thread and be controlled by the web server.
-    *   `[ ]` 1.2.3: Implement logic to periodically stream the simulation state (e.g., the pressure grid) to the UI for visualization.
-*   `[ ]` **Task 1.3: Frontend Development for Interactive UI**
-    *   `[ ]` 1.3.1: Create a primary UI component: an interactive canvas to render the simulation grid received from the backend.
-    *   `[ ]` 1.3.2: Implement client-side logic for drawing boundaries/obstacles and placing drivers/sensors with mouse interactions.
-    *   `[ ]` 1.3.3: Develop UI controls (e.g., buttons, sliders) to start, stop, reset the simulation, and adjust parameters.
-*   `[ ]` **Task 1.4: Enable Live Interaction (Advanced)**
-    *   `[ ]` 1.4.1: Modify the core simulation engine to allow for the addition or removal of objects (obstacles, drivers) *during* a run, without requiring a full reset.
-    *   `[ ]` 1.4.2: Connect the UI and backend to support these live modifications, providing a truly dynamic interaction experience.
-*   `[ ]` **Task 1.5: Implement GPU Acceleration**
-    *   `[ ]` 1.5.1: Integrate CuPy into the core simulation logic, replacing NumPy operations in `calculate.py` with their GPU-accelerated counterparts.
-    *   `[ ]` 1.5.2: Ensure efficient data transfer between the CPU and GPU.
+*   `[completed]` **Task 1.1: Technology Stack Selection & Setup**
+    *   `[completed]` 1.1.1: **Backend:** FastAPI + uvicorn server hosts the simulation manager (`src/acoustic_system/app/main.py`).
+    *   `[completed]` 1.1.2: **Communication:** Socket.IO async server provides bidirectional WebSocket transport with HTTP-polling fallback.
+    *   `[completed]` 1.1.3: **Frontend:** Vite + React + TypeScript dev server (`frontend/`).
+*   `[completed]` **Task 1.2: Backend Development for Simulation Control**
+    *   `[completed]` 1.2.1: Socket.IO event handlers: `start_simulation`, `stop_simulation`, `reset_simulation`, `update_config`, `set_obstacle`, `clear_obstacles`, `add_driver`, `remove_driver`, `clear_drivers`, `request_status`.
+    *   `[completed]` 1.2.2: `Simulate.step()` runs from a single asyncio task owned by `SimulationManager`; mutation handlers acquire `_lock` to coordinate with start/stop/configure.
+    *   `[completed]` 1.2.3: Pressure field broadcast at the configured `broadcast_hz` cadence; per-step downsampling keeps the wire cheap.
+*   `[completed]` **Task 1.3: Frontend Development for Interactive UI**
+    *   `[completed]` 1.3.1: Canvas renders the downsampled pressure field via an `ImageData` blit through an offscreen canvas; rAF render loop is decoupled from wire cadence.
+    *   `[completed]` 1.3.2: Mouse-drag obstacle drawing (with brush radius), click-to-place / click-to-remove drivers, batched `set_obstacle` emit.
+    *   `[completed]` 1.3.3: Start / Stop / Reset buttons + mode selector + parameter panel (waveform, grid_shape, courant, downsample, broadcast_hz) emit `update_config`.
+*   `[completed]` **Task 1.4: Enable Live Interaction**
+    *   `[completed]` 1.4.1: `Simulate` exposes `set_obstacle`, `clear_obstacles`, `add_driver`, `remove_driver`, `set_drivers`; the fast-path driver cache is refreshed on every mutation; obstacle scrub is gated by `_has_obstacles` so the no-obstacle path is bit-identical to the pre-feature numerics.
+    *   `[completed]` 1.4.2: Socket events + `status` payload (`obstacles`, `drivers`) keep the UI synchronised with backend geometry. Smoke-tested with Playwright on 2026-05-13.
+*   `[pending]` **Task 1.5: Implement GPU Acceleration**
+    *   `[pending]` 1.5.1: Integrate CuPy into the core simulation logic, replacing NumPy operations in `calculate.py` with their GPU-accelerated counterparts.
+    *   `[pending]` 1.5.2: Ensure efficient data transfer between the CPU and GPU.
 
 ---
 

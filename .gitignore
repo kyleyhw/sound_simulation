@@ -208,3 +208,6 @@ __marimo__/
 
 # Simulation data hdf5 files
 *.hdf5
+
+# Playwright MCP smoke-test artifacts
+.playwright-mcp/

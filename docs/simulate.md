@@ -102,3 +102,63 @@ silently cancelled its energy on every step. Applying boundaries first
 preserves the driver's contribution at every interior cell — including
 cells one step inside the boundary, where the edge zeroing nominally
 would not touch them but the build-order made it ambiguous.
+
+## 4. Interior obstacles
+
+A boolean `obstacle_mask` attribute of shape `grid_shape` marks
+interior cells that should behave as rigid Dirichlet walls. Conceptually
+identical to the outer hard-wall boundary, just at arbitrary interior
+positions specified by the user.
+
+### Physical interpretation
+
+Setting $p = 0$ at an obstacle cell every step is the simplest model of
+an acoustically rigid scatterer: the pressure pinned at the wall cannot
+do work on adjacent cells, so any incident wave is reflected with a
+sign flip (closed-end reflection, $\Gamma = -1$). This is exactly the
+behaviour the outer kernel already enforces on the four edge rows of
+the 2D grid. Real materials have a finite specific acoustic impedance
+$Z = \rho c$ that would produce partial reflection
+($\Gamma = (Z_2 - Z_1)/(Z_2 + Z_1)$); modelling those would require
+either a one-sided wave-equation update at the boundary cell or an
+explicit impedance boundary condition, neither of which is currently
+implemented.
+
+### Ordering inside `step()`
+
+```
+kernel writes p_next over the interior, also zeroing the four outer edges
+        ↓
+if any obstacles exist: p_next[obstacle_mask] = 0      ← interior wall scrub
+        ↓
+for each driver: p_next[driver.position] += waveform(time)
+```
+
+Drivers placed on obstacle cells still emit. This is intentional and
+matches the boundary semantics: a `Driver` at a corner cell overwrites
+the wall zero in exactly the same way. If you want to silence drivers
+inside walls, remove them from `simulation.drivers`.
+
+### Hot-loop guard
+
+`step()` only runs the masked write when `self._has_obstacles` is true.
+That flag is updated by `set_obstacle` and `clear_obstacles`; a fresh
+`Simulate` with no obstacles takes the same code path as before the
+feature existed, so `check_simulate.py` keeps matching the existing
+`reference.npz` with `max_abs ≈ 7.8e-7` and `l2_rel ≈ 1.0e-6` —
+well inside the `atol=1e-5 / rtol=1e-4` gate.
+
+### Mutation methods
+
+| method | purpose |
+| ------ | ------- |
+| `set_obstacle(positions, value=True)` | mark/clear a batch of cells; out-of-bounds entries are silently dropped; marking also zeros the field at those cells so no stale pressure leaks through one final stencil read |
+| `clear_obstacles()` | reset the mask without touching the field |
+| `add_driver(driver)` | append a `Driver` and refresh the single-driver fast-path cache |
+| `remove_driver(index)` | `del self.drivers[index]` and refresh the cache |
+| `set_drivers(drivers)` | replace the entire list |
+
+The single-driver fast path (`_fast_driver`, `_fast_driver_pos`) is now
+refreshed on every driver mutation rather than only at construction, so
+live add/remove during a UI session still hits the precomputed tuple-
+index write.
