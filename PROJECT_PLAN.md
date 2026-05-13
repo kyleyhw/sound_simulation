@@ -43,10 +43,10 @@ Work on each task or phase will only commence with explicit user permission.
 ### Phase 2: Advanced Sensing (Developing the "Ear")
 **Objective:** Achieve high-fidelity, real-time room mapping within the simulation environment, using the UI from Phase 1 for testing.
 
-*   `[ ]` **Task 2.1 (Active Sensing): Integrate & Model Complex Audio Sources**
-    *   `[ ]` 2.1.1: Modify simulation to use audio files as sound sources and generate a corresponding dataset.
-    *   `[ ]` 2.1.2: Design and implement a dual-input CNN that accepts a microphone recording and a source audio reference.
-    *   `[ ]` 2.1.3: Train and validate the active sensing model.
+*   `[in-progress]` **Task 2.1 (Active Sensing): Integrate & Model Complex Audio Sources**
+    *   `[completed]` 2.1.1: `AudioFileWaveform` reads `.wav` sources via linear interpolation; `dataset.py` provides random rectangular-room generation, free-cell sampling, and a streaming sensor-recording runner; `scripts/generate_active_sensing.py` writes `(sensor, source, obstacle_mask)` triplets to HDF5 with a synthetic-chirp fallback for users without an audio corpus.
+    *   `[pending]` 2.1.2: Design and implement a dual-input CNN that accepts a microphone recording and a source audio reference, with an obstacle-mask output head.
+    *   `[pending]` 2.1.3: Train and validate the active sensing model.
 *   `[ ]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
     *   `[ ]` 2.2.1: Research and implement a model architecture suitable for blind deconvolution (e.g., Autoencoder, RNN).
     *   `[ ]` 2.2.2: Train and validate the passive model, comparing its performance to the active model.
