@@ -44,9 +44,9 @@ Work on each task or phase will only commence with explicit user permission.
 **Objective:** Achieve high-fidelity, real-time room mapping within the simulation environment, using the UI from Phase 1 for testing.
 
 *   `[in-progress]` **Task 2.1 (Active Sensing): Integrate & Model Complex Audio Sources**
-    *   `[completed]` 2.1.1: `AudioFileWaveform` reads `.wav` sources via linear interpolation; `dataset.py` provides random rectangular-room generation, free-cell sampling, and a streaming sensor-recording runner; `scripts/generate_active_sensing.py` writes `(sensor, source, obstacle_mask)` triplets to HDF5 with a synthetic-chirp fallback for users without an audio corpus.
-    *   `[pending]` 2.1.2: Design and implement a dual-input CNN that accepts a microphone recording and a source audio reference, with an obstacle-mask output head.
-    *   `[pending]` 2.1.3: Train and validate the active sensing model.
+    *   `[completed]` 2.1.1: `AudioFileWaveform` reads `.wav` sources via linear interpolation; `dataset.py` provides random rectangular-room generation, free-cell sampling, mic-pair placement, and a streaming sensor-recording runner; `scripts/generate_active_sensing.py` writes `(stereo sensor, source, obstacle_mask)` triplets to HDF5 with a synthetic-chirp fallback for users without an audio corpus. Updated for the laptop-only constraint (memory: end-goal-laptop-only) — sensor is a 2-mic stereo pair at random orientation, not a single mic.
+    *   `[completed]` 2.1.2: `DualInputCNN` in `src/acoustic_system/learning/model.py` — two parallel spectrogram-encoder branches (sensor + source) feeding a transposed-conv mask decoder. ~232k params, designed for CPU laptop training. PyTorch Dataset, BCE+Dice loss, AdamW + cosine LR training loop, IoU eval, shape-correctness gate. Smoke training (200 samples / 50 epochs) reached val IoU 0.04 (well above random); next step is to push training further on a larger dataset.
+    *   `[in-progress]` 2.1.3: Train and validate the active-sensing model. Initial long training run (10k samples, 100 epochs, AdamW + cosine schedule) underway as of 2026-05-14.
 *   `[ ]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
     *   `[ ]` 2.2.1: Research and implement a model architecture suitable for blind deconvolution (e.g., Autoencoder, RNN).
     *   `[ ]` 2.2.2: Train and validate the passive model, comparing its performance to the active model.
