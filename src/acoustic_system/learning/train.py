@@ -21,7 +21,17 @@ real runs.
 from __future__ import annotations
 
 import argparse
+
+# When stdout is piped to a file (e.g. background-task output), Python
+# defaults to block-buffering the stream. That hides progress for many
+# minutes during a long training run — even per-epoch prints with
+# flush=True can be deferred. Force line buffering at import time so
+# every print() lands on disk immediately. ``reconfigure`` exists on
+# TextIOWrapper (the concrete stdout in normal CPython) but not on
+# the abstract TextIO type, so guard with isinstance.
+import io as _io  # noqa: E402
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -34,6 +44,9 @@ from acoustic_system.learning.dataset import ActiveSensingDataset
 from acoustic_system.learning.losses import bce_dice_loss, iou_score
 from acoustic_system.learning.model import DualInputCNN
 
+if isinstance(sys.stdout, _io.TextIOWrapper):
+    sys.stdout.reconfigure(line_buffering=True)
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
@@ -41,6 +54,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--epochs", type=int, default=50)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument(
+        "--weight-decay",
+        type=float,
+        default=1e-4,
+        help="L2 weight decay for AdamW. Helps generalisation on small datasets.",
+    )
+    p.add_argument(
+        "--scheduler",
+        choices=["cosine", "step", "none"],
+        default="cosine",
+        help="Learning-rate schedule: cosine annealing to 0, 10x step at 60%%, or constant.",
+    )
     p.add_argument("--val-frac", type=float, default=0.1)
     p.add_argument("--target-size", type=int, default=64, help="Predicted mask side length.")
     p.add_argument("--ckpt-dir", required=True)
@@ -55,6 +80,12 @@ def parse_args() -> argparse.Namespace:
         "--device",
         default=None,
         help="cpu / cuda. Defaults to cuda if available, otherwise cpu.",
+    )
+    p.add_argument(
+        "--log-every",
+        type=int,
+        default=1,
+        help="Print per-epoch line every N epochs. Set higher for long runs.",
     )
     return p.parse_args()
 
@@ -99,16 +130,32 @@ def main() -> None:
         f"n_mics={dataset.n_mics} T_rec={dataset.t_rec} T_audio={dataset.t_audio}"
     )
 
-    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    if args.scheduler == "cosine":
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
+    elif args.scheduler == "step":
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            opt, step_size=int(args.epochs * 0.6), gamma=0.1
+        )
+    else:
+        scheduler = None
 
-    history: dict[str, list[float]] = {"train_loss": [], "val_loss": [], "val_iou": []}
+    history: dict[str, list[float]] = {
+        "train_loss": [],
+        "train_iou": [],
+        "val_loss": [],
+        "val_iou": [],
+        "lr": [],
+    }
     best_val = float("inf")
+    best_iou = 0.0
 
     t0 = time.perf_counter()
     for epoch in range(1, args.epochs + 1):
         # ---- train ------------------------------------------------------
         model.train()
         train_losses: list[float] = []
+        train_ious: list[float] = []
         for sensor, source, mask in train_loader:
             sensor = sensor.to(device)
             source = source.to(device)
@@ -119,11 +166,13 @@ def main() -> None:
             loss.backward()
             opt.step()
             train_losses.append(loss.item())
+            with torch.no_grad():
+                train_ious.append(iou_score(logits, mask).item())
 
         # ---- validate ---------------------------------------------------
         model.eval()
         val_losses: list[float] = []
-        ious: list[float] = []
+        val_ious: list[float] = []
         with torch.no_grad():
             for sensor, source, mask in val_loader:
                 sensor = sensor.to(device)
@@ -131,21 +180,32 @@ def main() -> None:
                 mask = mask.to(device)
                 logits = model(sensor, source)
                 val_losses.append(bce_dice_loss(logits, mask).item())
-                ious.append(iou_score(logits, mask).item())
+                val_ious.append(iou_score(logits, mask).item())
 
         train_l = float(np.mean(train_losses))
+        train_iou = float(np.mean(train_ious))
         val_l = float(np.mean(val_losses))
-        val_iou = float(np.mean(ious))
+        val_iou = float(np.mean(val_ious))
+        current_lr = opt.param_groups[0]["lr"]
         history["train_loss"].append(train_l)
+        history["train_iou"].append(train_iou)
         history["val_loss"].append(val_l)
         history["val_iou"].append(val_iou)
+        history["lr"].append(current_lr)
 
-        elapsed = time.perf_counter() - t0
-        print(
-            f"epoch {epoch:3d}/{args.epochs}  "
-            f"train_loss={train_l:.4f}  val_loss={val_l:.4f}  val_iou={val_iou:.4f}  "
-            f"elapsed={elapsed:.1f}s"
-        )
+        if scheduler is not None:
+            scheduler.step()
+
+        if epoch % args.log_every == 0 or epoch == args.epochs:
+            elapsed = time.perf_counter() - t0
+            print(
+                f"epoch {epoch:3d}/{args.epochs}  "
+                f"lr={current_lr:.2e}  "
+                f"train_loss={train_l:.4f} train_iou={train_iou:.3f}  "
+                f"val_loss={val_l:.4f} val_iou={val_iou:.3f}  "
+                f"elapsed={elapsed:.0f}s",
+                flush=True,
+            )
 
         if val_l < best_val:
             best_val = val_l
@@ -158,6 +218,20 @@ def main() -> None:
                     "n_mics": dataset.n_mics,
                 },
                 ckpt_dir / "best.pt",
+            )
+        if val_iou > best_iou:
+            # Best-IoU checkpoint is more useful than best-loss for an
+            # eval that scores by mask overlap. Save both.
+            best_iou = val_iou
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "args": vars(args),
+                    "epoch": epoch,
+                    "history": history,
+                    "n_mics": dataset.n_mics,
+                },
+                ckpt_dir / "best_iou.pt",
             )
 
     # Always save the final checkpoint too, even if val_loss has plateaued.
@@ -173,23 +247,35 @@ def main() -> None:
     )
     (ckpt_dir / "history.json").write_text(json.dumps(history, indent=2))
 
-    # ---- loss plot -----------------------------------------------------
-    fig, ax1 = plt.subplots(figsize=(6, 3.5))
+    # ---- diagnostic plot -----------------------------------------------
     epochs = list(range(1, args.epochs + 1))
-    ax1.plot(epochs, history["train_loss"], label="train loss", color="#2f5fa6")
-    ax1.plot(epochs, history["val_loss"], label="val loss", color="#a64f2f")
-    ax1.set_xlabel("epoch")
-    ax1.set_ylabel("BCE + Dice")
-    ax1.grid(True, alpha=0.3)
-    ax2 = ax1.twinx()
-    ax2.plot(epochs, history["val_iou"], label="val IoU", color="#3a7a3a", linestyle="--")
-    ax2.set_ylabel("IoU")
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper right")
+    fig, (ax_loss, ax_iou) = plt.subplots(2, 1, figsize=(7.0, 5.5), sharex=True)
+    ax_loss.plot(epochs, history["train_loss"], label="train loss", color="#2f5fa6")
+    ax_loss.plot(epochs, history["val_loss"], label="val loss", color="#a64f2f")
+    ax_loss.set_ylabel("BCE + Dice")
+    ax_loss.grid(True, alpha=0.3)
+    ax_loss.legend(loc="upper right")
+    ax_lr = ax_loss.twinx()
+    ax_lr.plot(epochs, history["lr"], label="lr", color="#888", linestyle=":", alpha=0.6)
+    ax_lr.set_ylabel("learning rate", color="#888")
+    ax_lr.tick_params(axis="y", labelcolor="#888")
+    ax_lr.set_yscale("log")
+
+    ax_iou.plot(epochs, history["train_iou"], label="train IoU", color="#2f5fa6")
+    ax_iou.plot(epochs, history["val_iou"], label="val IoU", color="#a64f2f")
+    ax_iou.set_xlabel("epoch")
+    ax_iou.set_ylabel("IoU")
+    ax_iou.set_ylim(0, 1)
+    ax_iou.grid(True, alpha=0.3)
+    ax_iou.legend(loc="upper left")
+
     plt.tight_layout()
     plt.savefig(ckpt_dir / "loss.png", dpi=120)
     print(f"[train] wrote {ckpt_dir / 'loss.png'}")
+    print(
+        f"[train] best val_loss={best_val:.4f}, best val_iou={best_iou:.4f} "
+        f"(checkpoints: best.pt, best_iou.pt, final.pt)"
+    )
 
 
 if __name__ == "__main__":

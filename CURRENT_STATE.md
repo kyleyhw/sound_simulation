@@ -1,104 +1,82 @@
-# Project Status as of 2026-05-13
+# Project Status as of 2026-05-14
 
 ## 1. Resolution
 
-The interactive editing batch (Phase 1, Tasks 1.3.2 / 1.3.3 / 1.4) is
-functional end-to-end. The web UI now supports click-and-drag obstacle
-drawing, click-to-place drivers, click-to-remove drivers, a parameter
-panel that rebuilds the engine with new geometry / waveform / cadence,
-and live status reflecting every mutation. The engine, backend, and
-frontend changes were validated together with the perf gate
-(`tests/perf/check_simulate.py`) and a Playwright smoke test that drew
-obstacles, placed a second driver, and cleared obstacles, all while
-the simulation continued advancing.
+Phase 2 active-sensing pipeline is in place end-to-end on the
+laptop-only hardware target. Stereo dataset generator, dual-input
+spectrogram CNN with mask decoder, training loop with AdamW + cosine
+LR, and per-sample IoU eval all wired together. A first long training
+run (10k samples, 100 epochs, AdamW + cosine schedule, weight decay
+1e-4) is running against the in-distribution training set; a separate
+held-out validation set is available for clean eval after.
 
-## 2. What changed
+The 3D volumetric simulation + Three.js volume renderer landed earlier
+this session and remains usable end-to-end (200×200×64 grids stream as
+~256 KB / frame uint8 over the socket, ray-marched in WebGL2 at >100
+FPS). Both 2D and 3D paths share the same `Simulate` engine; the 2D
+hot path uses the original numba-fused 5-point kernel, 3D the new
+fused 7-point kernel.
 
-### Engine (`src/acoustic_system/simulation/simulate.py`)
+## 2. What changed this session
 
-- New `obstacle_mask: np.ndarray` (boolean, same shape as the field).
-  Interior cells flagged True are scrubbed to zero inside `step()`
-  after the stencil pass but before driver injection, giving them
-  rigid-wall (Dirichlet) semantics consistent with the outer boundary.
-- The scrub is guarded by a cached `_has_obstacles` flag, so a
-  Simulate with no obstacles takes a code path that is bit-identical
-  to the pre-obstacle code. `check_simulate.py` keeps passing against
-  the existing `reference.npz` at `max_abs=7.75e-7`, `l2_rel=1.04e-6`.
-- New methods: `set_obstacle(positions, value=True)`,
-  `clear_obstacles()`, `add_driver(driver)`, `remove_driver(index)`,
-  `set_drivers(drivers)`. The single-driver fast-path cache
-  (`_fast_driver`, `_fast_driver_pos`) is now refreshed on every
-  driver mutation rather than only at construction.
+### Engine + visualisation
+- `fused_leapfrog_step_3d` 7-point stencil (numba @njit, prange) — 3D
+  sims now run at ~0.04 ms/step at 32³, ~7.0 ms/step at 200³, ~50×
+  faster than the previous scipy fallback.
+- Backend binary uint8 streaming for 3D pressure fields via socket.io
+  binary attachments. 2D path unchanged (JSON nested-list grid).
+- Three.js volumetric renderer with the standard front-to-back alpha-
+  compositing volume integral, opacity-corrected for step-count
+  invariance. UI sliders for γ (alpha exponent), αscale, obstacle
+  alpha, ray-step count.
+- React 19 dev-mode profiler workaround: typed-array props are passed
+  via refs + a frame-counter rather than directly, so the profiler's
+  internal `performance.measure()` can't choke on deep-cloning them.
 
-### Backend (`src/acoustic_system/app/main.py`)
+### Phase 2 / active sensing
+- `AudioFileWaveform` + `AudioFileWaveform.from_samples` for synthetic-
+  chirp-as-source, registered in the existing waveform_registry.
+- `dataset.py` helpers: `generate_random_obstacles`,
+  `random_free_position`, `pick_mic_positions` (random-orientation
+  stereo pair), `run_with_sensors` (streaming sensor recording),
+  `synthetic_chirp` (linear-sweep fallback source).
+- `scripts/generate_active_sensing.py`: writes `(stereo recording,
+  source audio, obstacle mask)` triplets to HDF5. Channel-last
+  `sensor` dataset of shape `(T_rec, n_mics)`, plus per-sample attrs
+  for reproduction.
+- `src/acoustic_system/learning/`:
+  - `losses.py`: BCE + soft-Dice + IoU score.
+  - `dataset.py`: PyTorch Dataset wrapping the HDF5 archive.
+  - `model.py`: `DualInputCNN` (~232k params, designed for CPU).
+  - `train.py`: AdamW + cosine LR, train + val IoU tracking, two
+    checkpoints (best by val_loss, best by val_iou).
+  - `eval.py`: whole-dataset IoU + per-sample prediction grid.
+- `tests/learning/test_model.py`: forward shape, loss + backward,
+  perfect-prediction IoU sanity, mono fallback path.
 
-- `SimulationManager` gained `set_obstacle`, `clear_obstacles`,
-  `add_driver`, `remove_driver`, `clear_drivers`. Each acquires the
-  asyncio lock briefly to coordinate with `configure`/`reset`/`start`,
-  mutates the engine, and re-broadcasts `status`.
-- `_broadcast_status` payload now includes `obstacles` (downsampled
-  bool mask + shape/downsample metadata) and `drivers` (list of
-  `{position, waveform}`). Geometry lives on the `status` channel,
-  not on the per-frame `simulation_update`.
-- Five new socket events wired: `set_obstacle`, `clear_obstacles`,
-  `add_driver`, `remove_driver`, `clear_drivers`.
+### Hygiene + infra
+- `frontend/node_modules/` untracked (was tracked from before the
+  hygiene pass).
+- `pyproject.toml` `ml` extra: `torch>=2.4`, `torchaudio>=2.4`.
+  `uv sync --extra dev --extra ml` bootstraps; CPU wheels are the
+  default.
 
-### Frontend (`frontend/src/App.tsx`, `frontend/src/index.css`)
+### Project memory (in `~/.claude/projects/.../memory/`)
+- `end-goal-laptop-only.md`: stock laptop hardware constraint —
+  built-in stereo mic + speaker, optionally a webcam mic. 2-3
+  channels max. CNN architectures and dataset generators must
+  default to 2-channel input.
 
-- Side-panel layout: canvas on the left, controls on the right
-  (collapses below on narrow viewports).
-- Mode selector with five modes: view, draw-obstacle, erase-obstacle,
-  place-driver, remove-driver. The cursor changes per mode.
-- Brush radius input for the obstacle modes.
-- Mouse-down / move / up handlers translate canvas pixels to full-grid
-  indices, compute the disc of touched cells client-side, and batch
-  them in a `Set<string>` with a ~33 ms flush window so a brush stroke
-  emits ~30 socket events/sec regardless of brush size.
-- Parameter panel: waveform (type, amplitude, frequency, delay),
-  grid rows/cols, courant, downsample, broadcast Hz. Apply emits
-  `update_config`.
-- Driver list panel with per-driver remove buttons.
-- Rendering composites the obstacle mask (gray pixels) into the
-  ImageData buffer, then draws yellow disc markers for each driver
-  on the canvas overlay. Both stay aligned with the field because
-  the obstacle mask is downsampled by the same factor as the
-  pressure field.
+## 3. Open follow-ups
 
-### Cleanup
-
-- `numba` added to `environment.yml` (it was a required dep of the 2D
-  FDTD kernel but had been missing from the env file, so fresh installs
-  failed on first `Simulate.step()`).
-- `README.md` "Code Structure" block rewritten to reflect the
-  `src/acoustic_system/` layout. The legacy flat layout reference is
-  gone.
-
-### Docs
-
-- `docs/simulate.md` gained a new section on interior obstacles
-  covering the physical interpretation, the ordering inside `step()`,
-  the hot-loop guard, and the mutation methods.
-- `docs/web_ui.md` updated wire-protocol tables (new events on both
-  directions, new fields in `status`) and added a section on the
-  interactive editing modes and coordinate mapping.
-
-## 3. Next steps
-
-Phase 1.5 (GPU acceleration via CuPy) is the only outstanding Phase 1
-task. Phase 2 (advanced sensing — CNN training on simulated
-echolocation data) is queued behind it. The interactive UI now
-provides the scene-authoring tool the rest of the project needs.
-
-Open follow-ups noticed during this batch but not landed:
-
-- Per-driver waveform editing in the side panel (currently every
-  `place-driver` click uses the form's current waveform; you cannot
-  change an existing driver's waveform without removing and replacing
-  it).
-- Sensor placement parity with drivers — the engine still only
-  exposes sensors through the batch generator path, not through the
-  UI.
-- `update_config` discards drivers/obstacles on rebuild. Preserving
-  them across a structural rebuild would need an explicit migration
-  step (project the obstacle mask onto the new grid shape, clip
-  driver positions).
+- **2.1.3 (in progress)**: long training run completing today. After
+  it lands: write up the IoU achieved on the held-out set and decide
+  whether to push for more epochs / more data / regularisation tweaks
+  before moving to 2.1.4.
+- **2.1.4 (next)**: temporal aggregation across multiple chirps as
+  the laptop is moved (active sensing pose). Single-shot 2-mic
+  inference is severely under-determined; the lever for higher
+  resolution is multi-pose, not more sensors.
+- The 3D web UI does not yet support 3D obstacle drawing — only the
+  generator script can author 3D scenes. Worth adding once the ML
+  side stabilises.
