@@ -96,6 +96,83 @@ def generate_random_obstacles(
     return mask
 
 
+def pick_mic_positions(
+    grid_shape: Tuple[int, ...],
+    obstacle_mask: np.ndarray,
+    n_mics: int = 2,
+    spacing: float = 16.0,
+    rng: Optional[np.random.Generator] = None,
+    margin: int = 2,
+    max_attempts: int = 200,
+) -> list[tuple[int, ...]]:
+    """Pick ``n_mics`` interior cells representing a microphone array.
+
+    Geometry
+    --------
+    Mics are placed about a randomly drawn centre, oriented along a
+    uniformly random unit direction:
+
+    - ``n_mics == 1``: one mic at the centre.
+    - ``n_mics == 2``: a stereo pair at $\\vec{c} \\pm \\tfrac{1}{2}\\, s\\, \\hat{u}$,
+      where $\\hat{u}$ is uniform on the unit sphere ($d=3$) or unit
+      circle ($d=2$) and $s$ is the requested ``spacing`` in cells.
+      This mimics a stock-laptop binaural arrangement: two mics
+      separated by a fixed baseline, orientation determined by however
+      the user is holding the device.
+
+    Rejection sampling: redraw centre + orientation if any mic falls
+    outside the interior margin or coincides with an obstacle. Raises
+    ``RuntimeError`` after ``max_attempts``.
+
+    Higher mic counts (3-mic webcam setups) are not yet implemented;
+    the project's hardware constraint caps at 2-3 channels, so this
+    slot is reserved for that extension.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    if n_mics < 1:
+        raise ValueError("n_mics must be >= 1")
+    if n_mics == 1:
+        return [random_free_position(grid_shape, obstacle_mask, rng, margin)]
+    if n_mics != 2:
+        raise NotImplementedError(f"n_mics={n_mics} not yet supported; only 1 and 2 implemented")
+
+    dims = len(grid_shape)
+    half_spacing = float(spacing) / 2.0
+    for _ in range(max_attempts):
+        centre = np.array(
+            random_free_position(grid_shape, obstacle_mask, rng, margin),
+            dtype=np.float64,
+        )
+        # Uniform direction on the unit sphere (3D) or unit circle (2D).
+        # standard_normal sampling normalised by L2 gives the rotation-
+        # invariant uniform distribution on the sphere.
+        direction = rng.standard_normal(dims)
+        norm = float(np.linalg.norm(direction))
+        if norm < 1e-9:
+            continue
+        direction /= norm
+
+        a_pos = centre - half_spacing * direction
+        b_pos = centre + half_spacing * direction
+        positions: list[tuple[int, ...]] = []
+        ok = True
+        for raw in (a_pos, b_pos):
+            tpos = tuple(int(round(c)) for c in raw)
+            if not all(margin <= c < s - margin for c, s in zip(tpos, grid_shape)):
+                ok = False
+                break
+            if obstacle_mask[tpos]:
+                ok = False
+                break
+            positions.append(tpos)
+        if ok and positions[0] != positions[1]:
+            return positions
+    raise RuntimeError(
+        f"could not place {n_mics} mics with spacing {spacing} after {max_attempts} attempts"
+    )
+
+
 def random_free_position(
     grid_shape: Tuple[int, ...],
     obstacle_mask: np.ndarray,
@@ -105,9 +182,9 @@ def random_free_position(
 ) -> Tuple[int, ...]:
     """Pick a uniform-random interior cell that is *not* an obstacle.
 
-    Rejection sampling: draw a candidate $(i, j)$ uniformly from the
-    interior (one ``margin`` away from each wall) and accept it iff
-    ``obstacle_mask[i, j] == False``. Falls back to an exhaustive scan
+    Rejection sampling: draw a candidate uniformly from the interior
+    (one ``margin`` away from each wall) and accept it iff
+    ``obstacle_mask[idx] == False``. Falls back to an exhaustive scan
     after ``max_attempts`` rejections so a heavily obstructed scene
     cannot livelock the generator.
     """
@@ -212,6 +289,7 @@ def synthetic_chirp(
 __all__ = [
     "generate_random_obstacles",
     "random_free_position",
+    "pick_mic_positions",
     "run_with_sensors",
     "synthetic_chirp",
 ]

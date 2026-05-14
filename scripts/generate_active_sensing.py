@@ -1,25 +1,29 @@
 """Generate a paired active-sensing dataset for Phase 2.
 
-Each sample is a triplet $(s(t),\\, u(t),\\, M)$:
+Each sample is a triplet $(\\mathbf{s}(t),\\, u(t),\\, M)$:
 
-- $s(t)$: pressure recorded at one sensor as a function of step index.
-- $u(t)$: the source-audio waveform that was injected at the driver.
-- $M$: the boolean obstacle mask of the room.
+- $\\mathbf{s}(t) \\in \\mathbb{R}^{T \\times M}$: pressure recorded at $M$
+  microphones as a function of step index. Defaults to a stereo pair
+  ($M = 2$) placed about a random centre with random orientation, mimicking
+  the binaural arrangement on a stock laptop.
+- $u(t)$: the source-audio waveform injected at the driver.
+- $M$ (boolean grid): the obstacle mask of the room.
 
-The CNN target in Task 2.1.2 is the inverse mapping $(s, u) \\mapsto M$:
-given a microphone recording and a reference of the source audio that
-was played, reconstruct the room geometry. Producing diverse $(s, u, M)$
-triplets is what this script does.
+The CNN target in Task 2.1.2 is the inverse mapping $(\\mathbf{s}, u) \\mapsto M$:
+given a multi-channel microphone recording and a reference of the source
+audio that was played, reconstruct the room geometry. Producing diverse
+$(\\mathbf{s}, u, M)$ triplets is what this script does.
 
 Wire-side layout per HDF5 group::
 
     /sample_NNNN/
         attrs: grid_shape, wavespeed, timestep, gridstep, courant,
-               driver_position, sensor_position, audio_path (or 'synthetic'),
+               driver_position, sensor_positions (n_mics, dims),
+               n_mics, mic_spacing, audio_path (or 'synthetic'),
                record_step, sim_duration_steps
-        sensor (dataset, float32, shape (T_rec,))
-        source (dataset, float32, shape (N_audio_samples,))
-        obstacles (dataset, uint8, shape grid_shape)
+        sensor    (float32, shape (T_rec, n_mics))   -- channel-last
+        source    (float32, shape (N_audio_samples,))
+        obstacles (uint8,   shape grid_shape)
 
 Usage::
 
@@ -28,7 +32,9 @@ Usage::
         --num-samples 100 \\
         --audio-dir /path/to/wavs \\
         --grid 200 \\
-        --duration 800
+        --duration 800 \\
+        --n-mics 2 \\
+        --mic-spacing 16
 
 If ``--audio-dir`` is omitted (or contains no ``*.wav`` files), a linear
 chirp from ``f_start`` to ``f_end`` is synthesised per sample so the
@@ -54,6 +60,7 @@ if str(_SRC) not in sys.path:
 
 from acoustic_system.simulation.dataset import (  # noqa: E402
     generate_random_obstacles,
+    pick_mic_positions,
     random_free_position,
     run_with_sensors,
     synthetic_chirp,
@@ -195,6 +202,25 @@ def main() -> None:
     parser.add_argument("--wavespeed", type=float, default=1.0)
     parser.add_argument("--gridstep", type=float, default=1.0)
     parser.add_argument("--courant", type=float, default=0.5)
+    parser.add_argument(
+        "--n-mics",
+        type=int,
+        default=2,
+        choices=[1, 2],
+        help=(
+            "Number of microphones per sample (default 2). "
+            "Stock-laptop hardware bound: 2-3 channels max; only 1-2 implemented."
+        ),
+    )
+    parser.add_argument(
+        "--mic-spacing",
+        type=float,
+        default=16.0,
+        help=(
+            "Distance in cells between the stereo mic pair (n_mics=2). "
+            "Random orientation per sample. Ignored when n_mics=1."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
     parser.add_argument("--verbose", action="store_true", help="Print per-sample status to stderr.")
     args = parser.parse_args()
@@ -243,9 +269,11 @@ def main() -> None:
                 obstacle_mask=obstacle_mask,
                 rng=rng,
             )
-            sensor_pos = random_free_position(
+            mic_positions = pick_mic_positions(
                 grid_shape=(args.grid, args.grid),
                 obstacle_mask=obstacle_mask,
+                n_mics=args.n_mics,
+                spacing=args.mic_spacing,
                 rng=rng,
             )
             wf, source_samples, source_fs, source_label = build_source(
@@ -268,11 +296,11 @@ def main() -> None:
             mask_idx = np.argwhere(obstacle_mask)
             if mask_idx.size:
                 sim.set_obstacle([tuple(int(c) for c in row) for row in mask_idx])
-            sensor = Sensor(position=sensor_pos)
+            sensors = [Sensor(position=p) for p in mic_positions]
             recordings = run_with_sensors(
                 sim=sim,
                 duration=args.duration,
-                sensors=[sensor],
+                sensors=sensors,
                 record_step=args.record_step,
             )
 
@@ -283,14 +311,18 @@ def main() -> None:
             grp.attrs["timestep"] = float(sim.timestep)
             grp.attrs["courant"] = float(args.courant)
             grp.attrs["driver_position"] = list(driver_pos)
-            grp.attrs["sensor_position"] = list(sensor_pos)
+            # Sensor positions: one row per mic, columns are spatial dims.
+            grp.attrs["sensor_positions"] = np.asarray(mic_positions, dtype=np.int32)
+            grp.attrs["n_mics"] = int(args.n_mics)
+            grp.attrs["mic_spacing"] = float(args.mic_spacing)
             grp.attrs["audio_path"] = source_label
             grp.attrs["audio_native_fs"] = float(source_fs)
             grp.attrs["sim_time_per_second"] = float(args.sim_time_per_second)
             grp.attrs["audio_amplitude"] = float(args.audio_amplitude)
             grp.attrs["sim_duration_steps"] = int(args.duration)
             grp.attrs["record_step"] = int(args.record_step)
-            grp.create_dataset("sensor", data=recordings[:, 0], compression="gzip")
+            # Channel-last: sensor[t, m] = pressure at mic m, time-step t.
+            grp.create_dataset("sensor", data=recordings, compression="gzip")
             grp.create_dataset("source", data=source_samples, compression="gzip")
             grp.create_dataset(
                 "obstacles",
@@ -299,9 +331,10 @@ def main() -> None:
             )
             if args.verbose:
                 elapsed = time.perf_counter() - t0
+                mic_str = ", ".join(str(tuple(p)) for p in mic_positions)
                 print(
                     f"[active-sensing] sample {s + 1:4d}/{args.num_samples} "
-                    f"driver={driver_pos} sensor={sensor_pos} "
+                    f"driver={driver_pos} mics=[{mic_str}] "
                     f"obstacles={int(obstacle_mask.sum())} "
                     f"peak_rec={float(np.max(np.abs(recordings))):.3e} "
                     f"elapsed={elapsed:.1f}s",
