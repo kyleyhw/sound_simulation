@@ -34,6 +34,16 @@ dev = [
     "pre-commit>=3.7",
 ]
 
+# Phase 2 ML stack. Kept optional because torch is a large dep; the core
+# simulation engine + web UI install without it. Bootstrap with
+# `uv sync --extra dev --extra ml`. CPU wheels are the default; for CUDA,
+# add a uv index URL to pull from https://download.pytorch.org/whl/cu121
+# (or matching). The model size targets CPU inference.
+ml = [
+    "torch>=2.4",
+    "torchaudio>=2.4",
+]
+
 [project.urls]
 Repository = "https://github.com/kyleyhw/sound_simulation"
 
