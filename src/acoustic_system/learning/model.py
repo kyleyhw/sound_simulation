@@ -56,9 +56,19 @@ class SpectrogramEncoder(nn.Module):
     ``target_size`` cells, so latent_size=8 is comfortably large.
     """
 
-    def __init__(self, in_channels: int, base_ch: int = 16, latent_size: int = 8) -> None:
+    def __init__(
+        self,
+        in_channels: int,
+        base_ch: int = 16,
+        latent_size: int = 8,
+        dropout: float = 0.0,
+    ) -> None:
         super().__init__()
-        self.net = nn.Sequential(
+        # Dropout2d zeros entire feature-map channels with probability p,
+        # which works better than per-element Dropout in conv blocks
+        # because adjacent pixels in a feature map are highly correlated
+        # — independently zeroing them barely regularises the channel.
+        layers: list[nn.Module] = [
             nn.Conv2d(in_channels, base_ch, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(base_ch, base_ch, kernel_size=3, padding=1),
@@ -69,8 +79,11 @@ class SpectrogramEncoder(nn.Module):
             nn.MaxPool2d(2),
             nn.Conv2d(base_ch * 2, base_ch * 4, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(latent_size),
-        )
+        ]
+        if dropout > 0.0:
+            layers.append(nn.Dropout2d(dropout))
+        layers.append(nn.AdaptiveAvgPool2d(latent_size))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)
@@ -130,14 +143,17 @@ class DualInputCNN(nn.Module):
         base_ch: int = 16,
         mid_ch: int = 64,
         latent_size: int = 8,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
         self.sensor_spec = T.Spectrogram(n_fft=sensor_n_fft, hop_length=sensor_hop, power=2.0)
         self.source_spec = T.Spectrogram(n_fft=source_n_fft, hop_length=source_hop, power=2.0)
         self.encoder_s = SpectrogramEncoder(
-            in_channels=n_mics, base_ch=base_ch, latent_size=latent_size
+            in_channels=n_mics, base_ch=base_ch, latent_size=latent_size, dropout=dropout
         )
-        self.encoder_u = SpectrogramEncoder(in_channels=1, base_ch=base_ch, latent_size=latent_size)
+        self.encoder_u = SpectrogramEncoder(
+            in_channels=1, base_ch=base_ch, latent_size=latent_size, dropout=dropout
+        )
         # Each branch outputs base_ch * 4 channels; concat -> 2 * base_ch * 4.
         self.decoder = MaskDecoder(in_channels=2 * base_ch * 4, mid_ch=mid_ch)
 
