@@ -38,7 +38,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 
 from acoustic_system.learning.dataset import ActiveSensingDataset
 from acoustic_system.learning.losses import bce_dice_loss, iou_score
@@ -68,6 +68,22 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--val-frac", type=float, default=0.1)
     p.add_argument("--target-size", type=int, default=64, help="Predicted mask side length.")
+    p.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout2d probability inside each spectrogram encoder. 0 disables.",
+    )
+    p.add_argument(
+        "--augment",
+        action="store_true",
+        help=(
+            "Enable train-only augmentation: per-channel gain jitter in [0.7, 1.3] and "
+            "additive Gaussian noise (sigma=0.02) on the sensor recordings. Held-out "
+            "validation always sees clean signal so the metric measures generalisation, "
+            "not robustness to the augmentation distribution."
+        ),
+    )
     p.add_argument("--ckpt-dir", required=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -100,15 +116,29 @@ def main() -> None:
     ckpt_dir = Path(args.ckpt_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset = ActiveSensingDataset(args.dataset, target_mask_size=args.target_size)
-    n_total = len(dataset)
+    # Two parallel dataset views over the same HDF5 archive: the train
+    # view applies augmentation (when --augment is set), the val view
+    # always sees clean signal. Same per-call HDF5 open in both — there
+    # is no extra I/O cost. The split below is by index so the two views
+    # see disjoint samples.
+    train_dataset = ActiveSensingDataset(
+        args.dataset,
+        target_mask_size=args.target_size,
+        augment=args.augment,
+    )
+    val_dataset = ActiveSensingDataset(
+        args.dataset,
+        target_mask_size=args.target_size,
+        augment=False,
+    )
+    n_total = len(train_dataset)
     n_val = max(1, int(args.val_frac * n_total))
     n_train = n_total - n_val
-    train_ds, val_ds = random_split(
-        dataset,
-        [n_train, n_val],
-        generator=torch.Generator().manual_seed(args.seed),
-    )
+    indices = torch.randperm(n_total, generator=torch.Generator().manual_seed(args.seed)).tolist()
+    train_indices = indices[:n_train]
+    val_indices = indices[n_train:]
+    train_ds = torch.utils.data.Subset(train_dataset, train_indices)
+    val_ds = torch.utils.data.Subset(val_dataset, val_indices)
     train_loader = DataLoader(
         train_ds,
         batch_size=args.batch_size,
@@ -123,11 +153,11 @@ def main() -> None:
         num_workers=args.num_workers,
     )
 
-    model = DualInputCNN(n_mics=dataset.n_mics).to(device)
+    model = DualInputCNN(n_mics=train_dataset.n_mics, dropout=args.dropout).to(device)
     print(f"[train] device={device}  params={model.num_params:,}")
     print(
         f"[train] dataset n_total={n_total} n_train={n_train} n_val={n_val} "
-        f"n_mics={dataset.n_mics} T_rec={dataset.t_rec} T_audio={dataset.t_audio}"
+        f"n_mics={train_dataset.n_mics} T_rec={train_dataset.t_rec} T_audio={train_dataset.t_audio}"
     )
 
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
@@ -215,7 +245,7 @@ def main() -> None:
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
-                    "n_mics": dataset.n_mics,
+                    "n_mics": train_dataset.n_mics,
                 },
                 ckpt_dir / "best.pt",
             )
@@ -229,7 +259,7 @@ def main() -> None:
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
-                    "n_mics": dataset.n_mics,
+                    "n_mics": train_dataset.n_mics,
                 },
                 ckpt_dir / "best_iou.pt",
             )
@@ -241,7 +271,7 @@ def main() -> None:
             "args": vars(args),
             "epoch": args.epochs,
             "history": history,
-            "n_mics": dataset.n_mics,
+            "n_mics": train_dataset.n_mics,
         },
         ckpt_dir / "final.pt",
     )

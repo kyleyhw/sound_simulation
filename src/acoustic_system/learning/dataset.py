@@ -43,9 +43,19 @@ class ActiveSensingDataset(Dataset):
         self,
         hdf5_path: str | Path,
         target_mask_size: Optional[int] = 64,
+        augment: bool = False,
+        gain_range: Tuple[float, float] = (0.7, 1.3),
+        noise_std: float = 0.02,
     ) -> None:
         self.hdf5_path = str(hdf5_path)
         self.target_mask_size = target_mask_size
+        # Augmentation knobs. ``augment`` should be True for the training
+        # split only — held-out eval must see clean signal so the metric
+        # measures generalisation, not robustness to the augmentation
+        # distribution.
+        self.augment = bool(augment)
+        self.gain_range = gain_range
+        self.noise_std = float(noise_std)
 
         # Inventory the archive in __init__ so __len__ is cheap and the
         # sample order is deterministic. We do NOT cache an open file
@@ -89,5 +99,23 @@ class ActiveSensingDataset(Dataset):
                 size=(self.target_mask_size, self.target_mask_size),
                 mode="nearest",
             )[0, 0]
+
+        if self.augment:
+            # Per-channel gain jitter: each mic gets an independent scale
+            # in [gain_range[0], gain_range[1]]. Forces the model to attend
+            # to relative timing / spectral structure rather than absolute
+            # signal magnitude (which is a memorisable training-set
+            # artefact).
+            lo, hi = self.gain_range
+            gain = torch.empty(sensor.shape[0]).uniform_(lo, hi)
+            sensor = sensor * gain.unsqueeze(-1)
+            # Additive Gaussian noise. Standard deviation is in absolute
+            # pressure units; with the synthetic chirp at amplitude=5 the
+            # peak sensor value is O(1-5), so noise_std=0.02 is roughly
+            # 0.5-1% of signal — small enough not to dominate the
+            # acoustic structure, large enough to break exact memorisation
+            # of waveform fingerprints.
+            if self.noise_std > 0.0:
+                sensor = sensor + torch.randn_like(sensor) * self.noise_std
 
         return sensor, source, mask
