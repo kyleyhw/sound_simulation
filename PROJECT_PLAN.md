@@ -46,33 +46,37 @@ Work on each task or phase will only commence with explicit user permission.
 *   `[in-progress]` **Task 2.1 (Active Sensing): Integrate & Model Complex Audio Sources**
     *   `[completed]` 2.1.1: `AudioFileWaveform` reads `.wav` sources via linear interpolation; `dataset.py` provides random rectangular-room generation, free-cell sampling, mic-pair placement, and a streaming sensor-recording runner; `scripts/generate_active_sensing.py` writes `(stereo sensor, source, obstacle_mask)` triplets to HDF5 with a synthetic-chirp fallback for users without an audio corpus. Updated for the laptop-only constraint (memory: end-goal-laptop-only) — sensor is a 2-mic stereo pair at random orientation, not a single mic.
     *   `[completed]` 2.1.2: `DualInputCNN` in `src/acoustic_system/learning/model.py` — two parallel spectrogram-encoder branches (sensor + source) feeding a transposed-conv mask decoder. ~232k params, designed for CPU laptop training. PyTorch Dataset, BCE+Dice loss, AdamW + cosine LR training loop, IoU eval, shape-correctness gate. Smoke training (200 samples / 50 epochs) reached val IoU 0.04 (well above random); next step is to push training further on a larger dataset.
-    *   `[in-progress]` 2.1.3: Train and validate the active-sensing model. Initial long training run (10k samples, 100 epochs, AdamW + cosine schedule) underway as of 2026-05-14.
-*   `[ ]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
-    *   `[ ]` 2.2.1: Research and implement a model architecture suitable for blind deconvolution (e.g., Autoencoder, RNN).
-    *   `[ ]` 2.2.2: Train and validate the passive model, comparing its performance to the active model.
+    *   `[completed]` 2.1.3: Train and validate the active-sensing model. Two runs completed 2026-05-14 with a decisive **negative result**: baseline (10k samples, 100 epochs) reached held-out IoU 0.037 vs in-dist 0.134 — the model learned a marginal prior over obstacle locations, not the conditional map; the dropout + augmentation retry made every metric worse (held-out 0.030), confirming the failure is data under-determination, not model capacity. Single-pose 2-mic recordings do not carry enough information to constrain the mask. See `tests/reports/training_2026_05_14.md` and `training_2026_05_14_aug.md`, and `docs/learning.md`.
+    *   `[pending]` 2.1.4: Multi-pose aggregation — K (driver, mic-pair) poses per room, exploiting laptop movement instead of adding channels (fits the laptop-only hardware constraint).
+        - `[pending]` Extend `scripts/generate_active_sensing.py` to write K poses per room (shared obstacle mask, K sensor recordings).
+        - `[pending]` Quick signal: Bayesian aggregation at inference — geometric-mean the single-pose model's probability maps over K poses and compare held-out IoU against the 0.037 baseline. Requires retraining the baseline checkpoint first (~2 h CPU; the 2026-05-14 checkpoints were lost to a temp-dir cleanup — exact command in `docs/learning.md`).
+        - `[pending]` If aggregation lifts IoU: joint-pose model (shared encoder over K poses + pose-aggregation block). If not: revisit the chirp's spectral design before touching architecture.
+*   `[pending]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
+    *   `[pending]` 2.2.1: Research and implement a model architecture suitable for blind deconvolution (e.g., Autoencoder, RNN).
+    *   `[pending]` 2.2.2: Train and validate the passive model, comparing its performance to the active model.
 
 ---
 
 ### Phase 3: Beamforming Simulation (Developing the "Mouth")
 **Objective:** Create the algorithms and simulation environment for directed audio using a speaker array.
 
-*   `[ ]` **Task 3.1: Implement Speaker Array and Control Algorithm**
-    *   `[ ]` 3.1.1: Modify the simulation to support multiple, independently controlled drivers.
-    *   `[ ]` 3.1.2: Develop a `control/beamformer.py` module with a foundational beamforming algorithm.
-*   `[ ]` **Task 3.2: Validate Beamforming in Simulation**
-    *   `[ ]` 3.2.1: Create test scenarios using the interactive UI to place a speaker array and target zones.
-    *   `[ ]` 3.2.2: Verify the creation of localized sound and silence zones.
+*   `[pending]` **Task 3.1: Implement Speaker Array and Control Algorithm**
+    *   `[pending]` 3.1.1: Modify the simulation to support multiple, independently controlled drivers.
+    *   `[pending]` 3.1.2: Develop a `control/beamformer.py` module with a foundational beamforming algorithm.
+*   `[pending]` **Task 3.2: Validate Beamforming in Simulation**
+    *   `[pending]` 3.2.1: Create test scenarios using the interactive UI to place a speaker array and target zones.
+    *   `[pending]` 3.2.2: Verify the creation of localized sound and silence zones.
 
 ---
 
 ### Phase 4: Closed-Loop System Integration
 **Objective:** Connect the "Ear" and "Mouth" in a real-time feedback loop within the simulation.
 
-*   `[ ]` **Task 4.1: Develop Integrated Simulation Environment**
-    *   `[ ]` 4.1.1: Create a master script or enhance the web backend to manage the full sense-model-act loop.
-*   `[ ]` **Task 4.2: Connect Inference to Control**
-    *   `[ ]` 4.2.1: Feed the microphone data into the trained inference model (from Phase 2).
-    *   `[ ]` 4.2.2: Use the model's output (inferred RIR) as the input for the beamformer (from Phase 3).
-*   `[ ]` **Task 4.3: Validate Real-Time Adaptation**
-    *   `[ ]` 4.3.1: Use the UI to create dynamic scenarios (e.g., move a target or an obstacle).
-    *   `[ ]` 4.3.2: Verify that the system adapts the directed audio beam in response to the changes.
+*   `[pending]` **Task 4.1: Develop Integrated Simulation Environment**
+    *   `[pending]` 4.1.1: Create a master script or enhance the web backend to manage the full sense-model-act loop.
+*   `[pending]` **Task 4.2: Connect Inference to Control**
+    *   `[pending]` 4.2.1: Feed the microphone data into the trained inference model (from Phase 2).
+    *   `[pending]` 4.2.2: Use the model's output (inferred RIR) as the input for the beamformer (from Phase 3).
+*   `[pending]` **Task 4.3: Validate Real-Time Adaptation**
+    *   `[pending]` 4.3.1: Use the UI to create dynamic scenarios (e.g., move a target or an obstacle).
+    *   `[pending]` 4.3.2: Verify that the system adapts the directed audio beam in response to the changes.

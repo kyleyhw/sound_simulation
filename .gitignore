@@ -209,6 +209,10 @@ __marimo__/
 # Simulation data hdf5 files
 *.hdf5
 
+# PyTorch checkpoints (regenerable; commands recorded in docs/learning.md)
+*.pt
+checkpoints/
+
 # Playwright MCP smoke-test artifacts
 .playwright-mcp/
 
