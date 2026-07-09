@@ -6,6 +6,10 @@ This index provides an overview and links to the detailed documentation for each
 
 - [**`web_ui.md`**](./web_ui.md): Architecture, wire protocol, and operation of the interactive browser-based simulation UI (the FastAPI/Socket.IO backend in `src/acoustic_system/app/` and the React frontend in `frontend/`).
 
+## Machine learning (Phase 2)
+
+- [**`learning.md`**](./learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss, training/eval loops, and the results to date.
+
 ## Simulation engine
 
 - [**`main.py`**](./main.md): The standalone batch-mode entry point.

@@ -59,7 +59,7 @@ sound_simulation/
 ├── docs/                   # per-module docs; index at docs/index.md
 ├── PROJECT_PLAN.md
 ├── CURRENT_STATE.md
-├── environment.yml
+├── pyproject.toml
 └── README.md
 ```
 
@@ -85,9 +85,9 @@ This index provides an overview and links to the detailed documentation for each
 
 - [**`web_ui.md`**](./docs/web_ui.md): Architecture and wire protocol of the FastAPI / Socket.IO backend + React frontend that hosts the live interactive simulation.
 
-### Phase 2 (in progress)
+### Machine learning (Phase 2)
 
-The inference-side scripts (1D CNN model, PyTorch dataset, training loop) referenced in earlier revisions of this document have not yet been implemented. The data-generation infrastructure is now in place — see [`scripts/generate_active_sensing.py`](./scripts/generate_active_sensing.py) and the `dataset.py` helpers — and the CNN itself is Task 2.1.2 in [`PROJECT_PLAN.md`](./PROJECT_PLAN.md).
+- [**`learning.md`**](./docs/learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss and IoU metric, training/evaluation loops, and results to date (see also the training reports in [`tests/reports/`](./tests/reports/)).
 
 ## Dependencies & Installation
 

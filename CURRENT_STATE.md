@@ -1,82 +1,77 @@
-# Project Status as of 2026-05-14
+# Project Status as of 2026-07-09
 
 ## 1. Resolution
 
-Phase 2 active-sensing pipeline is in place end-to-end on the
-laptop-only hardware target. Stereo dataset generator, dual-input
-spectrogram CNN with mask decoder, training loop with AdamW + cosine
-LR, and per-sample IoU eval all wired together. A first long training
-run (10k samples, 100 epochs, AdamW + cosine schedule, weight decay
-1e-4) is running against the in-distribution training set; a separate
-held-out validation set is available for clean eval after.
+Phase 2 / Task 2.1.3 is **closed with a decisive negative result**, and
+the repo is prepped for Task 2.1.4 (multi-pose aggregation).
 
-The 3D volumetric simulation + Three.js volume renderer landed earlier
-this session and remains usable end-to-end (200×200×64 grids stream as
-~256 KB / frame uint8 over the socket, ray-marched in WebGL2 at >100
-FPS). Both 2D and 3D paths share the same `Simulate` engine; the 2D
-hot path uses the original numba-fused 5-point kernel, 3D the new
-fused 7-point kernel.
+Two training runs of the `DualInputCNN` completed on 2026-05-14:
 
-## 2. What changed this session
+| run | in-dist IoU | held-out IoU | report |
+| --- | --- | --- | --- |
+| baseline (10k samples, 100 epochs) | 0.134 | 0.037 | `tests/reports/training_2026_05_14.md` |
+| + dropout 0.1 + sensor augmentation (60 epochs) | 0.088 | 0.030 | `tests/reports/training_2026_05_14_aug.md` |
 
-### Engine + visualisation
-- `fused_leapfrog_step_3d` 7-point stencil (numba @njit, prange) — 3D
-  sims now run at ~0.04 ms/step at 32³, ~7.0 ms/step at 200³, ~50×
-  faster than the previous scipy fallback.
-- Backend binary uint8 streaming for 3D pressure fields via socket.io
-  binary attachments. 2D path unchanged (JSON nested-list grid).
-- Three.js volumetric renderer with the standard front-to-back alpha-
-  compositing volume integral, opacity-corrected for step-count
-  invariance. UI sliders for γ (alpha exponent), αscale, obstacle
-  alpha, ray-step count.
-- React 19 dev-mode profiler workaround: typed-array props are passed
-  via refs + a frame-counter rather than directly, so the profiler's
-  internal `performance.measure()` can't choke on deep-cloning them.
+The baseline learned a marginal prior over obstacle locations rather
+than the conditional map; regularisation removed that strategy and
+left nothing in its place (every metric got worse). Conclusion:
+**single-pose 2-mic recordings are information-limited** — the failure
+is data under-determination, not model capacity. The lever is
+multi-pose aggregation (Task 2.1.4), consistent with the laptop-only
+hardware constraint (move the laptop, don't add mics).
 
-### Phase 2 / active sensing
-- `AudioFileWaveform` + `AudioFileWaveform.from_samples` for synthetic-
-  chirp-as-source, registered in the existing waveform_registry.
-- `dataset.py` helpers: `generate_random_obstacles`,
-  `random_free_position`, `pick_mic_positions` (random-orientation
-  stereo pair), `run_with_sensors` (streaming sensor recording),
-  `synthetic_chirp` (linear-sweep fallback source).
-- `scripts/generate_active_sensing.py`: writes `(stereo recording,
-  source audio, obstacle mask)` triplets to HDF5. Channel-last
-  `sensor` dataset of shape `(T_rec, n_mics)`, plus per-sample attrs
-  for reproduction.
-- `src/acoustic_system/learning/`:
-  - `losses.py`: BCE + soft-Dice + IoU score.
-  - `dataset.py`: PyTorch Dataset wrapping the HDF5 archive.
-  - `model.py`: `DualInputCNN` (~232k params, designed for CPU).
-  - `train.py`: AdamW + cosine LR, train + val IoU tracking, two
-    checkpoints (best by val_loss, best by val_iou).
-  - `eval.py`: whole-dataset IoU + per-sample prediction grid.
-- `tests/learning/test_model.py`: forward shape, loss + backward,
-  perfect-prediction IoU sanity, mono fallback path.
+## 2. What changed this session (2026-07-09 loose-end sweep)
 
-### Hygiene + infra
-- `frontend/node_modules/` untracked (was tracked from before the
-  hygiene pass).
-- `pyproject.toml` `ml` extra: `torch>=2.4`, `torchaudio>=2.4`.
-  `uv sync --extra dev --extra ml` bootstraps; CPU wheels are the
-  default.
-
-### Project memory (in `~/.claude/projects/.../memory/`)
-- `end-goal-laptop-only.md`: stock laptop hardware constraint —
-  built-in stereo mic + speaker, optionally a webcam mic. 2-3
-  channels max. CNN architectures and dataset generators must
-  default to 2-channel input.
+- **Artifact loss discovered and mostly repaired.** The 2026-05-14
+  session wrote its datasets and checkpoints to `/tmp` (the Windows
+  temp dir), and a temp cleanup destroyed them. The datasets were
+  regenerated deterministically from their recorded seeds into
+  `data/training_data/` (`active_sensing_train_10k.hdf5`, seed 1234;
+  `active_sensing_heldout_500.hdf5`, seed 999 — exact flags recovered
+  from the session transcript and recorded in `docs/learning.md`).
+  The **trained checkpoints are not recoverable** and require a ~2 h
+  CPU retrain (exact command in `docs/learning.md`) before the
+  Bayesian-aggregation quick test can run.
+- **New convention:** datasets → `data/training_data/`, checkpoints →
+  `checkpoints/` (both gitignored; `*.pt` + `checkpoints/` rules
+  added). Never write run artifacts to `/tmp`.
+- **`docs/learning.md` written** — the learning package and the two
+  active-sensing scripts previously had no `/docs` entry. Covers the
+  inverse-problem formulation, dataset generation parameters and
+  their rationale, the architecture, BCE+Dice/IoU math, training
+  configuration, and results to date. Indexed from `docs/index.md`
+  and `README.md`.
+- **`PROJECT_PLAN.md` refreshed**: 2.1.3 marked completed with the
+  negative result; 2.1.4 (multi-pose) added with sub-tasks — it was
+  referenced by both training reports but never defined in the plan;
+  bare `[ ]` tags normalised to `[pending]`.
+- **README staleness fixed**: the "Phase 2 (in progress)" paragraph
+  claimed the CNN was unimplemented; `environment.yml` (removed long
+  ago) was still in the directory tree.
+- **Gates re-verified green**: `check_simulate.py` (2D, max_abs
+  7.8e-07), `check_simulate_3d.py` (max_abs 1.0e-07), and
+  `tests/learning/test_model.py` all pass.
 
 ## 3. Open follow-ups
 
-- **2.1.3 (in progress)**: long training run completing today. After
-  it lands: write up the IoU achieved on the held-out set and decide
-  whether to push for more epochs / more data / regularisation tweaks
-  before moving to 2.1.4.
-- **2.1.4 (next)**: temporal aggregation across multiple chirps as
-  the laptop is moved (active sensing pose). Single-shot 2-mic
-  inference is severely under-determined; the lever for higher
-  resolution is multi-pose, not more sensors.
-- The 3D web UI does not yet support 3D obstacle drawing — only the
-  generator script can author 3D scenes. Worth adding once the ML
-  side stabilises.
+- **Retrain the baseline checkpoint** (blocks 2.1.4's quick test;
+  needs explicit go-ahead per the plan's task-commencement rule):
+
+  ```bash
+  uv run python -m acoustic_system.learning.train \
+      --dataset data/training_data/active_sensing_train_10k.hdf5 \
+      --epochs 100 --batch-size 32 --lr 1e-3 --weight-decay 1e-4 \
+      --scheduler cosine --target-size 64 \
+      --ckpt-dir checkpoints/long_baseline --log-every 5 --seed 42
+  ```
+
+  Note: CPU-side nondeterminism means the retrained checkpoint will
+  reproduce the baseline's behaviour statistically, not bit-exactly;
+  re-verify held-out IoU ≈ 0.037 with `scripts/eval_and_report.py`
+  before using it as the 2.1.4 reference point.
+- **2.1.4 step 1**: extend `scripts/generate_active_sensing.py` to
+  K poses per room; then the Bayesian (geometric-mean) aggregation
+  test against the 0.037 held-out baseline. Details in
+  `PROJECT_PLAN.md` and the end of `docs/learning.md`.
+- The 3D web UI still lacks 3D obstacle drawing — only the generator
+  script can author 3D scenes. Deferred until the ML side stabilises.

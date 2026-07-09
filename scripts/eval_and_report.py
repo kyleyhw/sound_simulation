@@ -5,10 +5,14 @@ a training report.
 Usage::
 
     python scripts/eval_and_report.py \\
-        --checkpoint /tmp/long_ckpt/best_iou.pt \\
-        --indist /tmp/long_train.hdf5 \\
-        --heldout /tmp/heldout_val.hdf5 \\
+        --checkpoint checkpoints/long_baseline/best_iou.pt \\
+        --indist data/training_data/active_sensing_train_10k.hdf5 \\
+        --heldout data/training_data/active_sensing_heldout_500.hdf5 \\
         --output-dir tests/reports/training_2026_05_14_artifacts
+
+Keep datasets and checkpoints under ``data/training_data/`` and
+``checkpoints/`` (gitignored), never ``/tmp`` — temp cleanups have
+already destroyed one set of trained checkpoints (2026-05-14 runs).
 
 Writes preds_indist.png and preds_heldout.png to the output dir, and
 copies the checkpoint's loss.png alongside. Prints the summary table
