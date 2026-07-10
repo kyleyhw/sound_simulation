@@ -78,7 +78,7 @@ _SRC = _REPO_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from acoustic_system.learning.model import DualInputCNN  # noqa: E402
+from acoustic_system.learning.model import build_model  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,7 +129,7 @@ def main() -> None:
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     n_mics = int(ckpt.get("n_mics", 2))
     target_size = int(args.target_size or ckpt["args"].get("target_size", 64))
-    model = DualInputCNN(n_mics=n_mics).to(device)
+    model = build_model(str(ckpt.get("model_type", "dual")), n_mics=n_mics).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 

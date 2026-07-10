@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from acoustic_system.learning.losses import bce_dice_loss, iou_score  # noqa: E402
-from acoustic_system.learning.model import DualInputCNN  # noqa: E402
+from acoustic_system.learning.model import DualInputCNN, PassiveCNN, build_model  # noqa: E402
 
 
 def main() -> None:
@@ -71,6 +71,36 @@ def main() -> None:
         print(f"FAIL: mono path expected {expected}, got {tuple(logits_mono.shape)}")
         sys.exit(1)
     print(f"OK: mono (n_mics=1) forward returns {tuple(logits_mono.shape)}")
+
+    # Passive model (Task 2.2): sensor-only path, with and without the
+    # ignored source argument (the plumbing-compatibility contract).
+    model_passive = PassiveCNN(n_mics=n_mics)
+    logits_p1 = model_passive(sensor)
+    logits_p2 = model_passive(sensor, source)
+    if tuple(logits_p1.shape) != expected or tuple(logits_p2.shape) != expected:
+        print(
+            f"FAIL: passive expected {expected}, got "
+            f"{tuple(logits_p1.shape)} / {tuple(logits_p2.shape)}"
+        )
+        sys.exit(1)
+    if not torch.equal(logits_p1, logits_p2):
+        print("FAIL: passive forward depends on the ignored source argument")
+        sys.exit(1)
+    loss_p = bce_dice_loss(logits_p1, target)
+    loss_p.backward()
+    print(
+        f"OK: passive forward {tuple(sensor.shape)} -> {tuple(logits_p1.shape)}, "
+        f"source ignored, loss={loss_p.item():.4f} backward succeeded "
+        f"({model_passive.num_params:,} params)"
+    )
+
+    # build_model dispatch
+    if not isinstance(build_model("dual"), DualInputCNN) or not isinstance(
+        build_model("passive"), PassiveCNN
+    ):
+        print("FAIL: build_model dispatch broken")
+        sys.exit(1)
+    print("OK: build_model('dual'/'passive') dispatch")
 
     print()
     print("all CNN shape-correctness checks passed")

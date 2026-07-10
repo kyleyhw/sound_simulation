@@ -169,3 +169,65 @@ class DualInputCNN(nn.Module):
     @property
     def num_params(self) -> int:
         return sum(p.numel() for p in self.parameters())
+
+
+class PassiveCNN(nn.Module):
+    """Sensor-only obstacle-mask CNN for passive sensing (Task 2.2).
+
+    The blind-deconvolution setting: the source signal $u(t)$ is
+    unknown, so the model must infer geometry from the stereo recording
+    alone — inter-channel level/spectral structure and the reverberant
+    tail are the only cues. Architecturally this is ``DualInputCNN``
+    with the source branch amputated: the same ``SpectrogramEncoder``
+    on the ``n_mics``-channel sensor spectrogram, and the same
+    ``MaskDecoder`` (fed the single branch's ``base_ch * 4`` channels
+    instead of the concat's ``2 * base_ch * 4``). Keeping every other
+    hyperparameter identical makes the active-vs-passive comparison a
+    controlled experiment: the performance difference isolates the
+    value of knowing the source.
+
+    Known limitation, shared with the active model: the ``power=2.0``
+    spectrogram front-end discards phase, i.e. inter-channel time
+    differences (TDOA). A GCC-PHAT-style cross-correlation input
+    channel is the designated upgrade if the magnitude-only passive
+    model proves too weak; noted in ``docs/learning.md``.
+
+    ``forward`` accepts and ignores an optional ``source`` argument so
+    the training/eval plumbing can stay model-agnostic (the dataset
+    always yields the triplet; a passive model simply never looks at
+    the middle element).
+    """
+
+    def __init__(
+        self,
+        n_mics: int = 2,
+        sensor_n_fft: int = 64,
+        sensor_hop: int = 16,
+        base_ch: int = 16,
+        mid_ch: int = 64,
+        latent_size: int = 8,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.sensor_spec = T.Spectrogram(n_fft=sensor_n_fft, hop_length=sensor_hop, power=2.0)
+        self.encoder_s = SpectrogramEncoder(
+            in_channels=n_mics, base_ch=base_ch, latent_size=latent_size, dropout=dropout
+        )
+        self.decoder = MaskDecoder(in_channels=base_ch * 4, mid_ch=mid_ch)
+
+    def forward(self, sensor: torch.Tensor, source: torch.Tensor | None = None) -> torch.Tensor:
+        s_spec = torch.log1p(self.sensor_spec(sensor))
+        return self.decoder(self.encoder_s(s_spec))
+
+    @property
+    def num_params(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+
+def build_model(model_type: str, n_mics: int = 2, dropout: float = 0.0) -> nn.Module:
+    """Construct a model by checkpoint tag: 'dual' (active) or 'passive'."""
+    if model_type == "dual":
+        return DualInputCNN(n_mics=n_mics, dropout=dropout)
+    if model_type == "passive":
+        return PassiveCNN(n_mics=n_mics, dropout=dropout)
+    raise ValueError(f"unknown model_type {model_type!r}")

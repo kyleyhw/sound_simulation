@@ -42,7 +42,7 @@ from torch.utils.data import DataLoader
 
 from acoustic_system.learning.dataset import ActiveSensingDataset
 from acoustic_system.learning.losses import bce_dice_loss, iou_score
-from acoustic_system.learning.model import DualInputCNN
+from acoustic_system.learning.model import build_model
 
 if isinstance(sys.stdout, _io.TextIOWrapper):
     sys.stdout.reconfigure(line_buffering=True)
@@ -82,6 +82,16 @@ def parse_args() -> argparse.Namespace:
             "additive Gaussian noise (sigma=0.02) on the sensor recordings. Held-out "
             "validation always sees clean signal so the metric measures generalisation, "
             "not robustness to the augmentation distribution."
+        ),
+    )
+    p.add_argument(
+        "--model",
+        choices=["dual", "passive"],
+        default="dual",
+        help=(
+            "dual = DualInputCNN (active sensing: sensor + known source). "
+            "passive = PassiveCNN (Task 2.2 blind setting: sensor only; the "
+            "dataset's source is ignored)."
         ),
     )
     p.add_argument("--ckpt-dir", required=True)
@@ -153,8 +163,10 @@ def main() -> None:
         num_workers=args.num_workers,
     )
 
-    model = DualInputCNN(n_mics=train_dataset.n_mics, dropout=args.dropout).to(device)
-    print(f"[train] device={device}  params={model.num_params:,}")
+    # PassiveCNN.forward accepts-and-ignores the source argument, so the
+    # train/val loops below stay identical across model types.
+    model = build_model(args.model, n_mics=train_dataset.n_mics, dropout=args.dropout).to(device)
+    print(f"[train] model={args.model}  device={device}  params={model.num_params:,}")
     print(
         f"[train] dataset n_total={n_total} n_train={n_train} n_val={n_val} "
         f"n_mics={train_dataset.n_mics} T_rec={train_dataset.t_rec} T_audio={train_dataset.t_audio}"
@@ -242,6 +254,7 @@ def main() -> None:
             torch.save(
                 {
                     "model": model.state_dict(),
+                    "model_type": args.model,
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
@@ -256,6 +269,7 @@ def main() -> None:
             torch.save(
                 {
                     "model": model.state_dict(),
+                    "model_type": args.model,
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
@@ -268,6 +282,7 @@ def main() -> None:
     torch.save(
         {
             "model": model.state_dict(),
+            "model_type": args.model,
             "args": vars(args),
             "epoch": args.epochs,
             "history": history,
