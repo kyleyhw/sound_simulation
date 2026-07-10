@@ -15,6 +15,7 @@ This index provides an overview and links to the detailed documentation for each
 - [**`main.py`**](./main.md): The standalone batch-mode entry point.
 - [**`simulate.py`**](./simulate.md): The step-at-a-time FDTD engine (`Simulate` class).
 - [**`calculate.py`**](./calculate.md): The discrete Laplacian kernel.
+- [**`calculate_gpu.py`**](./gpu.md): The CUDA (CuPy) backend — GPU twins of the fused kernels, transfer strategy, gates and benchmarks.
 - [**`setup.py`**](./setup.md): `Driver` and `Sensor` definitions.
 - [**`waveforms.py`**](./waveforms.md): Source waveforms (Cosine, GaussianPulse, RickerWavelet).
 - [**`boundary.py`**](./boundary.md): Boundary-condition scaffold.
