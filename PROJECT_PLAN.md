@@ -34,9 +34,9 @@ Work on each task or phase will only commence with explicit user permission.
 *   `[completed]` **Task 1.4: Enable Live Interaction**
     *   `[completed]` 1.4.1: `Simulate` exposes `set_obstacle`, `clear_obstacles`, `add_driver`, `remove_driver`, `set_drivers`; the fast-path driver cache is refreshed on every mutation; obstacle scrub is gated by `_has_obstacles` so the no-obstacle path is bit-identical to the pre-feature numerics.
     *   `[completed]` 1.4.2: Socket events + `status` payload (`obstacles`, `drivers`) keep the UI synchronised with backend geometry. Smoke-tested with Playwright on 2026-05-13.
-*   `[pending]` **Task 1.5: Implement GPU Acceleration**
-    *   `[pending]` 1.5.1: Integrate CuPy into the core simulation logic, replacing NumPy operations in `calculate.py` with their GPU-accelerated counterparts.
-    *   `[pending]` 1.5.2: Ensure efficient data transfer between the CPU and GPU.
+*   `[completed]` **Task 1.5: Implement GPU Acceleration**
+    *   `[completed]` 1.5.1: `Simulate(backend="gpu")` binds CUDA `RawKernel` twins of the fused 2D/3D leap-frog kernels (`calculate_gpu.py`); `step()` is shared verbatim between backends so all ordering contracts hold on both. GPU-vs-CPU gate green at ~1e-6 relative L2; speedups on an RTX 2070 SUPER: 13.2× at 2048² (2D), 16.7× at 200³ (3D), crossover between 256² and 512². See `docs/gpu.md` and `tests/reports/gpu_backend_2026_07_10.md`.
+    *   `[completed]` 1.5.2: Zero host↔device transfers in the step path (device-resident buffer rotation); explicit transfer points only — `set_obstacle_mask()` bulk upload, `p_host()` readback at output cadence.
 
 ---
 
@@ -47,13 +47,13 @@ Work on each task or phase will only commence with explicit user permission.
     *   `[completed]` 2.1.1: `AudioFileWaveform` reads `.wav` sources via linear interpolation; `dataset.py` provides random rectangular-room generation, free-cell sampling, mic-pair placement, and a streaming sensor-recording runner; `scripts/generate_active_sensing.py` writes `(stereo sensor, source, obstacle_mask)` triplets to HDF5 with a synthetic-chirp fallback for users without an audio corpus. Updated for the laptop-only constraint (memory: end-goal-laptop-only) — sensor is a 2-mic stereo pair at random orientation, not a single mic.
     *   `[completed]` 2.1.2: `DualInputCNN` in `src/acoustic_system/learning/model.py` — two parallel spectrogram-encoder branches (sensor + source) feeding a transposed-conv mask decoder. ~232k params, designed for CPU laptop training. PyTorch Dataset, BCE+Dice loss, AdamW + cosine LR training loop, IoU eval, shape-correctness gate. Smoke training (200 samples / 50 epochs) reached val IoU 0.04 (well above random); next step is to push training further on a larger dataset.
     *   `[completed]` 2.1.3: Train and validate the active-sensing model. Two runs completed 2026-05-14 with a decisive **negative result**: baseline (10k samples, 100 epochs) reached held-out IoU 0.037 vs in-dist 0.134 — the model learned a marginal prior over obstacle locations, not the conditional map; the dropout + augmentation retry made every metric worse (held-out 0.030), confirming the failure is data under-determination, not model capacity. Single-pose 2-mic recordings do not carry enough information to constrain the mask. See `tests/reports/training_2026_05_14.md` and `training_2026_05_14_aug.md`, and `docs/learning.md`.
-    *   `[pending]` 2.1.4: Multi-pose aggregation — K (driver, mic-pair) poses per room, exploiting laptop movement instead of adding channels (fits the laptop-only hardware constraint).
-        - `[pending]` Extend `scripts/generate_active_sensing.py` to write K poses per room (shared obstacle mask, K sensor recordings).
-        - `[pending]` Quick signal: Bayesian aggregation at inference — geometric-mean the single-pose model's probability maps over K poses and compare held-out IoU against the 0.037 baseline. Requires retraining the baseline checkpoint first (~2 h CPU; the 2026-05-14 checkpoints were lost to a temp-dir cleanup — exact command in `docs/learning.md`).
-        - `[pending]` If aggregation lifts IoU: joint-pose model (shared encoder over K poses + pose-aggregation block). If not: revisit the chirp's spectral design before touching architecture.
-*   `[pending]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
-    *   `[pending]` 2.2.1: Research and implement a model architecture suitable for blind deconvolution (e.g., Autoencoder, RNN).
-    *   `[pending]` 2.2.2: Train and validate the passive model, comparing its performance to the active model.
+    *   `[in-progress]` 2.1.4: Multi-pose aggregation — K (driver, mic-pair) poses per room, exploiting laptop movement instead of adding channels (fits the laptop-only hardware constraint).
+        - `[completed]` 2.1.4a: `--poses-per-room K` in `scripts/generate_active_sensing.py` (K=1 byte-identical to the original layout); `ActiveSensingDataset` reads multi-pose archives flattened (per-pose) or room-level (joint).
+        - `[completed]` 2.1.4b: Bayesian aggregation at inference — **gate passed**. Baseline checkpoint retrained and verified (in-dist 0.1340 / held-out 0.0374 vs the lost original's 0.134 / 0.037); prior-corrected Bayes fusion lifts held-out IoU 0.038 → 0.092 monotonically in K (2.4× at K=8, unsaturated), quantitatively confirming under-determination. Prior-neutral rules collapse (under-confident model). See `tests/reports/multipose_2026_07_10.md`.
+        - `[in-progress]` 2.1.4c: `JointPoseCNN` — shared pose encoder + mean-pooled latents (permutation-invariant, K-agnostic), identical param count to the single-pose model for a controlled comparison. Training on 10k rooms × 4 poses underway 2026-07-10; eval vs the Bayes-fusion floor (held-out 0.092 @ K=8) to follow.
+*   `[completed]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
+    *   `[completed]` 2.2.1: `PassiveCNN` — the active model minus the source branch (198,529 params, all other hyperparameters identical, so active-vs-passive isolates the value of source knowledge). Honest blind setting via `--randomize-source` (per-sample random chirp endpoints). Known limitation: the power-spectrogram front-end discards phase/TDOA; GCC-PHAT input channel is the designated upgrade.
+    *   `[completed]` 2.2.2: Trained and compared under matched conditions: passive in-dist 0.099 / held-out 0.030 vs active 0.134 / 0.037 — source knowledge is worth little in the single-pose regime; pose diversity dominates (Bayes fusion at K=8 beats both). See `tests/reports/passive_2026_07_10.md`.
 
 ---
 
