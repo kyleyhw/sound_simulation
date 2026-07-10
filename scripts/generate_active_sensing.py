@@ -14,7 +14,8 @@ given a multi-channel microphone recording and a reference of the source
 audio that was played, reconstruct the room geometry. Producing diverse
 $(\\mathbf{s}, u, M)$ triplets is what this script does.
 
-Wire-side layout per HDF5 group::
+Wire-side layout per HDF5 group (single-pose, ``--poses-per-room 1``,
+the default — identical to the original format)::
 
     /sample_NNNN/
         attrs: grid_shape, wavespeed, timestep, gridstep, courant,
@@ -24,6 +25,24 @@ Wire-side layout per HDF5 group::
         sensor    (float32, shape (T_rec, n_mics))   -- channel-last
         source    (float32, shape (N_audio_samples,))
         obstacles (uint8,   shape grid_shape)
+
+Multi-pose layout (``--poses-per-room K`` with K > 1, Task 2.1.4): the
+room (obstacle mask) and the source audio are shared across K poses;
+each pose is an independent (driver, mic-pair) placement — the physical
+picture is a laptop carried to K spots in the same room, chirping and
+recording at each. Additional/changed fields::
+
+    /sample_NNNN/
+        attrs: poses_per_room = K,
+               driver_positions   (K, dims)          -- one row per pose
+               sensor_positions   (K, n_mics, dims)
+        sensor    (float32, shape (K, T_rec, n_mics))
+
+The inverse problem then conditions on all K measurements jointly,
+$p(M \\mid \\{\\mathbf{s}_k\\}_{k=1}^K, u)$: each pose constrains the
+map from a different geometric vantage, which is the information the
+single-pose experiments (tests/reports/training_2026_05_14*.md) showed
+was missing.
 
 Usage::
 
@@ -221,6 +240,17 @@ def main() -> None:
             "Random orientation per sample. Ignored when n_mics=1."
         ),
     )
+    parser.add_argument(
+        "--poses-per-room",
+        type=int,
+        default=1,
+        help=(
+            "Number of independent (driver, mic-pair) poses recorded in each "
+            "room (Task 2.1.4). 1 (default) writes the original single-pose "
+            "layout byte-for-byte; K > 1 writes a pose-major 'sensor' dataset "
+            "of shape (K, T_rec, n_mics) with plural position attrs."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
     parser.add_argument("--verbose", action="store_true", help="Print per-sample status to stderr.")
     args = parser.parse_args()
@@ -256,6 +286,11 @@ def main() -> None:
         hf.attrs["audio_dir"] = args.audio_dir or ""
         hf.attrs["num_samples_requested"] = int(args.num_samples)
 
+        n_poses = int(args.poses_per_room)
+        if n_poses < 1:
+            raise SystemExit("--poses-per-room must be >= 1")
+        hf.attrs["poses_per_room"] = n_poses
+
         for s in range(int(args.num_samples)):
             obstacle_mask = generate_random_obstacles(
                 grid_shape=(args.grid, args.grid),
@@ -264,18 +299,31 @@ def main() -> None:
                 max_size=args.obstacle_max,
                 rng=rng,
             )
-            driver_pos = random_free_position(
-                grid_shape=(args.grid, args.grid),
-                obstacle_mask=obstacle_mask,
-                rng=rng,
-            )
-            mic_positions = pick_mic_positions(
-                grid_shape=(args.grid, args.grid),
-                obstacle_mask=obstacle_mask,
-                n_mics=args.n_mics,
-                spacing=args.mic_spacing,
-                rng=rng,
-            )
+            # Per-pose placements. The RNG draw order (driver, then mics,
+            # pose by pose, THEN source) reduces exactly to the original
+            # order at K=1, so seeded single-pose archives reproduce the
+            # pre-multi-pose files bit-for-bit.
+            driver_positions = []
+            mic_positions_per_pose = []
+            for _ in range(n_poses):
+                driver_positions.append(
+                    random_free_position(
+                        grid_shape=(args.grid, args.grid),
+                        obstacle_mask=obstacle_mask,
+                        rng=rng,
+                    )
+                )
+                mic_positions_per_pose.append(
+                    pick_mic_positions(
+                        grid_shape=(args.grid, args.grid),
+                        obstacle_mask=obstacle_mask,
+                        n_mics=args.n_mics,
+                        spacing=args.mic_spacing,
+                        rng=rng,
+                    )
+                )
+            # One source per room, shared by all poses: the physical story
+            # is one device playing the same excitation at K spots.
             wf, source_samples, source_fs, source_label = build_source(
                 audio_files=audio_files,
                 rng=rng,
@@ -283,9 +331,13 @@ def main() -> None:
                 sim_duration_steps=args.duration,
                 args=args,
             )
+            # One Simulate per room, reset between poses. reset() zeroes
+            # the fields and the clock but keeps geometry, so each pose
+            # sees a numerically fresh run in the same room without paying
+            # obstacle re-upload.
             sim = Simulate(
                 grid_shape=(args.grid, args.grid),
-                drivers=[Driver(position=driver_pos, waveform=wf)],
+                drivers=[],
                 wavespeed=args.wavespeed,
                 gridstep=args.gridstep,
                 courant=args.courant,
@@ -296,13 +348,20 @@ def main() -> None:
             mask_idx = np.argwhere(obstacle_mask)
             if mask_idx.size:
                 sim.set_obstacle([tuple(int(c) for c in row) for row in mask_idx])
-            sensors = [Sensor(position=p) for p in mic_positions]
-            recordings = run_with_sensors(
-                sim=sim,
-                duration=args.duration,
-                sensors=sensors,
-                record_step=args.record_step,
-            )
+
+            recordings_per_pose = []
+            for k in range(n_poses):
+                sim.reset()
+                sim.set_drivers([Driver(position=driver_positions[k], waveform=wf)])
+                sensors = [Sensor(position=p) for p in mic_positions_per_pose[k]]
+                recordings_per_pose.append(
+                    run_with_sensors(
+                        sim=sim,
+                        duration=args.duration,
+                        sensors=sensors,
+                        record_step=args.record_step,
+                    )
+                )
 
             grp = hf.create_group(f"sample_{s:04d}")
             grp.attrs["grid_shape"] = (args.grid, args.grid)
@@ -310,9 +369,18 @@ def main() -> None:
             grp.attrs["gridstep"] = float(args.gridstep)
             grp.attrs["timestep"] = float(sim.timestep)
             grp.attrs["courant"] = float(args.courant)
-            grp.attrs["driver_position"] = list(driver_pos)
-            # Sensor positions: one row per mic, columns are spatial dims.
-            grp.attrs["sensor_positions"] = np.asarray(mic_positions, dtype=np.int32)
+            if n_poses == 1:
+                # Original single-pose layout, byte-for-byte.
+                grp.attrs["driver_position"] = list(driver_positions[0])
+                # Sensor positions: one row per mic, columns are spatial dims.
+                grp.attrs["sensor_positions"] = np.asarray(
+                    mic_positions_per_pose[0], dtype=np.int32
+                )
+            else:
+                grp.attrs["poses_per_room"] = n_poses
+                grp.attrs["driver_positions"] = np.asarray(driver_positions, dtype=np.int32)
+                # (K, n_mics, dims): pose-major stack of the per-pose mic rows.
+                grp.attrs["sensor_positions"] = np.asarray(mic_positions_per_pose, dtype=np.int32)
             grp.attrs["n_mics"] = int(args.n_mics)
             grp.attrs["mic_spacing"] = float(args.mic_spacing)
             grp.attrs["audio_path"] = source_label
@@ -321,8 +389,12 @@ def main() -> None:
             grp.attrs["audio_amplitude"] = float(args.audio_amplitude)
             grp.attrs["sim_duration_steps"] = int(args.duration)
             grp.attrs["record_step"] = int(args.record_step)
-            # Channel-last: sensor[t, m] = pressure at mic m, time-step t.
-            grp.create_dataset("sensor", data=recordings, compression="gzip")
+            # Channel-last: sensor[..., t, m] = pressure at mic m, step t;
+            # multi-pose archives carry a leading pose axis.
+            sensor_out = (
+                recordings_per_pose[0] if n_poses == 1 else np.stack(recordings_per_pose, axis=0)
+            )
+            grp.create_dataset("sensor", data=sensor_out, compression="gzip")
             grp.create_dataset("source", data=source_samples, compression="gzip")
             grp.create_dataset(
                 "obstacles",
@@ -331,12 +403,12 @@ def main() -> None:
             )
             if args.verbose:
                 elapsed = time.perf_counter() - t0
-                mic_str = ", ".join(str(tuple(p)) for p in mic_positions)
+                mic_str = ", ".join(str(tuple(p)) for p in mic_positions_per_pose[0])
                 print(
                     f"[active-sensing] sample {s + 1:4d}/{args.num_samples} "
-                    f"driver={driver_pos} mics=[{mic_str}] "
+                    f"poses={n_poses} driver0={driver_positions[0]} mics0=[{mic_str}] "
                     f"obstacles={int(obstacle_mask.sum())} "
-                    f"peak_rec={float(np.max(np.abs(recordings))):.3e} "
+                    f"peak_rec={float(np.max(np.abs(sensor_out))):.3e} "
                     f"elapsed={elapsed:.1f}s",
                     file=sys.stderr,
                 )

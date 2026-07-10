@@ -11,6 +11,16 @@ the ``DualInputCNN``:
   resized from the native obstacle resolution via nearest-neighbour
   interpolation so the model output head can be a fixed size
   irrespective of the dataset's grid.
+
+Multi-pose archives (``--poses-per-room K > 1``, Task 2.1.4) are
+**flattened**: each of a room's K poses is yielded as an independent
+``(sensor, source, mask)`` sample sharing the room's mask, so the
+single-pose model trains/evaluates on them unchanged. The flat index
+is pose-major within room: ``index = room_idx * K + pose_idx`` with
+rooms in sorted key order — deterministic, so downstream aggregation
+(e.g. the Bayesian multi-pose eval) can regroup poses by room from
+the flat index alone. Joint-pose training, which needs all K poses in
+one tensor, is a separate reader (Task 2.1.4c).
 """
 
 from __future__ import annotations
@@ -69,17 +79,32 @@ class ActiveSensingDataset(Dataset):
             # Probe the first sample to record per-dataset metadata.
             grp = f[self.sample_keys[0]]
             self.n_mics: int = int(grp.attrs.get("n_mics", 1))
-            self.t_rec: int = int(np.asarray(grp["sensor"]).shape[0])
+            # Pose axis: single-pose archives store sensor as (T_rec,
+            # n_mics); multi-pose as (K, T_rec, n_mics). The file-level
+            # attr is authoritative when present; the ndim check keeps
+            # pre-attr archives working.
+            sensor_shape = grp["sensor"].shape
+            self.poses_per_room: int = int(f.attrs.get("poses_per_room", 1))
+            if len(sensor_shape) == 3:
+                self.poses_per_room = int(sensor_shape[0])
+            self.t_rec: int = int(sensor_shape[-2])
             self.t_audio: int = int(np.asarray(grp["source"]).shape[0])
             self.native_mask_shape: Tuple[int, int] = tuple(np.asarray(grp["obstacles"]).shape)  # type: ignore[assignment]
 
     def __len__(self) -> int:
-        return len(self.sample_keys)
+        return len(self.sample_keys) * self.poses_per_room
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Pose-major flat index within sorted room order (see module
+        # docstring): room = index // K, pose = index % K.
+        room_idx, pose_idx = divmod(int(index), self.poses_per_room)
         with h5py.File(self.hdf5_path, "r") as f:
-            grp = f[self.sample_keys[index]]
-            sensor_np = np.asarray(grp["sensor"], dtype=np.float32)  # (T_rec, n_mics)
+            grp = f[self.sample_keys[room_idx]]
+            sensor_ds = grp["sensor"]
+            if sensor_ds.ndim == 3:  # multi-pose: (K, T_rec, n_mics)
+                sensor_np = np.asarray(sensor_ds[pose_idx], dtype=np.float32)
+            else:  # single-pose: (T_rec, n_mics)
+                sensor_np = np.asarray(sensor_ds, dtype=np.float32)
             source_np = np.asarray(grp["source"], dtype=np.float32)  # (T_audio,)
             mask_np = np.asarray(grp["obstacles"], dtype=np.float32)  # (H, W)
 

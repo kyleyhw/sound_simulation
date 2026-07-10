@@ -59,6 +59,43 @@ Parameter rationale:
 | `--n-obstacles 3`, sizes 4–14 | | rooms 5–15 % occupied — sparse enough that the empty-room prior is nontrivial to beat, dense enough that reflections carry geometry information |
 | seeds 1234 / 999 | train / held-out | disjoint RNG streams make the held-out set a true distribution-level generalisation test, not a random split of the same draw |
 
+### Multi-pose archives (Task 2.1.4)
+
+`--poses-per-room K` records K independent (driver, mic-pair) poses in
+each room — the physical picture is one laptop carried to K spots,
+chirping and recording at each. The room's obstacle mask and source
+audio are shared; `sensor` gains a leading pose axis `(K, T_rec,
+n_mics)` and the position attrs become plural (`driver_positions`
+`(K, dims)`, `sensor_positions` `(K, n_mics, dims)`). `K = 1` (the
+default) writes the original single-pose layout byte-for-byte —
+verified against pre-extension archives — so all single-pose commands
+above are unaffected. `ActiveSensingDataset` flattens multi-pose
+archives pose-major (`index = room · K + pose`), so the single-pose
+model trains and evaluates on them unchanged.
+
+The multi-pose held-out set used by the aggregation experiment:
+
+```bash
+uv run python scripts/generate_active_sensing.py \
+    --output data/training_data/active_sensing_heldout_multipose_500x8.hdf5 \
+    --num-samples 500 --poses-per-room 8 --grid 64 --duration 200 \
+    --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 \
+    --n-mics 2 --mic-spacing 12 --seed 424242
+```
+
+K = 8 lets one archive score every $K \in \{1, 2, 4, 8\}$ by prefix
+subsets of the pose axis (K = 1 doubles as the single-pose baseline on
+the same rooms); seed 424242 is disjoint from both the training stream
+(1234) and the single-pose held-out stream (999).
+
+`scripts/eval_multipose.py` fuses per-pose predictions from a
+single-pose checkpoint without retraining, comparing three rules:
+geometric-mean pooling $\sigma(\frac{1}{K}\sum_k \ell_k)$ (logit
+averaging, the report's recommendation), the Bayes product rule
+$\sigma(\sum_k \ell_k - (K-1)\,\mathrm{logit}\,\hat\pi)$ with
+$\hat\pi$ the mean obstacle fraction, and arithmetic-mean (mixture)
+pooling. See the script docstring for the derivations and caveats.
+
 **Artifact persistence convention.** Datasets and checkpoints live under
 `data/training_data/` and `checkpoints/` (both gitignored — `*.hdf5`, `*.pt`).
 Do **not** write them to `/tmp`: the 2026-05-14 run's artifacts were written to
