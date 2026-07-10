@@ -15,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from acoustic_system.learning.losses import bce_dice_loss, iou_score  # noqa: E402
-from acoustic_system.learning.model import DualInputCNN, PassiveCNN, build_model  # noqa: E402
+from acoustic_system.learning.model import (  # noqa: E402
+    DualInputCNN,
+    JointPoseCNN,
+    PassiveCNN,
+    build_model,
+)
 
 
 def main() -> None:
@@ -94,13 +99,51 @@ def main() -> None:
         f"({model_passive.num_params:,} params)"
     )
 
+    # Joint-pose model (Task 2.1.4c): K-pose input, permutation
+    # invariance, K-agnosticism, single-pose (3D input) degradation.
+    model_joint = JointPoseCNN(n_mics=n_mics)
+    k = 4
+    sensor_k = torch.randn(batch, k, n_mics, t_rec)
+    model_joint.eval()  # deterministic forward for the invariance checks
+    with torch.no_grad():
+        logits_j = model_joint(sensor_k, source)
+        # Permutation invariance: shuffling poses must not change output.
+        perm = torch.randperm(k)
+        logits_perm = model_joint(sensor_k[:, perm], source)
+        # K-agnostic: a K=2 subset must run through the same weights.
+        logits_k2 = model_joint(sensor_k[:, :2], source)
+        # Single-pose (B, M, T) treated as K=1.
+        logits_k1 = model_joint(sensor, source)
+    if tuple(logits_j.shape) != expected or tuple(logits_k2.shape) != expected:
+        print(f"FAIL: joint expected {expected}, got {tuple(logits_j.shape)}")
+        sys.exit(1)
+    if not torch.allclose(logits_j, logits_perm, atol=1e-5):
+        print("FAIL: joint model is not permutation-invariant over poses")
+        sys.exit(1)
+    if tuple(logits_k1.shape) != expected:
+        print(f"FAIL: joint K=1 fallback expected {expected}, got {tuple(logits_k1.shape)}")
+        sys.exit(1)
+    loss_j = bce_dice_loss(model_joint(sensor_k, source), target)
+    loss_j.backward()
+    print(
+        f"OK: joint forward (B={batch}, K={k}) -> {tuple(logits_j.shape)}, "
+        f"pose-permutation invariant, K-agnostic (K=2, K=1 OK), "
+        f"loss={loss_j.item():.4f} backward succeeded ({model_joint.num_params:,} params)"
+    )
+    if model_joint.num_params != DualInputCNN(n_mics=n_mics).num_params:
+        print("FAIL: joint and dual param counts differ — comparison no longer controlled")
+        sys.exit(1)
+    print("OK: joint param count == dual param count (controlled comparison)")
+
     # build_model dispatch
-    if not isinstance(build_model("dual"), DualInputCNN) or not isinstance(
-        build_model("passive"), PassiveCNN
+    if (
+        not isinstance(build_model("dual"), DualInputCNN)
+        or not isinstance(build_model("passive"), PassiveCNN)
+        or not isinstance(build_model("joint"), JointPoseCNN)
     ):
         print("FAIL: build_model dispatch broken")
         sys.exit(1)
-    print("OK: build_model('dual'/'passive') dispatch")
+    print("OK: build_model('dual'/'passive'/'joint') dispatch")
 
     print()
     print("all CNN shape-correctness checks passed")

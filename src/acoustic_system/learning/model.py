@@ -224,10 +224,89 @@ class PassiveCNN(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
+class JointPoseCNN(nn.Module):
+    """K-pose sensor + source -> obstacle mask (Task 2.1.4c).
+
+    The learned counterpart of the Bayes fusion that passed the 2.1.4b
+    decision gate (tests/reports/multipose_2026_07_10.md): there, K
+    single-pose predictions fused by a prior-corrected logit sum lifted
+    held-out IoU 2.4x. Here the fusion happens in latent space and is
+    trained end-to-end:
+
+        sensor (B, K, n_mics, T) ── shared STFT+Encoder_s per pose ── (B, K, C, L, L)
+                                                    │ mean over K
+                                                    ▼
+                                              (B, C, L, L) ──┐
+        source (B, 1, T_aud)     ── STFT ── Encoder_u ────────┴─ concat ─ Decoder ─ logits
+
+    Design choices:
+
+    - **Shared encoder** across poses: pose index carries no meaning
+      (placements are i.i.d.), so per-pose weights would only multiply
+      parameters K-fold and break permutation symmetry.
+    - **Mean pooling** over the pose axis: permutation-invariant and
+      K-agnostic, so a model trained at K=4 evaluates at any K (the
+      2.1.4b curve was still rising at K=8 — inference can exploit
+      more poses than training saw). Mean rather than sum keeps the
+      latent scale K-independent; the evidence-accumulation role of
+      the Bayes logit *sum* is available to the network through the
+      decoder's weights, without hard-coding a fusion rule.
+    - Everything else (STFT settings, encoder/decoder shapes) is
+      identical to ``DualInputCNN``, so single-pose vs joint-pose is a
+      controlled comparison — same parameter count, same capacity;
+      only the pose information differs.
+
+    ``forward`` also accepts single-pose input ``(B, n_mics, T)`` and
+    treats it as K=1, so the model degrades gracefully to the
+    single-pose setting.
+    """
+
+    def __init__(
+        self,
+        n_mics: int = 2,
+        sensor_n_fft: int = 64,
+        sensor_hop: int = 16,
+        source_n_fft: int = 512,
+        source_hop: int = 256,
+        base_ch: int = 16,
+        mid_ch: int = 64,
+        latent_size: int = 8,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.sensor_spec = T.Spectrogram(n_fft=sensor_n_fft, hop_length=sensor_hop, power=2.0)
+        self.source_spec = T.Spectrogram(n_fft=source_n_fft, hop_length=source_hop, power=2.0)
+        self.encoder_s = SpectrogramEncoder(
+            in_channels=n_mics, base_ch=base_ch, latent_size=latent_size, dropout=dropout
+        )
+        self.encoder_u = SpectrogramEncoder(
+            in_channels=1, base_ch=base_ch, latent_size=latent_size, dropout=dropout
+        )
+        self.decoder = MaskDecoder(in_channels=2 * base_ch * 4, mid_ch=mid_ch)
+
+    def forward(self, sensor: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
+        if sensor.dim() == 3:  # (B, n_mics, T) -> K=1
+            sensor = sensor.unsqueeze(1)
+        b, k, m, t = sensor.shape
+        # Fold poses into the batch for one shared encoder pass, then
+        # mean-pool the per-pose latents back out.
+        s_spec = torch.log1p(self.sensor_spec(sensor.reshape(b * k, m, t)))
+        s_lat = self.encoder_s(s_spec)
+        s_lat = s_lat.reshape(b, k, *s_lat.shape[1:]).mean(dim=1)
+        u_lat = self.encoder_u(torch.log1p(self.source_spec(source)))
+        return self.decoder(torch.cat([s_lat, u_lat], dim=1))
+
+    @property
+    def num_params(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+
 def build_model(model_type: str, n_mics: int = 2, dropout: float = 0.0) -> nn.Module:
-    """Construct a model by checkpoint tag: 'dual' (active) or 'passive'."""
+    """Construct a model by checkpoint tag: 'dual', 'passive', or 'joint'."""
     if model_type == "dual":
         return DualInputCNN(n_mics=n_mics, dropout=dropout)
     if model_type == "passive":
         return PassiveCNN(n_mics=n_mics, dropout=dropout)
+    if model_type == "joint":
+        return JointPoseCNN(n_mics=n_mics, dropout=dropout)
     raise ValueError(f"unknown model_type {model_type!r}")

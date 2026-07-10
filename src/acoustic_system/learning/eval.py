@@ -47,11 +47,15 @@ def main() -> None:
     target_size = int(ckpt["args"].get("target_size", 64))
     # 'model_type' was added with the passive model; older checkpoints
     # are all DualInputCNN.
-    model = build_model(str(ckpt.get("model_type", "dual")), n_mics=n_mics).to(device)
+    model_type = str(ckpt.get("model_type", "dual"))
+    model = build_model(model_type, n_mics=n_mics).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 
-    dataset = ActiveSensingDataset(args.dataset, target_mask_size=target_size)
+    # Joint-pose checkpoints consume whole rooms; others per-pose samples.
+    dataset = ActiveSensingDataset(
+        args.dataset, target_mask_size=target_size, flatten_poses=model_type != "joint"
+    )
     loader = DataLoader(dataset, batch_size=8, shuffle=False)
 
     # ---- whole-dataset IoU --------------------------------------------
