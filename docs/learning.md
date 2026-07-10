@@ -96,6 +96,43 @@ $\sigma(\sum_k \ell_k - (K-1)\,\mathrm{logit}\,\hat\pi)$ with
 $\hat\pi$ the mean obstacle fraction, and arithmetic-mean (mixture)
 pooling. See the script docstring for the derivations and caveats.
 
+**Decision-gate outcome
+([multipose_2026_07_10.md](../tests/reports/multipose_2026_07_10.md)):
+the gate passed.** Bayes fusion lifted held-out IoU 0.038 → 0.092
+monotonically in K (2.4× at K=8, unsaturated); the prior-neutral rules
+collapsed because the single-pose model is systematically
+under-confident about obstacles, which only the prior-corrected rule
+compensates. This quantitatively confirmed under-determination and
+motivated the joint-pose model.
+
+### Joint-pose model (Task 2.1.4c)
+
+`JointPoseCNN` moves the fusion into latent space and trains it end to
+end: the sensor encoder is shared across the K poses (placements are
+i.i.d., so pose index carries no meaning), the per-pose latents are
+**mean-pooled** — permutation-invariant and K-agnostic, so a model
+trained at K=4 evaluates at any K — and the pooled latent is
+concatenated with the source latent and decoded as before. Parameter
+count is identical to `DualInputCNN` (232,337), making single-pose vs
+joint-pose a controlled comparison in which only the pose information
+differs. Training consumes room-level samples
+(`ActiveSensingDataset(..., flatten_poses=False)`, sensor
+`(K, n_mics, T_rec)`):
+
+```bash
+uv run python scripts/generate_active_sensing.py \
+    --output data/training_data/active_sensing_train_multipose_10kx4.hdf5 \
+    --num-samples 10000 --poses-per-room 4 --grid 64 --duration 200 \
+    --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 \
+    --n-mics 2 --mic-spacing 12 --seed 31415
+
+uv run python -m acoustic_system.learning.train \
+    --dataset data/training_data/active_sensing_train_multipose_10kx4.hdf5 \
+    --model joint --epochs 100 --batch-size 32 --lr 1e-3 \
+    --weight-decay 1e-4 --scheduler cosine --target-size 64 \
+    --ckpt-dir checkpoints/joint_baseline --log-every 5 --seed 42
+```
+
 **Artifact persistence convention.** Datasets and checkpoints live under
 `data/training_data/` and `checkpoints/` (both gitignored — `*.hdf5`, `*.pt`).
 Do **not** write them to `/tmp`: the 2026-05-14 run's artifacts were written to
