@@ -45,6 +45,8 @@ Renders a 256×256 / 500-step run with two cosine drivers and three sensors, the
 python tests/perf/check_simulate.py     # field equality vs reference.npz (atol 1e-5, rtol 1e-4); also asserts reset() and the CFL RuntimeWarning
 python tests/perf/bench_simulate.py --grid 512 --steps 1000 --trials 5
 python tests/perf/make_reference.py     # ONLY on the protected baseline — regenerates the snapshot candidates must match
+python tests/perf/check_simulate_gpu.py # GPU backend vs CPU backend end-state equality (needs --extra gpu + CUDA device)
+python tests/perf/bench_simulate_gpu.py --steps 500 --trials 5   # CPU-vs-GPU speedup sweep
 ```
 
 `tests/perf/reference.npz` is the truth that candidate kernel implementations must reproduce. Do not regenerate it from a modified branch.
@@ -56,6 +58,8 @@ Managed by `uv` with `pyproject.toml` + `uv.lock`. To bootstrap:
 ```
 uv sync --extra dev
 ```
+
+Optional extras: `--extra ml` (torch/torchaudio for Phase 2 training), `--extra gpu` (cupy-cuda12x for the `backend="gpu"` FDTD path; needs an NVIDIA driver ≥ 525).
 
 This creates `.venv/` and installs the project editable, so `import acoustic_system` works from anywhere. Run commands inside the env with `uv run <cmd>` (e.g. `uv run python tests/perf/check_simulate.py`).
 

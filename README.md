@@ -72,6 +72,7 @@ This index provides an overview and links to the detailed documentation for each
 - [**`main.py`**](./docs/main.md): The main entry point for running a predefined simulation.
 - [**`simulate.py`**](./docs/simulate.md): The main simulation driver, containing the time-stepping loop.
 - [**`calculate.py`**](./docs/calculate.md): Contains the core Laplacian calculation kernel.
+- [**`calculate_gpu.py`**](./docs/gpu.md): CUDA (CuPy) backend — GPU twins of the fused FDTD kernels (`backend="gpu"` on `Simulate`).
 - [**`setup.py`**](./docs/setup.md): Defines and generates `Driver` and `Sensor` components.
 - [**`waveforms.py`**](./docs/waveforms.md): Defines the mathematical functions for sound sources.
 - [**`boundary.py`**](./docs/boundary.md): Defines a generic structure for boundary conditions.

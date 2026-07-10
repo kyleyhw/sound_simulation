@@ -44,6 +44,16 @@ ml = [
     "torchaudio>=2.4",
 ]
 
+# Task 1.5 GPU backend for the FDTD engine. Optional because the deployed
+# sensing system targets stock laptops (no discrete GPU); the GPU path only
+# accelerates simulation-side data generation on machines that have CUDA.
+# cupy-cuda12x ships the CUDA 12 runtime inside the wheel — the only host
+# requirement is an NVIDIA driver >= 525. Bootstrap with
+# `uv sync --extra dev --extra ml --extra gpu`.
+gpu = [
+    "cupy-cuda12x>=13",
+]
+
 [project.urls]
 Repository = "https://github.com/kyleyhw/sound_simulation"
 
