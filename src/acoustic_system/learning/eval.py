@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 
 from acoustic_system.learning.dataset import ActiveSensingDataset
 from acoustic_system.learning.losses import iou_score
-from acoustic_system.learning.model import DualInputCNN
+from acoustic_system.learning.model import build_model
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,7 +45,9 @@ def main() -> None:
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     n_mics = int(ckpt.get("n_mics", 2))
     target_size = int(ckpt["args"].get("target_size", 64))
-    model = DualInputCNN(n_mics=n_mics).to(device)
+    # 'model_type' was added with the passive model; older checkpoints
+    # are all DualInputCNN.
+    model = build_model(str(ckpt.get("model_type", "dual")), n_mics=n_mics).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
 

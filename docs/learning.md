@@ -206,6 +206,47 @@ model capacity. The next lever is multi-pose aggregation (Task 2.1.4 in
 geometric-mean Bayesian aggregation of single-pose predictions or by a shared
 encoder with a pose-aggregation block.
 
+## 7. Passive sensing (Task 2.2)
+
+`PassiveCNN` is the blind-deconvolution counterpart: infer the mask
+from the stereo recording alone, with the source $u(t)$ unknown.
+Architecturally it is `DualInputCNN` minus the source branch — the same
+`SpectrogramEncoder` on the sensor spectrogram feeding the same
+`MaskDecoder` (198,529 vs 232,337 parameters). Every other
+hyperparameter is identical, so active-vs-passive is a controlled
+comparison isolating the value of source knowledge.
+
+Passive datasets must randomise the source per sample
+(`--randomize-source`: chirp endpoints $f_0 \sim U[0.01, 0.10]$,
+$f_1 \sim U[0.20, 0.45]$) — with the fixed default chirp a "passive"
+model could memorise the constant source and the blind setting would
+be a sham:
+
+```bash
+uv run python scripts/generate_active_sensing.py \
+    --output data/training_data/passive_train_10k.hdf5 \
+    --num-samples 10000 --randomize-source --grid 64 --duration 200 \
+    --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 \
+    --n-mics 2 --mic-spacing 12 --seed 5678
+# held-out: --output ...passive_heldout_500.hdf5 --num-samples 500 --seed 8765
+
+uv run python -m acoustic_system.learning.train \
+    --dataset data/training_data/passive_train_10k.hdf5 \
+    --model passive --epochs 100 --batch-size 32 --lr 1e-3 \
+    --weight-decay 1e-4 --scheduler cosine --target-size 64 \
+    --ckpt-dir checkpoints/passive_baseline --log-every 5 --seed 42
+```
+
+Checkpoints carry a `model_type` tag (`dual` / `passive`; absent means
+`dual`) which `eval.py` and `eval_multipose.py` use to rebuild the
+right class.
+
+Known limitation (shared with the active model): the power
+spectrogram front-end discards phase, hence inter-channel time
+differences (TDOA) — the strongest passive geometric cue. A
+GCC-PHAT-style cross-correlation input channel is the designated
+upgrade if the magnitude-only passive model proves too weak.
+
 ## References
 
 <span id="ref-milletari-2016">[1]</span> Milletari, F., Navab, N., & Ahmadi, S.-A. (2016). *V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation.* 3DV 2016. [Link](https://arxiv.org/abs/1606.04797)

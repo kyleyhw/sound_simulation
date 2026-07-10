@@ -144,11 +144,27 @@ def build_source(
     # source is active for most of the simulation run.
     audio_dur_s = sim_duration_steps * sim_dt
     n_samples = int(args.synth_sample_rate * audio_dur_s)
+    if getattr(args, "randomize_source", False):
+        # Passive-sensing datasets (Task 2.2): the source must be
+        # UNKNOWN, i.e. vary per sample — with the fixed default chirp,
+        # a "passive" model could simply memorise the constant source
+        # and the blind setting would be a sham. Sweep endpoints are
+        # drawn uniformly; bounds keep the excitation broadband but
+        # comfortably below the simulation Nyquist 1/(2 dt):
+        #   f_start ~ U[0.01, 0.10], f_end ~ U[0.20, 0.45].
+        # Both draws come from the shared rng, so archives remain
+        # reproducible from the seed. The flag defaults to off, which
+        # leaves the RNG stream of existing commands untouched.
+        f_start = float(rng.uniform(0.01, 0.10))
+        f_end = float(rng.uniform(0.20, 0.45))
+    else:
+        f_start = float(args.synth_f_start)
+        f_end = float(args.synth_f_end)
     samples = synthetic_chirp(
         duration_samples=n_samples,
         sample_rate=args.synth_sample_rate,
-        f_start=args.synth_f_start,
-        f_end=args.synth_f_end,
+        f_start=f_start,
+        f_end=f_end,
         amplitude=1.0,
     )
     wf = AudioFileWaveform.from_samples(
@@ -238,6 +254,16 @@ def main() -> None:
         help=(
             "Distance in cells between the stereo mic pair (n_mics=2). "
             "Random orientation per sample. Ignored when n_mics=1."
+        ),
+    )
+    parser.add_argument(
+        "--randomize-source",
+        action="store_true",
+        help=(
+            "Draw random chirp sweep endpoints per sample (passive-sensing "
+            "datasets, Task 2.2): f_start ~ U[0.01, 0.10], f_end ~ U[0.20, 0.45]. "
+            "Off (default) keeps the fixed --synth-f-start/--synth-f-end chirp "
+            "and the exact RNG stream of existing commands."
         ),
     )
     parser.add_argument(
