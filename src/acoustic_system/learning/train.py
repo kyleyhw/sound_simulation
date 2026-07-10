@@ -86,12 +86,15 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        choices=["dual", "passive"],
+        choices=["dual", "passive", "joint"],
         default="dual",
         help=(
             "dual = DualInputCNN (active sensing: sensor + known source). "
             "passive = PassiveCNN (Task 2.2 blind setting: sensor only; the "
-            "dataset's source is ignored)."
+            "dataset's source is ignored). "
+            "joint = JointPoseCNN (Task 2.1.4c: all K poses of a room fused "
+            "in latent space; requires a --poses-per-room archive, and the "
+            "dataset yields one sample per room)."
         ),
     )
     p.add_argument("--ckpt-dir", required=True)
@@ -131,15 +134,20 @@ def main() -> None:
     # always sees clean signal. Same per-call HDF5 open in both — there
     # is no extra I/O cost. The split below is by index so the two views
     # see disjoint samples.
+    # Joint-pose training consumes whole rooms ((K, n_mics, T) sensor);
+    # everything else consumes flattened per-pose samples.
+    flatten = args.model != "joint"
     train_dataset = ActiveSensingDataset(
         args.dataset,
         target_mask_size=args.target_size,
         augment=args.augment,
+        flatten_poses=flatten,
     )
     val_dataset = ActiveSensingDataset(
         args.dataset,
         target_mask_size=args.target_size,
         augment=False,
+        flatten_poses=flatten,
     )
     n_total = len(train_dataset)
     n_val = max(1, int(args.val_frac * n_total))
