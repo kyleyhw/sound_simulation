@@ -133,6 +133,18 @@ uv run python -m acoustic_system.learning.train \
     --ckpt-dir checkpoints/joint_baseline --log-every 5 --seed 42
 ```
 
+**Outcome
+([joint_pose_2026_07_11.md](../tests/reports/joint_pose_2026_07_11.md)):**
+joint training beats single-pose training at every K (held-out 0.047
+vs 0.037 at K=4; as a single-pose predictor, 0.056 vs 0.038 — the
+multi-pose target regularises the encoder), but mean-pool fusion
+*degrades* with K (latent variance shrinks as 1/K, pushing the decoder
+toward the prior — K-agnostic shapes are not K-agnostic statistics).
+Explicit Bayes fusion remains the best aggregator and stacks with the
+better encoder. **Best Phase 2 recipe: run the joint-trained model
+per pose and fuse with the Bayes product rule — held-out IoU 0.0924
+at K=8**, 2.4× the single-pose baseline.
+
 **Artifact persistence convention.** Datasets and checkpoints live under
 `data/training_data/` and `checkpoints/` (both gitignored — `*.hdf5`, `*.pt`).
 Do **not** write them to `/tmp`: the 2026-05-14 run's artifacts were written to
