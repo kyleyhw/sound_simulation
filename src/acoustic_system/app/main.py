@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -54,6 +57,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "downsample": 2,
     "broadcast_hz": 30.0,
 }
+
+# Checkpoint used by the `sense_room` event (the Phase 2 sensing recipe:
+# joint-trained encoder per pose + Bayes fusion — docs/learning.md).
+# Resolved relative to the repo root; override with the env var when
+# demonstrating a different model. Inference is CPU and takes well under
+# a second, so it runs on demand rather than being preloaded.
+SENSE_CHECKPOINT = os.environ.get(
+    "ACOUSTIC_SENSE_CHECKPOINT",
+    str(Path(__file__).resolve().parents[3] / "checkpoints" / "joint_baseline" / "best_iou.pt"),
+)
 
 
 def build_waveform(spec: Dict[str, Any]):
@@ -263,6 +276,55 @@ class SimulationManager:
                 return
             self.simulation.set_drivers([])
         await self._broadcast_status()
+
+    # ----- Acoustic sensing (Phase 2 bridge) ----------------------------- #
+
+    async def sense(self, n_poses: int = 8, seed: int = 0) -> Dict[str, Any]:
+        """Map the current room acoustically and return the fused estimate.
+
+        Snapshot the obstacle mask under the lock, then run the full
+        sense -> infer -> fuse pipeline (``learning/sensing.py``) in a
+        worker thread so the event loop keeps serving frames — the
+        pipeline is synchronous CPU work (K forward FDTD runs + K model
+        forwards, ~0.5 s at K=8).
+
+        Returns the payload for the ``sense_result`` event; failures
+        (missing torch extra, missing checkpoint, 3D grid) come back as
+        ``{"ok": False, "error": ...}`` rather than raising, so the UI
+        can display them.
+        """
+        async with self._lock:
+            if self.simulation is None or self.simulation.dims != 2:
+                return {"ok": False, "error": "sensing demo supports 2D rooms only"}
+            mask = np.asarray(self.simulation.obstacle_mask).copy()
+
+        def _run() -> Dict[str, Any]:
+            try:
+                from acoustic_system.learning.sensing import sense_room as _sense_room
+            except ImportError as exc:
+                return {
+                    "ok": False,
+                    "error": f"ML extra not installed ({exc}); run `uv sync --extra ml`",
+                }
+            if not Path(SENSE_CHECKPOINT).exists():
+                return {
+                    "ok": False,
+                    "error": f"no checkpoint at {SENSE_CHECKPOINT}; train one (docs/learning.md)",
+                }
+            t0 = time.perf_counter()
+            result = _sense_room(mask, SENSE_CHECKPOINT, n_poses=n_poses, seed=seed)
+            final = result.fused_probs[-1]
+            return {
+                "ok": True,
+                "shape": list(final.shape),
+                "prob": [[round(float(v), 4) for v in row] for row in final],
+                "truth": result.truth.astype(np.uint8).tolist(),
+                "ious": [round(float(v), 4) for v in result.ious],
+                "poses": int(len(result.ious)),
+                "elapsed": round(time.perf_counter() - t0, 2),
+            }
+
+        return await asyncio.to_thread(_run)
 
     # ----- Lifecycle ----------------------------------------------------- #
 
@@ -580,3 +642,28 @@ async def remove_driver(sid, data):
 @sio.event
 async def clear_drivers(sid, data=None):
     await sim_manager.clear_drivers()
+
+
+# --- Acoustic sensing (Phase 2 bridge) ------------------------------------ #
+
+
+@sio.event
+async def sense_room(sid, data=None):
+    """Run the Phase 2 sensing recipe on the currently drawn room.
+
+    Payload (all optional): ``{"poses": int (1-16, default 8),
+    "seed": int}``. Replies to the requesting client only with a
+    ``sense_result`` event: the Bayes-fused obstacle-probability map,
+    the per-K IoU progression against the drawn room, and the runtime.
+    Emitted to the requester (not broadcast) because the result answers
+    one client's button press, unlike the shared geometry state.
+    """
+    payload = data if isinstance(data, dict) else {}
+    try:
+        n_poses = max(1, min(16, int(payload.get("poses", 8))))
+        seed = int(payload.get("seed", 0))
+    except (TypeError, ValueError):
+        n_poses, seed = 8, 0
+    logger.info("sense_room from %s: poses=%d seed=%d", sid, n_poses, seed)
+    result = await sim_manager.sense(n_poses=n_poses, seed=seed)
+    await sio.emit("sense_result", result, to=sid)

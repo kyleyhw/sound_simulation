@@ -89,6 +89,7 @@ This index provides an overview and links to the detailed documentation for each
 ### Machine learning (Phase 2)
 
 - [**`learning.md`**](./docs/learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss and IoU metric, training/evaluation loops, and results to date (see also the training reports in [`tests/reports/`](./tests/reports/)).
+- [**`demos.md`**](./docs/demos.md): Phase 1+2 demonstrations — map a fresh room acoustically from the command line, or draw a room in the web UI and press *Sense room*.
 
 ## Dependencies & Installation
 

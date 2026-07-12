@@ -1,4 +1,15 @@
-# Project Status as of 2026-07-11
+# Project Status as of 2026-07-12
+
+## 0. Demonstrations (added 2026-07-12)
+
+Both phases are now demonstrable end to end (`docs/demos.md`):
+`scripts/demo_room_mapping.py` maps a fresh room from the command line
+(figure: truth + fused map sharpening over K=1..8 poses), and the web
+UI gained an *Acoustic sensing* panel — draw a room, press **Sense
+room**, get the Bayes-fused obstacle map in ~0.3 s while the live
+simulation keeps streaming (`sense_room`/`sense_result` events, E2E
+Playwright-verified). Shared engine: `learning/sensing.py`. Report:
+`tests/reports/demos_2026_07_12.md`.
 
 ## 1. Resolution
 
