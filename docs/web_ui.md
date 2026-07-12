@@ -40,6 +40,7 @@ Client → server events:
 | `add_driver`       | `{position: [i, j], waveform: {type, ...}}` | append a driver at runtime |
 | `remove_driver`    | `{index: int}`                   | drop the driver at that list index |
 | `clear_drivers`    | `{}`                             | empty the driver list |
+| `sense_room`       | `{poses?: 1-16, seed?: int}`     | run the Phase 2 sensing recipe on the drawn room (2D only); replies with `sense_result` to the requester — see [`demos.md`](demos.md) |
 
 The `set_obstacle` payload is batched on the frontend: a brush stroke
 generates one socket event per `~33 ms` flush window with all the cells
@@ -53,6 +54,7 @@ Server → client events:
 | ------------------- | ---------- | ---------- |
 | `simulation_update` | `{ dims: 2, shape: [Nx, Ny], grid: number[][], max_val, step, time }` | `{ dims: 3, shape: [Nx, Ny, Nz], data: bytes(Nx*Ny*Nz uint8), max_val, step, time }` |
 | `status`            | `{ is_running, engine: {dims:2, ...}, config, obstacles: {dims:2, shape, downsample, mask: number[][]}, drivers }` | `{ is_running, engine: {dims:3, ...}, config, obstacles: {dims:3, shape, downsample, mask: bytes}, drivers }` |
+| `sense_result`      | `{ ok, prob: number[][] (64×64), truth, ious, poses, elapsed }` or `{ ok: false, error }` — sent only to the client that emitted `sense_room` | n/a (2D only) |
 
 Both directions of the schema are tagged with `dims`, so the frontend can
 dispatch the renderer (canvas vs Three.js) on a single field rather than

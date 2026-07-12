@@ -72,6 +72,21 @@ interface StatusPayload {
   drivers?: DriverInfo[];
 }
 
+/** Reply to `sense_room`: the Phase 2 acoustic-mapping bridge. */
+interface SenseResult {
+  ok: boolean;
+  error?: string;
+  /** Bayes-fused obstacle-probability map, `shape` (64x64), row-major. */
+  prob?: number[][];
+  /** The room mask (resampled to `shape`) the IoUs are scored against. */
+  truth?: number[][];
+  shape?: [number, number];
+  /** IoU progression: ious[k-1] uses the first k poses. */
+  ious?: number[];
+  poses?: number;
+  elapsed?: number;
+}
+
 // Interaction mode for the canvas (2D only — 3D uses orbit controls
 // instead and the click-modes do not apply).
 type Mode = 'view' | 'draw-obstacle' | 'erase-obstacle' | 'place-driver' | 'remove-driver';
@@ -129,6 +144,12 @@ function App(): React.JSX.Element {
   // -- Interaction mode + brush (2D only) -------------------------------
   const [mode, setMode] = useState<Mode>('view');
   const [brushRadius, setBrushRadius] = useState(3);
+
+  // -- Acoustic sensing (2D only) ----------------------------------------
+  const senseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [senseBusy, setSenseBusy] = useState(false);
+  const [sensePoses, setSensePoses] = useState(8);
+  const [senseResult, setSenseResult] = useState<SenseResult | null>(null);
 
   // -- Parameter form (sent via update_config) --------------------------
   const [waveformType, setWaveformType] = useState('RickerWavelet');
@@ -222,6 +243,11 @@ function App(): React.JSX.Element {
       if (typeof cfg.broadcast_hz === 'number') setBroadcastHz(cfg.broadcast_hz);
     });
 
+    socket.on('sense_result', (payload: SenseResult) => {
+      setSenseBusy(false);
+      setSenseResult(payload);
+    });
+
     socket.on('simulation_update', (payload: SimulationUpdate) => {
       setStep(payload.step);
       setSimTime(payload.time);
@@ -279,6 +305,49 @@ function App(): React.JSX.Element {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // ===================================================================
+  // Sensing result canvas — repainted whenever a new result arrives.
+  // Viridis for the probability map; the drawn room is ghosted in as
+  // whitened cells so prediction and truth are comparable in one image.
+  // ===================================================================
+  useEffect(() => {
+    const canvas = senseCanvasRef.current;
+    const r = senseResult;
+    if (!canvas || !r?.ok || !r.prob || !r.shape) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const [h, w] = r.shape;
+    const buf = ctx.createImageData(w, h);
+    const px = buf.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let [cr, cg, cb] = viridis(r.prob[y][x]);
+        if (r.truth && r.truth[y][x]) {
+          // Ghost the true obstacle cells: 55% colour, 45% white.
+          cr = Math.round(0.55 * cr + 0.45 * 255);
+          cg = Math.round(0.55 * cg + 0.45 * 255);
+          cb = Math.round(0.55 * cb + 0.45 * 255);
+        }
+        const idx = (y * w + x) * 4;
+        px[idx] = cr;
+        px[idx + 1] = cg;
+        px[idx + 2] = cb;
+        px[idx + 3] = 255;
+      }
+    }
+    if (senseOffscreen === null) senseOffscreen = document.createElement('canvas');
+    if (senseOffscreen.width !== w || senseOffscreen.height !== h) {
+      senseOffscreen.width = w;
+      senseOffscreen.height = h;
+    }
+    const offCtx = senseOffscreen.getContext('2d');
+    if (!offCtx) return;
+    offCtx.putImageData(buf, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(senseOffscreen, 0, 0, canvas.width, canvas.height);
+  }, [senseResult]);
 
   // ===================================================================
   // Socket emit helpers
@@ -434,6 +503,12 @@ function App(): React.JSX.Element {
   const handleStart = () => send('start_simulation');
   const handleStop = () => send('stop_simulation');
   const handleReset = () => send('reset_simulation');
+  const handleSense = () => {
+    setSenseBusy(true);
+    // Fresh random poses each click: the seed is drawn client-side so
+    // repeated clicks show the pose-to-pose variability honestly.
+    send('sense_room', { poses: sensePoses, seed: Math.floor(Math.random() * 1e9) });
+  };
   const handleClearObstacles = () => send('clear_obstacles');
   const handleClearDrivers = () => send('clear_drivers');
   const handleResetCamera = () => setResetCameraNonce((n) => n + 1);
@@ -652,6 +727,48 @@ function App(): React.JSX.Element {
             </section>
           )}
 
+          {!is3D && (
+            <section className="panel">
+              <h2>Acoustic sensing</h2>
+              <div className="hint">
+                Phase 2 demo: chirp + record at K virtual poses in the drawn room,
+                infer per pose, Bayes-fuse into an obstacle-probability map.
+              </div>
+              <label className="row">
+                poses (K)
+                <input
+                  type="number" min={1} max={16} step={1}
+                  value={sensePoses}
+                  onChange={(e) => setSensePoses(Math.max(1, Math.min(16, parseInt(e.target.value || '8', 10))))}
+                />
+              </label>
+              <div className="row">
+                <button onClick={handleSense} disabled={!isConnected || senseBusy}>
+                  {senseBusy ? 'Sensing…' : 'Sense room'}
+                </button>
+              </div>
+              {senseResult && !senseResult.ok && (
+                <div className="hint" style={{ color: '#d66' }}>{senseResult.error}</div>
+              )}
+              {senseResult?.ok && (
+                <>
+                  <canvas
+                    ref={senseCanvasRef}
+                    width={256}
+                    height={256}
+                    style={{ border: '1px solid #444', imageRendering: 'pixelated', width: '100%' }}
+                  />
+                  <div className="hint">
+                    Viridis: dark = free, bright = inferred obstacle. True obstacle
+                    cells are whitened for comparison. IoU by poses fused:{' '}
+                    {senseResult.ious?.map((v, i) => `K=${i + 1}: ${v.toFixed(3)}`).join('  ')}
+                    {'  '}({senseResult.elapsed}s)
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
           <section className="panel">
             <h2>Waveform</h2>
             <label className="row">
@@ -847,6 +964,25 @@ function buildWaveformSpec(
 // =====================================================================
 
 let offscreen: HTMLCanvasElement | null = null;
+/** Separate offscreen for the sensing panel so its 64x64 blits don't
+ *  fight the render loop's pressure-sized buffer. */
+let senseOffscreen: HTMLCanvasElement | null = null;
+
+/** Piecewise-linear approximation of matplotlib's viridis, matching the
+ *  colormap used by the offline demo (scripts/demo_room_mapping.py). */
+function viridis(v: number): [number, number, number] {
+  const stops: [number, number, number][] = [
+    [68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37],
+  ];
+  const t = Math.max(0, Math.min(1, v)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(t));
+  const f = t - i;
+  return [
+    Math.round(stops[i][0] + (stops[i + 1][0] - stops[i][0]) * f),
+    Math.round(stops[i][1] + (stops[i + 1][1] - stops[i][1]) * f),
+    Math.round(stops[i][2] + (stops[i + 1][2] - stops[i][2]) * f),
+  ];
+}
 
 function drawScene(
   canvas: HTMLCanvasElement | null,

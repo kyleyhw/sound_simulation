@@ -9,6 +9,7 @@ This index provides an overview and links to the detailed documentation for each
 ## Machine learning (Phase 2)
 
 - [**`learning.md`**](./learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss, training/eval loops, and the results to date.
+- [**`demos.md`**](./demos.md): Phase 1+2 demonstrations — the standalone room-mapping figure (`scripts/demo_room_mapping.py`) and the web UI's "Acoustic sensing" panel (`sense_room` event), both built on `learning/sensing.py`.
 
 ## Simulation engine
 
