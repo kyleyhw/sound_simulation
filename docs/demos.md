@@ -2,19 +2,25 @@
 
 Two demonstrations exercise the full stack — the FDTD engine (Phase 1)
 generating the physics, the sensing recipe (Phase 2) inverting it.
-Both consume `src/acoustic_system/learning/sensing.py`, which packages
-the recommended recipe from
-[`joint_pose_2026_07_11.md`](../tests/reports/joint_pose_2026_07_11.md):
-run the joint-trained encoder on each of K (driver, mic-pair) poses
-independently and fuse the per-pose logit maps $\ell_k$ with the
+Both consume `src/acoustic_system/learning/sensing.py`: run the
+trained encoder on each of K (driver, mic-pair) poses independently
+and fuse the per-pose logit maps $\ell_k$ with the calibrated,
 prior-corrected Bayes product rule
 
-$$ p_K(x) = \sigma\Bigl(\sum_{k=1}^{K} \ell_k(x) - (K-1)\,\operatorname{logit}(\hat\pi)\Bigr), \qquad \hat\pi = 0.0582, $$
+$$ p_K(x) = \sigma\Bigl(\sum_{k=1}^{K} \bigl(\ell_k(x)/T + b\bigr) - (K-1)\,\operatorname{logit}(\hat\pi)\Bigr), $$
 
-where $\hat\pi$ is the training distribution's marginal obstacle
-fraction. Both demos require a trained checkpoint
-(`checkpoints/joint_baseline/best_iou.pt`; training command in
-[`learning.md`](learning.md)) and the `ml` extra.
+where $\hat\pi$ is the training archive's marginal obstacle fraction
+and $(T, b)$ the checkpoint's calibration (identity when no
+`calibration.json` sidecar exists). The acquisition protocol, prior,
+calibration, and decision threshold all travel with the checkpoint —
+`sensing.py` reads them, so the demos work unchanged for any model
+generation. Both demos require a trained checkpoint (default:
+`checkpoints/skip_v2/best_iou.pt`, the Task 2.3 model — see
+[`learning.md`](learning.md) §8) and the `ml` extra. IoU is scored at
+the checkpoint's validation-selected operating threshold (shown as τ
+in outputs), not a fixed 0.5 — see
+[`sensing_v2_2026_07_15.md`](../tests/reports/sensing_v2_2026_07_15.md)
+for why this distinction matters.
 
 ## 1. Standalone: `scripts/demo_room_mapping.py`
 
