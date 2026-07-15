@@ -40,6 +40,7 @@ import numpy as np
 import torch
 from numpy.typing import NDArray
 
+from acoustic_system.learning.calibration import calibrated_bayes_fuse, load_calibration
 from acoustic_system.learning.model import build_model
 from acoustic_system.simulation.dataset import (
     pick_mic_positions,
@@ -68,14 +69,40 @@ CHIRP_F_END: float = 0.4
 CHIRP_SAMPLE_RATE: float = 200.0
 AUDIO_AMPLITUDE: float = 5.0
 
-_model_cache: dict[str, tuple[Any, int]] = {}
+
+@dataclass
+class SensingConfig:
+    """Acquisition protocol + calibration bound to a checkpoint.
+
+    v2 checkpoints (Task 2.3) carry their training archive's file-level
+    acquisition attrs and, when ``scripts/fit_calibration.py`` has run,
+    a ``calibration.json`` sidecar. v1 checkpoints predate both; their
+    fields fall back to the module constants above, which ARE the v1
+    protocol — so old checkpoints keep sensing exactly as before.
+    """
+
+    grid: int = GRID
+    duration: int = DURATION_STEPS
+    courant: float = COURANT
+    mic_spacing: float = MIC_SPACING
+    f_start: float = CHIRP_F_START
+    f_end: float = CHIRP_F_END
+    sample_rate: float = CHIRP_SAMPLE_RATE
+    amplitude: float = AUDIO_AMPLITUDE
+    target_size: int = 64
+    prior: float = TRAINING_OBSTACLE_PRIOR
+    temperature: float = 1.0
+    bias: float = 0.0
 
 
-def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, int]:
-    """Load (and cache) a sensing checkpoint; returns ``(model, target_size)``.
+_model_cache: dict[str, tuple[Any, SensingConfig]] = {}
 
-    The cache avoids re-deserialising the ~1 MB state dict on every
-    socket event. Keyed by resolved path.
+
+def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, SensingConfig]:
+    """Load (and cache) a sensing checkpoint; returns ``(model, config)``.
+
+    The cache avoids re-deserialising the state dict on every socket
+    event. Keyed by resolved path.
     """
     key = str(Path(checkpoint_path).resolve())
     if key not in _model_cache:
@@ -83,7 +110,25 @@ def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, int]:
         model = build_model(str(ckpt.get("model_type", "dual")), n_mics=int(ckpt.get("n_mics", 2)))
         model.load_state_dict(ckpt["model"])
         model.eval()
-        _model_cache[key] = (model, int(ckpt["args"].get("target_size", 64)))
+        acq = ckpt.get("acquisition", {}) or {}
+        cfg = SensingConfig(
+            grid=int(acq.get("grid", GRID)),
+            duration=int(acq.get("duration", DURATION_STEPS)),
+            courant=float(acq.get("courant", COURANT)),
+            mic_spacing=float(acq.get("mic_spacing", MIC_SPACING)),
+            f_start=float(acq.get("synth_f_start", CHIRP_F_START)),
+            f_end=float(acq.get("synth_f_end", CHIRP_F_END)),
+            sample_rate=float(acq.get("synth_sample_rate", CHIRP_SAMPLE_RATE)),
+            amplitude=float(acq.get("audio_amplitude", AUDIO_AMPLITUDE)),
+            target_size=int(ckpt["args"].get("target_size", 64)),
+            prior=float(acq.get("mean_obstacle_fraction", TRAINING_OBSTACLE_PRIOR)),
+        )
+        calib = load_calibration(key)
+        if calib is not None:
+            cfg.temperature = float(calib["temperature"])
+            cfg.bias = float(calib["bias"])
+            cfg.prior = float(calib["prior"])
+        _model_cache[key] = (model, cfg)
     return _model_cache[key]
 
 
@@ -137,7 +182,7 @@ def sense_room(
     checkpoint_path: str | Path,
     n_poses: int = 8,
     seed: int = 0,
-    prior: float = TRAINING_OBSTACLE_PRIOR,
+    prior: Optional[float] = None,
     rng: Optional[np.random.Generator] = None,
 ) -> SenseResult:
     """Run the full sense -> infer -> fuse pipeline on one room.
@@ -165,26 +210,28 @@ def sense_room(
     """
     if rng is None:
         rng = np.random.default_rng(seed)
-    model, target_size = load_sensing_model(checkpoint_path)
+    model, cfg = load_sensing_model(checkpoint_path)
+    grid = cfg.grid
+    use_prior = float(prior) if prior is not None else cfg.prior
 
-    truth = resize_mask(np.asarray(obstacle_mask), GRID)
+    truth = resize_mask(np.asarray(obstacle_mask), grid)
     mask_bool = truth > 0.5
 
     # Shared chirp source for all poses (one device, one excitation).
-    probe = Simulate(grid_shape=(GRID, GRID), courant=COURANT)
+    probe = Simulate(grid_shape=(grid, grid), courant=cfg.courant)
     dt = probe.timestep
-    n_audio = int(CHIRP_SAMPLE_RATE * DURATION_STEPS * dt)
+    n_audio = int(cfg.sample_rate * cfg.duration * dt)
     chirp = synthetic_chirp(
         duration_samples=n_audio,
-        sample_rate=CHIRP_SAMPLE_RATE,
-        f_start=CHIRP_F_START,
-        f_end=CHIRP_F_END,
+        sample_rate=cfg.sample_rate,
+        f_start=cfg.f_start,
+        f_end=cfg.f_end,
         amplitude=1.0,
     )
     source_t = torch.from_numpy(chirp.copy())[None, None]  # (1, 1, T_audio)
 
     # One engine per room; reset() between poses (keeps geometry).
-    sim = Simulate(grid_shape=(GRID, GRID), drivers=[], courant=COURANT)
+    sim = Simulate(grid_shape=(grid, grid), drivers=[], courant=cfg.courant)
     cells = np.argwhere(mask_bool)
     if cells.size:
         sim.set_obstacle([tuple(int(c) for c in row) for row in cells])
@@ -194,14 +241,14 @@ def sense_room(
     mics: list[list[tuple[int, ...]]] = []
     with torch.no_grad():
         for _ in range(int(n_poses)):
-            driver_pos = random_free_position((GRID, GRID), mask_bool, rng=rng)
+            driver_pos = random_free_position((grid, grid), mask_bool, rng=rng)
             mic_pos = pick_mic_positions(
-                (GRID, GRID), mask_bool, n_mics=2, spacing=MIC_SPACING, rng=rng
+                (grid, grid), mask_bool, n_mics=2, spacing=cfg.mic_spacing, rng=rng
             )
             wf = AudioFileWaveform.from_samples(
                 samples=chirp,
-                sample_rate=CHIRP_SAMPLE_RATE,
-                amplitude=AUDIO_AMPLITUDE,
+                sample_rate=cfg.sample_rate,
+                amplitude=cfg.amplitude,
                 delay=0.0,
                 sim_time_per_second=1.0,
             )
@@ -209,7 +256,7 @@ def sense_room(
             sim.set_drivers([Driver(position=driver_pos, waveform=wf)])
             rec = run_with_sensors(
                 sim=sim,
-                duration=DURATION_STEPS,
+                duration=cfg.duration,
                 sensors=[Sensor(position=p) for p in mic_pos],
                 record_step=1,
             )  # (T_rec, 2)
@@ -220,18 +267,18 @@ def sense_room(
             mics.append(mic_pos)
 
     logits_arr = np.stack(logits_list, axis=0)  # (K, H, W)
-    prior_logit = float(np.log(prior / (1.0 - prior)))
 
+    # Calibrated Bayes fusion (Task 2.3e): logits are rescaled l/T + b
+    # before the product rule. T=1, b=0 (no calibration sidecar) is
+    # exactly the 2.1.4b rule.
     fused = np.empty_like(logits_arr)
     ious: list[float] = []
-    running_sum = np.zeros_like(logits_arr[0], dtype=np.float64)
-    truth_scored = resize_mask(truth, target_size)
-    for k in range(len(logits_list)):
-        running_sum += logits_arr[k]
-        fused_logit = running_sum - k * prior_logit  # k = K-1 extra poses
-        prob = 1.0 / (1.0 + np.exp(-fused_logit))
-        fused[k] = prob.astype(np.float32)
-        pred = (resize_mask(fused[k], target_size) > 0.5).astype(np.float32)
+    truth_scored = resize_mask(truth, cfg.target_size)
+    for k in range(1, len(logits_list) + 1):
+        fused[k - 1] = calibrated_bayes_fuse(
+            logits_arr[:k], use_prior, temperature=cfg.temperature, bias=cfg.bias
+        )
+        pred = (resize_mask(fused[k - 1], cfg.target_size) > 0.5).astype(np.float32)
         ious.append(_iou(pred, truth_scored))
 
     return SenseResult(

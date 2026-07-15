@@ -19,6 +19,7 @@ from acoustic_system.learning.model import (  # noqa: E402
     DualInputCNN,
     JointPoseCNN,
     PassiveCNN,
+    SkipSensingCNN,
     build_model,
 )
 
@@ -135,15 +136,59 @@ def main() -> None:
         sys.exit(1)
     print("OK: joint param count == dual param count (controlled comparison)")
 
+    # Skip model (Task 2.3a+d): phase channels + multi-scale skips.
+    # Longer T_rec (400) matching the v2 acquisition protocol.
+    model_skip = SkipSensingCNN()
+    t_rec_v2 = 400
+    sensor_v2 = torch.randn(batch, k, 2, t_rec_v2)
+    model_skip.eval()
+    with torch.no_grad():
+        logits_s = model_skip(sensor_v2, source)
+        logits_s_perm = model_skip(sensor_v2[:, torch.randperm(k)], source)
+        logits_s_k1 = model_skip(sensor_v2[:, 0], source)  # (B, 2, T) fallback
+    if tuple(logits_s.shape) != expected or tuple(logits_s_k1.shape) != expected:
+        print(f"FAIL: skip expected {expected}, got {tuple(logits_s.shape)}")
+        sys.exit(1)
+    if not torch.allclose(logits_s, logits_s_perm, atol=1e-5):
+        print("FAIL: skip model is not permutation-invariant over poses")
+        sys.exit(1)
+    # Phase-channel sensitivity: swapping the two mics conjugates the
+    # cross-spectrum (phi -> -phi), so the output MUST change — this is
+    # the direct check that inter-channel phase reaches the network
+    # (magnitude channels alone are mic-swap invariant up to reorder).
+    with torch.no_grad():
+        logits_swap = model_skip(sensor_v2.flip(dims=[2]), source)
+    if torch.allclose(logits_s, logits_swap, atol=1e-6):
+        print("FAIL: mic swap left output unchanged — phase channels not informative")
+        sys.exit(1)
+    loss_s = bce_dice_loss(model_skip(sensor_v2, source), target)
+    loss_s.backward()
+    n_skip = model_skip.num_params
+    if n_skip > 2_000_000:
+        print(f"FAIL: skip model {n_skip:,} params exceeds the CPU budget")
+        sys.exit(1)
+    try:
+        model_skip(torch.randn(batch, k, 1, t_rec_v2), source)
+        print("FAIL: skip model accepted mono input")
+        sys.exit(1)
+    except ValueError:
+        pass
+    print(
+        f"OK: skip forward (B={batch}, K={k}, T={t_rec_v2}) -> {tuple(logits_s.shape)}, "
+        f"pose-permutation invariant, K=1 fallback OK, mic-swap sensitive (phase used), "
+        f"mono rejected, loss={loss_s.item():.4f} backward succeeded ({n_skip:,} params)"
+    )
+
     # build_model dispatch
     if (
         not isinstance(build_model("dual"), DualInputCNN)
         or not isinstance(build_model("passive"), PassiveCNN)
         or not isinstance(build_model("joint"), JointPoseCNN)
+        or not isinstance(build_model("skip"), SkipSensingCNN)
     ):
         print("FAIL: build_model dispatch broken")
         sys.exit(1)
-    print("OK: build_model('dual'/'passive'/'joint') dispatch")
+    print("OK: build_model('dual'/'passive'/'joint'/'skip') dispatch")
 
     print()
     print("all CNN shape-correctness checks passed")

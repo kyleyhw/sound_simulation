@@ -96,6 +96,123 @@ def generate_random_obstacles(
     return mask
 
 
+def generate_diverse_obstacles(
+    grid_shape: Tuple[int, ...],
+    n_obstacles_range: Tuple[int, int] = (1, 6),
+    min_size: int = 4,
+    max_size: int = 14,
+    margin: int = 2,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    """Sample a boolean obstacle mask from a mixture of shape families.
+
+    Motivation (Task 2.3c): models trained on the pure-rectangle
+    distribution of :func:`generate_random_obstacles` are brittle on
+    anything else — hand-drawn rooms in the web UI (strokes, rings,
+    blobs) sit far outside that distribution and produce degenerate
+    predictions. This generator widens the *training* distribution
+    with the shape families such rooms actually contain.
+
+    Per room, the obstacle count is drawn uniformly from
+    ``n_obstacles_range`` (inclusive); each obstacle draws its family
+    uniformly from four options:
+
+    1. **Axis-aligned rectangle** — sides $\\sim U[s_{\\min}, s_{\\max}]$
+       (the original family, kept so v1-style rooms stay in-support).
+    2. **Filled disc** — radius $\\sim U[s_{\\min}/2, s_{\\max}/2]$;
+       cells within Euclidean distance $r$ of the centre.
+    3. **Thin wall** — a line segment of length
+       $\\sim U[2 s_{\\min}, 2 s_{\\max}]$ and thickness $\\sim U[1, 3]$,
+       oriented horizontally, vertically, or at $\\pm 45°$; rasterised
+       by stamping a square brush of the given thickness along the
+       segment (the diagonal case matches what a mouse drag draws).
+    4. **L-shape** — two overlapping rectangles sharing a corner
+       region, giving concave geometry the convex families lack.
+
+    Same ``margin`` contract as the rectangle generator: every obstacle
+    cell stays at least ``margin`` cells from the outer wall. Shapes
+    may overlap (union), as before. Typical occupancy for the default
+    band on a 64x64 grid is ~2-15 % depending on the count draw;
+    consumers should measure and record the realised mean rather than
+    assume the v1 prior of 0.058.
+
+    Returns a boolean ``np.ndarray`` of shape ``grid_shape``. 2D only
+    (matching the sensing pipeline); non-2D shapes return an empty mask
+    like the rectangle generator does.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    mask = np.zeros(grid_shape, dtype=bool)
+    if len(grid_shape) != 2:
+        return mask
+    ni, nj = grid_shape
+    lo, hi = int(n_obstacles_range[0]), int(n_obstacles_range[1])
+    n_obstacles = int(rng.integers(lo, hi + 1))
+
+    def clip_i(v: int) -> int:
+        return int(np.clip(v, margin, ni - 1 - margin))
+
+    def clip_j(v: int) -> int:
+        return int(np.clip(v, margin, nj - 1 - margin))
+
+    def stamp_rect(i0: int, j0: int, h: int, w: int) -> None:
+        h = min(h, ni - 2 * margin - 1)
+        w = min(w, nj - 2 * margin - 1)
+        if h <= 0 or w <= 0:
+            return
+        i0 = int(np.clip(i0, margin, ni - h - margin))
+        j0 = int(np.clip(j0, margin, nj - w - margin))
+        mask[i0 : i0 + h, j0 : j0 + w] = True
+
+    for _ in range(n_obstacles):
+        family = int(rng.integers(4))
+        if family == 0:  # rectangle
+            h = int(rng.integers(min_size, max_size + 1))
+            w = int(rng.integers(min_size, max_size + 1))
+            stamp_rect(
+                int(rng.integers(margin, max(ni - h - margin, margin + 1))),
+                int(rng.integers(margin, max(nj - w - margin, margin + 1))),
+                h,
+                w,
+            )
+        elif family == 1:  # filled disc
+            r = float(rng.uniform(min_size / 2.0, max_size / 2.0))
+            ci = int(rng.integers(margin + int(r), max(ni - margin - int(r), margin + int(r) + 1)))
+            cj = int(rng.integers(margin + int(r), max(nj - margin - int(r), margin + int(r) + 1)))
+            ii, jj = np.ogrid[0:ni, 0:nj]
+            disc = (ii - ci) ** 2 + (jj - cj) ** 2 <= r * r
+            disc[:margin, :] = disc[ni - margin :, :] = False
+            disc[:, :margin] = disc[:, nj - margin :] = False
+            mask |= disc
+        elif family == 2:  # thin wall (h / v / diagonal), stamped brush
+            length = int(rng.integers(2 * min_size, 2 * max_size + 1))
+            thickness = int(rng.integers(1, 4))
+            di, dj = [(0, 1), (1, 0), (1, 1), (1, -1)][int(rng.integers(4))]
+            i, j = (
+                int(rng.integers(margin, ni - margin)),
+                int(rng.integers(margin, nj - margin)),
+            )
+            half = thickness // 2
+            for _step in range(length):
+                i0, i1 = clip_i(i - half), clip_i(i + half)
+                j0, j1 = clip_j(j - half), clip_j(j + half)
+                mask[i0 : i1 + 1, j0 : j1 + 1] = True
+                i, j = i + di, j + dj
+                if not (margin <= i < ni - margin and margin <= j < nj - margin):
+                    break
+        else:  # L-shape: two rectangles sharing a corner region
+            h1 = int(rng.integers(min_size, max_size + 1))
+            w1 = int(rng.integers(min_size, max_size + 1))
+            i0 = int(rng.integers(margin, max(ni - h1 - margin, margin + 1)))
+            j0 = int(rng.integers(margin, max(nj - w1 - margin, margin + 1)))
+            stamp_rect(i0, j0, h1, w1)
+            # Second arm grows from the first rectangle's corner.
+            h2 = int(rng.integers(min_size, max_size + 1))
+            w2 = int(rng.integers(min_size, max_size + 1))
+            stamp_rect(i0 + h1 - max(1, min_size // 2), j0, h2, w2)
+    return mask
+
+
 def pick_mic_positions(
     grid_shape: Tuple[int, ...],
     obstacle_mask: np.ndarray,
@@ -288,6 +405,7 @@ def synthetic_chirp(
 
 __all__ = [
     "generate_random_obstacles",
+    "generate_diverse_obstacles",
     "random_free_position",
     "pick_mic_positions",
     "run_with_sensors",
