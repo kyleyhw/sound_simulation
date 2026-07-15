@@ -301,12 +301,169 @@ class JointPoseCNN(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
 
+class StereoPhaseFrontEnd(nn.Module):
+    """Complex-STFT stereo front-end with inter-channel phase (Task 2.3a).
+
+    The magnitude-only front-end of the earlier models discards phase,
+    and with it the inter-channel time difference (TDOA) — for a stereo
+    pair the strongest geometric cue there is. This front-end keeps it:
+    from the complex STFTs $X_1, X_2$ of the two mics it emits four
+    channels per time-frequency bin,
+
+    $$ \\bigl[\\, \\log(1{+}|X_1|^2),\\ \\log(1{+}|X_2|^2),\\
+       \\cos\\varphi,\\ \\sin\\varphi \\,\\bigr], \\qquad
+       \\varphi(f, t) = \\arg\\bigl(X_1 X_2^*\\bigr), $$
+
+    where $\\varphi$ is the inter-channel phase difference (the phase of
+    the GCC-PHAT cross-spectrum): for a pure arrival-time difference
+    $\\tau$, $\\varphi = 2\\pi f \\tau$ — a plane in $(f, t)$ whose slope
+    encodes direction. cos/sin rather than raw $\\varphi$ avoids the
+    $\\pm\\pi$ wrap discontinuity. In near-silent bins $\\varphi$ is
+    noise; the adjacent magnitude channels give the network exactly the
+    information needed to gate it, so no explicit masking is applied.
+    """
+
+    def __init__(self, n_fft: int = 64, hop: int = 16) -> None:
+        super().__init__()
+        self.spec = T.Spectrogram(n_fft=n_fft, hop_length=hop, power=None)
+
+    def forward(self, sensor: torch.Tensor) -> torch.Tensor:
+        x = self.spec(sensor)  # (B, 2, F, T') complex
+        mag = torch.log1p(x.abs() ** 2)
+        cross = x[:, 0] * x[:, 1].conj()  # (B, F, T')
+        phase = torch.angle(cross)
+        return torch.cat([mag, torch.cos(phase).unsqueeze(1), torch.sin(phase).unsqueeze(1)], dim=1)
+
+
+class MultiScaleEncoder(nn.Module):
+    """Three conv stages returning features at full, 1/2 and 1/4 scale."""
+
+    def __init__(self, in_channels: int, base_ch: int = 32, dropout: float = 0.0) -> None:
+        super().__init__()
+
+        def block(cin: int, cout: int) -> nn.Sequential:
+            layers: list[nn.Module] = [
+                nn.Conv2d(cin, cout, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(cout, cout, kernel_size=3, padding=1),
+                nn.ReLU(inplace=True),
+            ]
+            if dropout > 0.0:
+                layers.append(nn.Dropout2d(dropout))
+            return nn.Sequential(*layers)
+
+        self.stage1 = block(in_channels, base_ch)
+        self.stage2 = nn.Sequential(nn.MaxPool2d(2), block(base_ch, base_ch * 2))
+        self.stage3 = nn.Sequential(nn.MaxPool2d(2), block(base_ch * 2, base_ch * 4))
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        f1 = self.stage1(x)
+        f2 = self.stage2(f1)
+        f3 = self.stage3(f2)
+        return f1, f2, f3
+
+
+class SkipSensingCNN(nn.Module):
+    """K-pose stereo sensing with phase channels and multi-scale skips.
+
+    Task 2.3 (a) + (d). Differences from ``JointPoseCNN``:
+
+    - **Front-end** (a): ``StereoPhaseFrontEnd`` — 4 channels including
+      the inter-channel phase, instead of 2 magnitude channels.
+    - **Multi-scale skips** (d): the earlier models squeeze everything
+      the decoder learns about the room through one 8x8x64 latent —
+      a hard ceiling on map detail. Here the encoder's three stages are
+      each adaptive-pooled to the decoder resolution they feed (8x8,
+      16x16, 32x32) and concatenated in, U-Net-style. Note this is
+      *multi-resolution conditioning*, not a geometric U-Net: encoder
+      pixels live in time-frequency, decoder pixels in room space, so
+      there is no spatial correspondence to exploit — the skips widen
+      the information bottleneck, nothing more.
+    - Pose handling is unchanged from ``JointPoseCNN``: the sensor
+      encoder is shared across poses and each scale's features are
+      mean-pooled over the pose axis (permutation-invariant,
+      K-agnostic). The source branch is the familiar magnitude
+      ``SpectrogramEncoder`` joining at the 8x8 bottleneck.
+
+    ~0.9M parameters (vs 232k) — still comfortably CPU-inference-sized,
+    but no longer parameter-matched to the v1 models; comparisons
+    against them measure the (a)+(d) package, not capacity alone. The
+    stereo phase channel requires ``n_mics == 2`` (the hardware target).
+    """
+
+    def __init__(
+        self,
+        sensor_n_fft: int = 64,
+        sensor_hop: int = 16,
+        source_n_fft: int = 512,
+        source_hop: int = 256,
+        base_ch: int = 32,
+        source_base_ch: int = 16,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.front = StereoPhaseFrontEnd(n_fft=sensor_n_fft, hop=sensor_hop)
+        self.encoder_s = MultiScaleEncoder(in_channels=4, base_ch=base_ch, dropout=dropout)
+        self.source_spec = T.Spectrogram(n_fft=source_n_fft, hop_length=source_hop, power=2.0)
+        self.encoder_u = SpectrogramEncoder(
+            in_channels=1, base_ch=source_base_ch, latent_size=8, dropout=dropout
+        )
+        c1, c2, c3 = base_ch, base_ch * 2, base_ch * 4
+        src_c = source_base_ch * 4
+        # Decoder: 8 -> 16 -> 32 -> 64 with a skip concat at each stage.
+        self.dec3 = nn.Sequential(
+            nn.Conv2d(c3 + src_c, c3, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(c3, c2, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.dec2 = nn.Sequential(
+            nn.Conv2d(c2 + c2, c2, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(c2, c1, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+        )
+        self.dec1 = nn.Sequential(
+            nn.Conv2d(c1 + c1, c1, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(c1, c1 // 2, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(c1 // 2, 1, kernel_size=1),
+        )
+
+    def _pool_poses(self, f: torch.Tensor, b: int, k: int, size: int) -> torch.Tensor:
+        """Adaptive-pool to (size, size), then mean over the pose axis."""
+        pooled = nn.functional.adaptive_avg_pool2d(f, size)
+        return pooled.reshape(b, k, *pooled.shape[1:]).mean(dim=1)
+
+    def forward(self, sensor: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
+        if sensor.dim() == 3:  # (B, 2, T) -> K=1
+            sensor = sensor.unsqueeze(1)
+        b, k, m, t = sensor.shape
+        if m != 2:
+            raise ValueError(f"SkipSensingCNN requires 2 mics (stereo phase); got {m}")
+        f1, f2, f3 = self.encoder_s(self.front(sensor.reshape(b * k, m, t)))
+        s3 = self._pool_poses(f3, b, k, 8)
+        s2 = self._pool_poses(f2, b, k, 16)
+        s1 = self._pool_poses(f1, b, k, 32)
+        u = self.encoder_u(torch.log1p(self.source_spec(source)))  # (B, src_c, 8, 8)
+        d = self.dec3(torch.cat([s3, u], dim=1))  # -> (B, c2, 16, 16)
+        d = self.dec2(torch.cat([d, s2], dim=1))  # -> (B, c1, 32, 32)
+        return self.dec1(torch.cat([d, s1], dim=1))  # -> (B, 1, 64, 64)
+
+    @property
+    def num_params(self) -> int:
+        return sum(p.numel() for p in self.parameters())
+
+
 def build_model(model_type: str, n_mics: int = 2, dropout: float = 0.0) -> nn.Module:
-    """Construct a model by checkpoint tag: 'dual', 'passive', or 'joint'."""
+    """Construct a model by checkpoint tag: 'dual', 'passive', 'joint', or 'skip'."""
     if model_type == "dual":
         return DualInputCNN(n_mics=n_mics, dropout=dropout)
     if model_type == "passive":
         return PassiveCNN(n_mics=n_mics, dropout=dropout)
     if model_type == "joint":
         return JointPoseCNN(n_mics=n_mics, dropout=dropout)
+    if model_type == "skip":
+        return SkipSensingCNN(dropout=dropout)
     raise ValueError(f"unknown model_type {model_type!r}")

@@ -78,6 +78,7 @@ _SRC = _REPO_ROOT / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from acoustic_system.learning.calibration import load_calibration  # noqa: E402
 from acoustic_system.learning.model import build_model  # noqa: E402
 
 
@@ -91,6 +92,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--output-dir", required=True)
     p.add_argument("--n-plot", type=int, default=6, help="Rooms in the qualitative grid.")
     p.add_argument("--device", default=None)
+    p.add_argument(
+        "--calibration",
+        choices=["auto", "none"],
+        default="auto",
+        help=(
+            "auto (default): if calibration.json exists next to the checkpoint "
+            "(Task 2.3e, scripts/fit_calibration.py), rescale every logit map "
+            "as l/T + b before fusion and use its stored training prior. "
+            "none: raw logits and the archive-computed prior (pre-2.3e behaviour)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -133,6 +145,19 @@ def main() -> None:
     model.load_state_dict(ckpt["model"])
     model.eval()
 
+    # Task 2.3e: scalar recalibration l -> l/T + b applied to every pose
+    # logit map before pooling, plus the training-archive prior. Absent
+    # sidecar (or --calibration none) means the identity — bit-identical
+    # to the 2.1.4b protocol.
+    calib = load_calibration(args.checkpoint) if args.calibration == "auto" else None
+    cal_t = float(calib["temperature"]) if calib else 1.0
+    cal_b = float(calib["bias"]) if calib else 0.0
+    calib_prior = float(calib["prior"]) if calib else None
+    print(
+        "[multipose] calibration: "
+        + (f"T={cal_t:.4f} b={cal_b:.4f} (train prior {calib_prior:.4f})" if calib else "none")
+    )
+
     with h5py.File(args.dataset, "r") as f:
         keys = sorted(k for k in f.keys() if k.startswith("sample_"))
         k_avail = int(f.attrs.get("poses_per_room", 1))
@@ -147,7 +172,9 @@ def main() -> None:
         for key in keys:
             m = resize_mask(np.asarray(f[key]["obstacles"], dtype=np.float32), target_size)
             fractions.append(float(m.mean()))
-        pi = float(np.clip(np.mean(fractions), 1e-4, 1 - 1e-4))
+        pi = float(
+            np.clip(calib_prior if calib_prior is not None else np.mean(fractions), 1e-4, 1 - 1e-4)
+        )
         prior_logit = float(np.log(pi / (1.0 - pi)))
         print(f"[multipose] prior pi={pi:.4f} (logit {prior_logit:.3f}), K available={k_avail}")
 
@@ -172,6 +199,7 @@ def main() -> None:
                     .to(device)
                 )
                 logits = model(sens_t, src_t).cpu().numpy()[:, 0]  # (K, H, W)
+                logits = logits / cal_t + cal_b  # identity when uncalibrated
 
                 for rule in rules:
                     for k in ks:

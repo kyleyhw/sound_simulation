@@ -86,7 +86,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        choices=["dual", "passive", "joint"],
+        choices=["dual", "passive", "joint", "skip"],
         default="dual",
         help=(
             "dual = DualInputCNN (active sensing: sensor + known source). "
@@ -94,7 +94,9 @@ def parse_args() -> argparse.Namespace:
             "dataset's source is ignored). "
             "joint = JointPoseCNN (Task 2.1.4c: all K poses of a room fused "
             "in latent space; requires a --poses-per-room archive, and the "
-            "dataset yields one sample per room)."
+            "dataset yields one sample per room). "
+            "skip = SkipSensingCNN (Task 2.3a+d: stereo phase channels + "
+            "multi-scale skip decoder; K-pose room-level samples like joint)."
         ),
     )
     p.add_argument("--ckpt-dir", required=True)
@@ -136,7 +138,7 @@ def main() -> None:
     # see disjoint samples.
     # Joint-pose training consumes whole rooms ((K, n_mics, T) sensor);
     # everything else consumes flattened per-pose samples.
-    flatten = args.model != "joint"
+    flatten = args.model not in ("joint", "skip")
     train_dataset = ActiveSensingDataset(
         args.dataset,
         target_mask_size=args.target_size,
@@ -263,6 +265,7 @@ def main() -> None:
                 {
                     "model": model.state_dict(),
                     "model_type": args.model,
+                    "acquisition": train_dataset.file_attrs,
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
@@ -278,6 +281,7 @@ def main() -> None:
                 {
                     "model": model.state_dict(),
                     "model_type": args.model,
+                    "acquisition": train_dataset.file_attrs,
                     "args": vars(args),
                     "epoch": epoch,
                     "history": history,
@@ -291,6 +295,7 @@ def main() -> None:
         {
             "model": model.state_dict(),
             "model_type": args.model,
+            "acquisition": train_dataset.file_attrs,
             "args": vars(args),
             "epoch": args.epochs,
             "history": history,

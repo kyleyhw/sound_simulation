@@ -78,6 +78,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from acoustic_system.simulation.dataset import (  # noqa: E402
+    generate_diverse_obstacles,
     generate_random_obstacles,
     pick_mic_positions,
     random_free_position,
@@ -257,6 +258,18 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--room-style",
+        choices=["rect", "mixed"],
+        default="rect",
+        help=(
+            "rect (default): the original 3-axis-aligned-rectangle rooms — "
+            "byte-compatible with existing archives. "
+            "mixed (Task 2.3c): shape-diverse rooms (rectangles, discs, thin "
+            "walls incl. diagonal, L-shapes; count U[1,6]); --n-obstacles is "
+            "ignored, --obstacle-min/max set the size band."
+        ),
+    )
+    parser.add_argument(
         "--randomize-source",
         action="store_true",
         help=(
@@ -316,15 +329,44 @@ def main() -> None:
         if n_poses < 1:
             raise SystemExit("--poses-per-room must be >= 1")
         hf.attrs["poses_per_room"] = n_poses
+        # File-level acquisition protocol (Task 2.3): consumers that run
+        # live inference (learning/sensing.py) must reproduce EXACTLY the
+        # protocol a checkpoint was trained on. train.py copies these
+        # attrs into every checkpoint so the protocol travels with the
+        # model instead of being hard-coded downstream.
+        hf.attrs["grid"] = int(args.grid)
+        hf.attrs["duration"] = int(args.duration)
+        hf.attrs["record_step"] = int(args.record_step)
+        hf.attrs["courant"] = float(args.courant)
+        hf.attrs["wavespeed"] = float(args.wavespeed)
+        hf.attrs["gridstep"] = float(args.gridstep)
+        hf.attrs["n_mics"] = int(args.n_mics)
+        hf.attrs["mic_spacing"] = float(args.mic_spacing)
+        hf.attrs["audio_amplitude"] = float(args.audio_amplitude)
+        hf.attrs["synth_sample_rate"] = float(args.synth_sample_rate)
+        hf.attrs["synth_f_start"] = float(args.synth_f_start)
+        hf.attrs["synth_f_end"] = float(args.synth_f_end)
+        hf.attrs["randomize_source"] = bool(args.randomize_source)
+        hf.attrs["room_style"] = str(args.room_style)
 
+        occupancy_sum = 0.0
         for s in range(int(args.num_samples)):
-            obstacle_mask = generate_random_obstacles(
-                grid_shape=(args.grid, args.grid),
-                n_obstacles=args.n_obstacles,
-                min_size=args.obstacle_min,
-                max_size=args.obstacle_max,
-                rng=rng,
-            )
+            if args.room_style == "mixed":
+                obstacle_mask = generate_diverse_obstacles(
+                    grid_shape=(args.grid, args.grid),
+                    min_size=args.obstacle_min,
+                    max_size=args.obstacle_max,
+                    rng=rng,
+                )
+            else:
+                obstacle_mask = generate_random_obstacles(
+                    grid_shape=(args.grid, args.grid),
+                    n_obstacles=args.n_obstacles,
+                    min_size=args.obstacle_min,
+                    max_size=args.obstacle_max,
+                    rng=rng,
+                )
+            occupancy_sum += float(obstacle_mask.mean())
             # Per-pose placements. The RNG draw order (driver, then mics,
             # pose by pose, THEN source) reduces exactly to the original
             # order at K=1, so seeded single-pose archives reproduce the
@@ -439,10 +481,16 @@ def main() -> None:
                     file=sys.stderr,
                 )
 
+        # Realised marginal obstacle prior of THIS archive — the pi-hat
+        # the Bayes fusion rule needs. Written after the loop so it is
+        # the exact mean over what was generated, not an assumption.
+        hf.attrs["mean_obstacle_fraction"] = occupancy_sum / max(int(args.num_samples), 1)
+
     total_s = time.perf_counter() - t0
     print(
         f"[active-sensing] wrote {args.num_samples} samples to {out_path} "
-        f"({total_s:.1f}s, {total_s / max(args.num_samples, 1):.2f}s/sample)"
+        f"({total_s:.1f}s, {total_s / max(args.num_samples, 1):.2f}s/sample, "
+        f"mean occupancy {100 * occupancy_sum / max(int(args.num_samples), 1):.1f}%)"
     )
 
 

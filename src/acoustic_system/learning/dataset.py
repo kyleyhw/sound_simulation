@@ -31,7 +31,7 @@ reading modes:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -83,6 +83,14 @@ class ActiveSensingDataset(Dataset):
             self.sample_keys: list[str] = sorted(k for k in f.keys() if k.startswith("sample_"))
             if not self.sample_keys:
                 raise ValueError(f"no samples in {self.hdf5_path}")
+            # File-level acquisition attrs (chirp band, duration, mic
+            # spacing, realised obstacle prior, ...) as native Python
+            # scalars. train.py copies these into every checkpoint so
+            # live-inference consumers reproduce the training protocol.
+            # Pre-v2 archives simply have fewer keys here.
+            self.file_attrs: dict[str, Any] = {
+                k: (v.item() if hasattr(v, "item") else v) for k, v in f.attrs.items()
+            }
             # Probe the first sample to record per-dataset metadata.
             grp = f[self.sample_keys[0]]
             self.n_mics: int = int(grp.attrs.get("n_mics", 1))
