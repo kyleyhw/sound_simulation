@@ -1,6 +1,29 @@
-# Project Status as of 2026-07-12
+# Project Status as of 2026-07-15
 
-## 0. Demonstrations (added 2026-07-12)
+## 0. Sensing v2 (Task 2.3, added 2026-07-15)
+
+The five sensing-quality improvements (a–e) from the demo-8 diagnosis
+are built, trained, and evaluated (`docs/learning.md` §8, report
+`tests/reports/sensing_v2_2026_07_15.md`): inter-channel phase
+channels, chirp band to the spatial-Nyquist limit + doubled recording,
+shape-diverse rooms, a multi-scale skip decoder (`SkipSensingCNN`,
+`checkpoints/skip_v2` — now the demo/UI default), and calibrated
+fusion with a validation-selected operating point.
+
+**New best: held-out IoU 0.100 at K=4** (calibrated Bayes @ τ=0.12,
+equal to the oracle-threshold ceiling, no leakage) vs 0.094 for the
+v1 recipe on the same archive. Major methodological finding: the
+fixed 0.5 threshold inflated all earlier fusion gains (oracle K=1
+already reaches ~0.093; genuine pose-evidence accumulation is ≈ +8 %,
+saturating at K≈4) — scalar calibration is affine-monotone in the
+fused logit, so its IoU value is exactly the operating-point choice.
+
+Outstanding: the architecture-vs-data attribution run
+(`checkpoints/joint_v2`, v1 architecture on v2 data) is **suspended at
+~epoch 40/60 by explicit user pause** (PIDs 40532/7824 frozen in
+place; resume → ~35 min → eval → append to the report).
+
+## 1. Demonstrations (added 2026-07-12)
 
 Both phases are now demonstrable end to end (`docs/demos.md`):
 `scripts/demo_room_mapping.py` maps a fresh room from the command line
@@ -11,7 +34,7 @@ simulation keeps streaming (`sense_room`/`sense_result` events, E2E
 Playwright-verified). Shared engine: `learning/sensing.py`. Report:
 `tests/reports/demos_2026_07_12.md`.
 
-## 1. Resolution
+## 2. Resolution (Phase 1 + 2 close, 2026-07-11)
 
 **Phases 1 and 2 are complete.** Phase 1 closed with the GPU backend
 (Task 1.5); Phase 2 closed with the multi-pose active-sensing campaign
