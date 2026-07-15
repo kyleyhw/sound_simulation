@@ -79,10 +79,29 @@ def fit_temperature_bias(
     return float(torch.exp(log_t).item()), float(bias.item())
 
 
-def save_calibration(ckpt_path: str | Path, temperature: float, bias: float, prior: float) -> Path:
-    """Write ``calibration.json`` next to the checkpoint; returns its path."""
+def save_calibration(
+    ckpt_path: str | Path,
+    temperature: float,
+    bias: float,
+    prior: float,
+    threshold: float = 0.5,
+) -> Path:
+    """Write ``calibration.json`` next to the checkpoint; returns its path.
+
+    ``threshold`` is the model's operating point: the IoU-optimal
+    decision threshold selected on the *validation* split (never
+    held-out data). Scalar calibration is an affine monotone map of the
+    fused logit, so it cannot change ranking metrics — choosing the
+    operating point is the part of Task 2.3e that actually moves IoU,
+    and it must travel with the calibration that defines its scale.
+    """
     out = Path(ckpt_path).resolve().parent / "calibration.json"
-    out.write_text(json.dumps({"temperature": temperature, "bias": bias, "prior": prior}, indent=2))
+    out.write_text(
+        json.dumps(
+            {"temperature": temperature, "bias": bias, "prior": prior, "threshold": threshold},
+            indent=2,
+        )
+    )
     return out
 
 
