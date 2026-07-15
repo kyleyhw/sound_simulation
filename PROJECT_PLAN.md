@@ -54,6 +54,13 @@ Work on each task or phase will only commence with explicit user permission.
 *   `[completed]` **Task 2.2 (Passive Sensing): Research & Model Blind Deconvolution**
     *   `[completed]` 2.2.1: `PassiveCNN` — the active model minus the source branch (198,529 params, all other hyperparameters identical, so active-vs-passive isolates the value of source knowledge). Honest blind setting via `--randomize-source` (per-sample random chirp endpoints). Known limitation: the power-spectrogram front-end discards phase/TDOA; GCC-PHAT input channel is the designated upgrade.
     *   `[completed]` 2.2.2: Trained and compared under matched conditions: passive in-dist 0.099 / held-out 0.030 vs active 0.134 / 0.037 — source knowledge is worth little in the single-pose regime; pose diversity dominates (Bayes fusion at K=8 beats both). See `tests/reports/passive_2026_07_10.md`.
+*   `[in-progress]` **Task 2.3: Sensing-quality improvements (a–e)**
+    *   `[completed]` 2.3a: Inter-channel phase front-end — `StereoPhaseFrontEnd` emits [log-mag ×2, cos φ, sin φ] with φ the GCC-PHAT cross-spectrum phase, restoring the TDOA cue the power spectrograms discarded.
+    *   `[completed]` 2.3b: Chirp band widened to the physical limit — corrected analysis: the binding ceiling is spatial Nyquist $f_{max} = c/2\Delta x = 0.5$ (not temporal 1.0); v2 protocol: $f_{end} = 0.45$ + recording window doubled to 400 steps (~3 domain crossings).
+    *   `[completed]` 2.3c: Shape-diverse rooms — `generate_diverse_obstacles` (rectangles, discs, thin walls incl. diagonal, L-shapes, count U[1,6]); v2 archives 10k×4 train / 500×8 held-out, acquisition protocol in file attrs and checkpoints.
+    *   `[completed]` 2.3d: Multi-scale skip decoder — `SkipSensingCNN` (798k params), encoder pose-pooled at 3 scales into a skip decoder 8→16→32→64, widening the single-8×8-latent bottleneck.
+    *   `[completed]` 2.3e: Calibrated fusion — Platt scaling $(T, b)$ fit on the validation split (`scripts/fit_calibration.py`), applied before the Bayes product rule; identity-compatible with the 2.1.4b benchmarks when absent.
+    *   `[in-progress]` Training + evaluation: skip_v2 (headline) and joint_v2 (architecture ablation) on v2 data, 60 epochs each; target on v2 held-out: beat the v1 model's transferred Bayes K=8 = 0.0938.
 
 ---
 

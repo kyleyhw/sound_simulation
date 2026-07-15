@@ -296,6 +296,76 @@ differences (TDOA) — the strongest passive geometric cue. A
 GCC-PHAT-style cross-correlation input channel is the designated
 upgrade if the magnitude-only passive model proves too weak.
 
+## 8. Sensing-quality improvements (Task 2.3, a–e)
+
+Five upgrades motivated by the demo 8 diagnosis (predictions weak
+because information is discarded, distributions are narrow, and the
+fusion rule amplifies miscalibration):
+
+- **(a) Inter-channel phase**: `StereoPhaseFrontEnd` feeds the encoder
+  $[\log(1{+}|X_1|^2), \log(1{+}|X_2|^2), \cos\varphi, \sin\varphi]$
+  with $\varphi = \arg(X_1 X_2^*)$ — the GCC-PHAT cross-spectrum
+  phase, restoring the TDOA cue that power spectrograms discard. A
+  test gate proves sensitivity: swapping the mics conjugates
+  $\varphi$ and must change the output.
+- **(b) Chirp band, corrected analysis**: the binding ceiling is the
+  *spatial* Nyquist $f_{\max} = c/2\Delta x = 0.5$, not the temporal
+  one (1.0) — wavelengths under $2\Delta x$ cannot propagate on the
+  grid. v2 protocol: $f_{\mathrm{end}} = 0.45$ (λ ≈ 2.2 cells) plus a
+  doubled 400-step recording window (~3 domain crossings), which adds
+  more information than further bandwidth could.
+- **(c) Shape-diverse rooms**: `generate_diverse_obstacles` — mixture
+  of rectangles, discs, thin walls (incl. diagonal), and L-shapes,
+  count $U[1,6]$ (`--room-style mixed`). v2 archives:
+  `active_sensing_v2_train_10kx4.hdf5` (seed 271828, 7.0 % mean
+  occupancy) and `..._v2_heldout_500x8.hdf5` (seed 161803). The full
+  acquisition protocol is written as file attrs and copied into every
+  checkpoint, so live inference (`sensing.py`) reproduces it
+  automatically per checkpoint.
+- **(d) Multi-scale skips**: `SkipSensingCNN` (798,641 params) pools
+  the encoder's three stages to 8/16/32 and concatenates them into the
+  corresponding decoder stages — multi-resolution conditioning that
+  widens the old single-8×8-latent bottleneck (there is no geometric
+  correspondence between time-frequency and room pixels to exploit,
+  so these are information skips, not U-Net alignment skips).
+- **(e) Calibration + operating point**: Platt scaling
+  $\ell' = \ell/T + b$ fitted on the *validation* split
+  (`scripts/fit_calibration.py`), stored as `calibration.json` with a
+  val-selected IoU-optimal decision threshold. Mathematically, scalar
+  calibration is an affine monotone map of the Bayes-fused logit at
+  fixed K, so it cannot change ranking metrics — its value is honest
+  probabilities plus the principled threshold.
+
+### Results (v2 held-out, 500 shape-diverse rooms)
+
+| recipe | K=1 | K=4 | K=8 |
+| --- | --- | --- | --- |
+| v1 joint model, Bayes @ 0.5 (transfer) | 0.052 | 0.085 | 0.094 |
+| skip_v2, Bayes @ 0.5 (raw) | 0.054 | 0.087 | 0.090 |
+| **skip_v2, calibrated Bayes @ τ=0.12 (val-selected)** | 0.066 | **0.100** | 0.100 |
+| skip_v2, native joint forward @ 0.5 | 0.054 | 0.073 | 0.073 |
+| oracle-threshold ceiling: skip_v2 / v1 | 0.093 / 0.093 | 0.100 / 0.094 | 0.100 / 0.096 |
+
+Two findings beyond the headline (+7 % over the v1 recipe at the
+project's new best of 0.100, saturating at K≈4):
+
+1. **The fixed 0.5 threshold was doing hidden work in all earlier
+   experiments.** At per-K oracle thresholds even K=1 reaches ~0.093,
+   so most of the apparent "2.4× fusion gain" in the 2.1.4b/c reports
+   was the fused map's distribution shifting relative to a fixed
+   threshold; true evidence accumulation is ≈ +8 %. Fusion still
+   helps — and the calibrated operating point now captures nearly the
+   whole oracle ceiling without test-set leakage.
+2. **v1 transfers robustly**: the old model scores essentially the
+   same on the new shape-diverse/wider-band archive (0.094 @ K=8) as
+   on its own distribution (0.092) — the v1 encoder was not brittle to
+   these shifts; it was information-starved.
+
+Training the skip model: same command shape as before with
+`--model skip` on the v2 archive (60 epochs — historical runs peaked
+by epoch ~36); then `scripts/fit_calibration.py` for the sidecar. The
+web UI and demo default to `checkpoints/skip_v2/best_iou.pt`.
+
 ## References
 
 <span id="ref-milletari-2016">[1]</span> Milletari, F., Navab, N., & Ahmadi, S.-A. (2016). *V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation.* 3DV 2016. [Link](https://arxiv.org/abs/1606.04797)

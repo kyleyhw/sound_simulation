@@ -104,10 +104,44 @@ def main() -> None:
     all_logits = np.concatenate(logit_chunks)
     all_labels = np.concatenate(label_chunks)
     temperature, bias = fit_temperature_bias(all_logits, all_labels)
-    out = save_calibration(args.checkpoint, temperature, bias, prior)
+
+    # Operating point: the IoU-optimal threshold on the CALIBRATED,
+    # Bayes-fused validation maps (all K poses the archive provides).
+    # Selected on validation only — held-out archives never see this
+    # sweep. Scalar calibration is affine-monotone in the fused logit,
+    # so this threshold choice is the IoU-bearing half of Task 2.3e;
+    # (T, b) supply the honest probability scale it lives on.
+    prior_c = float(np.clip(prior, 1e-4, 1 - 1e-4))
+    prior_logit = float(np.log(prior_c / (1.0 - prior_c)))
+    sweep = np.concatenate([np.arange(0.02, 0.2, 0.02), np.arange(0.2, 0.95, 0.05)])
+    # Rebuild each room's calibrated fused map from the stored chunks:
+    # a room's logits chunk is (K * side * side,), its labels chunk the
+    # truth tiled K times, so K = len(logits) / len(truth).
+    fused_maps: list[np.ndarray] = []
+    truths: list[np.ndarray] = []
+    for logits_flat, labels_flat in zip(logit_chunks, label_chunks):
+        side = target_size
+        n_px = side * side
+        k = logits_flat.size // n_px
+        lg = logits_flat.reshape(k, side, side) / temperature + bias
+        fused_maps.append(1.0 / (1.0 + np.exp(-(lg.sum(axis=0) - (k - 1) * prior_logit))))
+        truths.append(labels_flat[:n_px].reshape(side, side))
+    best_tau, best_iou = 0.5, -1.0
+    for tau in sweep:
+        vals = []
+        for prob, tr in zip(fused_maps, truths):
+            pred = (prob > tau).astype(np.float32)
+            inter = float((pred * tr).sum())
+            union = float(pred.sum() + tr.sum() - inter)
+            vals.append((inter + 1e-6) / (union + 1e-6))
+        mean_iou = float(np.mean(vals))
+        if mean_iou > best_iou:
+            best_tau, best_iou = float(tau), mean_iou
+    out = save_calibration(args.checkpoint, temperature, bias, prior, threshold=best_tau)
     print(
         f"[calibrate] T={temperature:.4f} b={bias:.4f} prior={prior:.4f} "
-        f"({all_logits.size:,} pixels) -> {out}"
+        f"threshold={best_tau:.2f} (val fused IoU {best_iou:.4f}, "
+        f"{all_logits.size:,} pixels) -> {out}"
     )
     print(f"[calibrate] runtime {time.perf_counter() - t0:.1f}s")
 

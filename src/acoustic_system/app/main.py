@@ -65,7 +65,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 # a second, so it runs on demand rather than being preloaded.
 SENSE_CHECKPOINT = os.environ.get(
     "ACOUSTIC_SENSE_CHECKPOINT",
-    str(Path(__file__).resolve().parents[3] / "checkpoints" / "joint_baseline" / "best_iou.pt"),
+    str(Path(__file__).resolve().parents[3] / "checkpoints" / "skip_v2" / "best_iou.pt"),
 )
 
 
@@ -300,6 +300,7 @@ class SimulationManager:
 
         def _run() -> Dict[str, Any]:
             try:
+                from acoustic_system.learning.sensing import load_sensing_model
                 from acoustic_system.learning.sensing import sense_room as _sense_room
             except ImportError as exc:
                 return {
@@ -313,6 +314,7 @@ class SimulationManager:
                 }
             t0 = time.perf_counter()
             result = _sense_room(mask, SENSE_CHECKPOINT, n_poses=n_poses, seed=seed)
+            _, cfg = load_sensing_model(SENSE_CHECKPOINT)
             final = result.fused_probs[-1]
             return {
                 "ok": True,
@@ -321,6 +323,10 @@ class SimulationManager:
                 "truth": result.truth.astype(np.uint8).tolist(),
                 "ious": [round(float(v), 4) for v in result.ious],
                 "poses": int(len(result.ious)),
+                # The val-selected decision threshold the IoUs are scored
+                # at (Task 2.3e operating point; 0.5 for uncalibrated
+                # checkpoints) — shown in the UI caption.
+                "threshold": round(float(cfg.threshold), 2),
                 "elapsed": round(time.perf_counter() - t0, 2),
             }
 

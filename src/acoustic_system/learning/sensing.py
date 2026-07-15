@@ -93,6 +93,9 @@ class SensingConfig:
     prior: float = TRAINING_OBSTACLE_PRIOR
     temperature: float = 1.0
     bias: float = 0.0
+    # Decision threshold for IoU scoring — the val-selected operating
+    # point from calibration.json when present, else the historical 0.5.
+    threshold: float = 0.5
 
 
 _model_cache: dict[str, tuple[Any, SensingConfig]] = {}
@@ -128,6 +131,7 @@ def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, SensingConfig]
             cfg.temperature = float(calib["temperature"])
             cfg.bias = float(calib["bias"])
             cfg.prior = float(calib["prior"])
+            cfg.threshold = float(calib.get("threshold", 0.5))
         _model_cache[key] = (model, cfg)
     return _model_cache[key]
 
@@ -278,7 +282,7 @@ def sense_room(
         fused[k - 1] = calibrated_bayes_fuse(
             logits_arr[:k], use_prior, temperature=cfg.temperature, bias=cfg.bias
         )
-        pred = (resize_mask(fused[k - 1], cfg.target_size) > 0.5).astype(np.float32)
+        pred = (resize_mask(fused[k - 1], cfg.target_size) > cfg.threshold).astype(np.float32)
         ious.append(_iou(pred, truth_scored))
 
     return SenseResult(

@@ -84,6 +84,8 @@ interface SenseResult {
   /** IoU progression: ious[k-1] uses the first k poses. */
   ious?: number[];
   poses?: number;
+  /** Decision threshold the IoUs are scored at (calibrated operating point). */
+  threshold?: number;
   elapsed?: number;
 }
 
@@ -760,7 +762,9 @@ function App(): React.JSX.Element {
                   />
                   <div className="hint">
                     Viridis: dark = free, bright = inferred obstacle. True obstacle
-                    cells are whitened for comparison. IoU by poses fused:{' '}
+                    cells are whitened for comparison. IoU
+                    {senseResult.threshold !== undefined ? ` @ τ=${senseResult.threshold}` : ''} by
+                    poses fused:{' '}
                     {senseResult.ious?.map((v, i) => `K=${i + 1}: ${v.toFixed(3)}`).join('  ')}
                     {'  '}({senseResult.elapsed}s)
                   </div>

@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--checkpoint",
-        default=str(_REPO_ROOT / "checkpoints" / "joint_baseline" / "best_iou.pt"),
+        default=str(_REPO_ROOT / "checkpoints" / "skip_v2" / "best_iou.pt"),
     )
     p.add_argument("--poses", type=int, default=8, help="Number of chirp/record poses K.")
     # Default seeds chosen from a 24-room sweep (2026-07-12,
