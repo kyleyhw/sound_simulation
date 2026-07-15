@@ -51,7 +51,10 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from acoustic_system.learning.sensing import GRID, sense_room  # noqa: E402
-from acoustic_system.simulation.dataset import generate_random_obstacles  # noqa: E402
+from acoustic_system.simulation.dataset import (  # noqa: E402
+    generate_diverse_obstacles,
+    generate_random_obstacles,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,18 +64,29 @@ def parse_args() -> argparse.Namespace:
         default=str(_REPO_ROOT / "checkpoints" / "skip_v2" / "best_iou.pt"),
     )
     p.add_argument("--poses", type=int, default=8, help="Number of chirp/record poses K.")
-    # Default seeds chosen from a 24-room sweep (2026-07-12,
-    # tests/reports/demos_2026_07_12.md): room 7 / poses 107 gives a
-    # clean monotone IoU progression (0.075 -> 0.195 over K=1..8) at
-    # 7.0% occupancy, near the 5.8% training mean. Per-room variance
-    # is high — the sweep's mean progression was 0.049 -> 0.099, and
-    # some rooms stay near 0 at every K; other seeds are a fair roll.
-    p.add_argument("--seed", type=int, default=107, help="Pose-placement RNG seed.")
+    # Default seeds chosen from a 24-room sweep against the current
+    # default checkpoint (skip_v2, 2026-07-15, tests/reports/
+    # sensing_v2_2026_07_15.md): room 20 / poses 120 gives a clean
+    # monotone IoU progression (0.203 -> 0.256 over K=1..8) at 10.7%
+    # occupancy. The sweep's mean progression was 0.092 -> 0.127
+    # (saturating at K~4); per-room variance is high and some rooms
+    # decline with K — other seeds are a fair roll of the dice.
+    p.add_argument("--seed", type=int, default=120, help="Pose-placement RNG seed.")
     p.add_argument(
         "--room-seed",
         type=int,
         default=None,
-        help="Room-layout RNG seed (default 7; see comment above). Independent stream from --seed.",
+        help="Room-layout RNG seed (default 20; see comment above). Independent stream from --seed.",
+    )
+    p.add_argument(
+        "--room-style",
+        choices=["rect", "mixed"],
+        default="mixed",
+        help=(
+            "Room generator family: mixed (default) matches the v2 training "
+            "distribution (rectangles, discs, thin walls, L-shapes); rect is "
+            "the v1 three-rectangle family."
+        ),
     )
     p.add_argument("--n-obstacles", type=int, default=3)
     p.add_argument("--obstacle-min", type=int, default=4)
@@ -86,14 +100,22 @@ def main() -> None:
     args = parse_args()
     t0 = time.perf_counter()
 
-    room_seed = args.room_seed if args.room_seed is not None else 7
-    room = generate_random_obstacles(
-        grid_shape=(GRID, GRID),
-        n_obstacles=args.n_obstacles,
-        min_size=args.obstacle_min,
-        max_size=args.obstacle_max,
-        rng=np.random.default_rng(room_seed),
-    )
+    room_seed = args.room_seed if args.room_seed is not None else 20
+    if args.room_style == "mixed":
+        room = generate_diverse_obstacles(
+            grid_shape=(GRID, GRID),
+            min_size=args.obstacle_min,
+            max_size=args.obstacle_max,
+            rng=np.random.default_rng(room_seed),
+        )
+    else:
+        room = generate_random_obstacles(
+            grid_shape=(GRID, GRID),
+            n_obstacles=args.n_obstacles,
+            min_size=args.obstacle_min,
+            max_size=args.obstacle_max,
+            rng=np.random.default_rng(room_seed),
+        )
     print(
         f"[demo] room seed={room_seed}: {int(room.sum())} obstacle cells "
         f"({100 * room.mean():.1f}% occupancy)"
