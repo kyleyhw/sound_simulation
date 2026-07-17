@@ -360,6 +360,17 @@ project's new best of 0.100, saturating at K≈4):
    same on the new shape-diverse/wider-band archive (0.094 @ K=8) as
    on its own distribution (0.092) — the v1 encoder was not brittle to
    these shifts; it was information-starved.
+3. **Attribution (ablation: v1 architecture retrained on v2 data)**:
+   at the calibrated operating point the v1 architecture reaches the
+   *same* fused ceiling as the skip model (0.101 vs 0.100 @ K=8).
+   Decomposition: (e) calibration + operating point ≈ +6 % and
+   equalises architectures; (b+c) data/protocol ≈ +5 %; (a+d)
+   architecture ≈ 0 at the ceiling (it improves uncalibrated maps and
+   single-pose quality only). Two structurally different networks
+   converging on ≈ 0.10 indicates the **information ceiling of the
+   acquisition** (2 mics, 64² grid, λ ≥ 2.2 cells, K ≤ 8) — further
+   gains require changing the acquisition physics, not the model.
+   Full table in `tests/reports/sensing_v2_2026_07_15.md`.
 
 Training the skip model: same command shape as before with
 `--model skip` on the v2 archive (60 epochs — historical runs peaked
