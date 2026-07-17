@@ -18,10 +18,14 @@ already reaches ~0.093; genuine pose-evidence accumulation is ≈ +8 %,
 saturating at K≈4) — scalar calibration is affine-monotone in the
 fused logit, so its IoU value is exactly the operating-point choice.
 
-Outstanding: the architecture-vs-data attribution run
-(`checkpoints/joint_v2`, v1 architecture on v2 data) is **suspended at
-~epoch 40/60 by explicit user pause** (PIDs 40532/7824 frozen in
-place; resume → ~35 min → eval → append to the report).
+Attribution (ablation completed 2026-07-17): the v1 architecture
+retrained on v2 data reaches the same calibrated fused ceiling as the
+skip model (0.101 vs 0.100 @ K=8). Decomposition: (e) ≈ +6 % and
+equalises architectures; (b+c) ≈ +5 %; (a+d) ≈ 0 at the ceiling.
+Two different architectures converging on ≈ 0.10 marks the
+**information ceiling of the current acquisition** (2 mics, 64² grid,
+λ ≥ 2.2 cells, K ≤ 8 poses) — further sensing gains require changing
+the acquisition physics, not the model. Task 2.3 closed.
 
 ## 1. Demonstrations (added 2026-07-12)
 
