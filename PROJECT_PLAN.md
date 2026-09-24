@@ -438,9 +438,11 @@ and explainers, and the write-ups are published.
 *   `[pending]` 10.2: 3D simulator in WebGPU.
 *   `[pending]` 10.3: Sensing models in the browser (ONNX).
 *   `[pending]` 10.4: Deploy to GitHub Pages.
-*   `[pending]` 10.5: Scene gallery: diffraction, whispering gallery,
+*   `[completed]` 10.5: Scene gallery: diffraction, whispering gallery,
     acoustic lens, room modes, time-reversal, beam steering, quiet
-    zone, and others.
+    zone, and others. *(15 presets; the new ones are physics-tested in
+    `web/tests/unit/presets.test.ts`: time-reversal focus 4× the field
+    30 cells away, beam 20 dB on/off, quiet zone 58 dB.)*
 *   `[pending]` 10.6: Interactive explainer articles with live embedded
     simulations.
 *   `[pending]` 10.7: Automated video and GIF rendering from scene

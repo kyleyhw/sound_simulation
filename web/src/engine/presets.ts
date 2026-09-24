@@ -6,6 +6,7 @@
 import type { WaveformSpec } from './waveforms';
 import { type DriverSpec, type ProbeSpec, type SimParams, DEFAULT_PARAMS } from './simulation';
 import { encodeRle, type Scene } from './scene';
+import { Simulation } from './simulation';
 
 export interface Preset {
   id: string;
@@ -324,7 +325,128 @@ export const PRESETS: Preset[] = [
       );
     },
   },
+  {
+    id: 'whispering-gallery',
+    title: 'Whispering gallery',
+    blurb: 'Sound hugs a curved wall and arrives loud on the far side.',
+    physics:
+      'Rays grazing a concave rigid wall reflect again and again at shallow angles and stay trapped in a thin band along it (Rayleigh, St Paul\'s Cathedral). A whisper at one side reaches the opposite side with little loss: the far wall hears it louder than a point inside the hall that is 45 cells nearer the source.',
+    build: () => {
+      const c = new Canvas(200, 200);
+      c.disc(100, 100, 99, RIGID);
+      c.disc(100, 100, 92, 0);
+      return scene(
+        'Whispering gallery',
+        { outer: 'rigid' },
+        c,
+        [drv('d1', 100, 11, ricker(0.12, 4, 15))],
+        [probe('p1', 100, 189, 'Far wall'), probe('p2', 100, 145, 'Inside, nearer the source')],
+        'Rigid circular hall, radius 92 cells, source against the wall.',
+      );
+    },
+  },
+  {
+    id: 'beam-steering',
+    title: 'Beam steering',
+    blurb: 'Sixteen speakers, one delay each: the beam turns without moving anything.',
+    physics:
+      'A line array with a delay that grows linearly along it, d_k = k s sin(theta) / c, tilts the combined wavefront by theta. Here theta = 25 degrees. The spacing s = 6 cells is below half a wavelength, so no grating lobes appear.',
+    build: () => {
+      const c = new Canvas(160, 160);
+      const f = 0.05;
+      const theta = (25 * Math.PI) / 180;
+      const drivers = Array.from({ length: 16 }, (_, k) =>
+        drv(`arr-${k}`, 150, 35 + 6 * k, tone(f, 0.6), { delay: (k * 6 * Math.sin(theta)) / 1 }),
+      );
+      return scene(
+        'Beam steering',
+        { outer: 'cpml', cpmlCells: 16 },
+        c,
+        drivers,
+        [probe('p1', 60, 122, 'On the beam'), probe('p2', 60, 38, 'Off the beam')],
+        'Phased line array steered 25 degrees to the right, anechoic room.',
+      );
+    },
+  },
+  {
+    id: 'quiet-zone',
+    title: 'Quiet zone',
+    blurb: 'Ten speakers make one spot loud and a nearby spot silent.',
+    physics:
+      'Acoustic contrast control chooses each speaker\'s gain and phase to maximise the energy in the loud zone over the energy in the quiet zone. The weights come from transfer functions measured in this room, including the rigid table (Control tab). This design measures 57.6 dB of contrast. Open the Control tab, draw the two zones and press "Measure room & design" to redesign it.',
+    build: () => {
+      const c = new Canvas(160, 160);
+      c.rect(88, 96, 8, 28, RIGID);
+      const f = 0.04;
+      const w: [number, number, number][] = [
+        [53, 1.1796, 6.268], [59, 0.5246, 1.134], [65, 1.1644, 24.348], [71, 1.2574, 24.111], [77, 0.9442, 22.596],
+        [83, 0.8564, 19.393], [89, 0.9345, 16.723], [95, 0.8782, 13.757], [101, 0.9471, 10.09], [107, 1.1092, 6.837],
+      ];
+      return scene(
+        'Quiet zone',
+        { outer: 'cpml', cpmlCells: 16 },
+        c,
+        w.map(([j, g, d], k) => drv(`arr-${k}`, 140, j, tone(f, 1), { gain: g, delay: d })),
+        [probe('p1', 40, 44, 'Loud zone'), probe('p2', 40, 116, 'Quiet zone')],
+        'ACC design at f = 0.04 (25 cells per wavelength). Loud zone rows 30-50, columns 34-54; quiet zone rows 30-50, columns 106-126. Switch the view to Loudness to see it.',
+      );
+    },
+  },
+  {
+    id: 'time-reversal',
+    title: 'Time-reversal focusing',
+    blurb: 'Play the echoes backwards and the sound refocuses on its source.',
+    physics:
+      'The wave equation is symmetric in time. A pulse from the focus passes through a cluster of scatterers and is recorded by 16 microphones. Each recording is then played back reversed from the same spot. The scattered energy retraces its paths and converges on the original source point, even though the medium in between is a mess.',
+    build: () => timeReversalScene(),
+  },
 ];
+
+let trCache: Scene | null = null;
+
+/**
+ * Time-reversal scene (memoised). The forward run records a Ricker pulse
+ * from the focus at 16 array positions. The scene's drivers replay those
+ * recordings reversed in time (``samples`` waveforms at the simulation rate).
+ */
+function timeReversalScene(): Scene {
+  if (trCache) return trCache;
+  const n = 160;
+  const c = new Canvas(n, n);
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 26; k++) c.disc(55 + rnd() * 50, 25 + rnd() * 110, 2 + rnd() * 3, RIGID);
+  const focus = [22, 80];
+  const params = { ...DEFAULT_PARAMS, outer: 'cpml' as const, cpmlCells: 16, shape: [n, n] };
+  const sim = new Simulation(params);
+  sim.setMaterialMap(c.m);
+  sim.setDrivers([{ id: 'src', pos: focus, waveform: ricker(0.1, 5, 20), enabled: true }]);
+  const mics = Array.from({ length: 16 }, (_, k) => [140, 35 + 6 * k]);
+  sim.setProbes(mics.map((pos, k) => ({ id: `m${k}`, pos })));
+  const steps = 760;
+  for (let k = 0; k < steps; k++) sim.step();
+  const recs = mics.map((_, k) => sim.probeSeries(`m${k}`));
+  let peak = 0;
+  for (const r of recs) for (const v of r) peak = Math.max(peak, Math.abs(v));
+  const drivers = recs.map((r, k) =>
+    drv(`tr-${k}`, mics[k][0], mics[k][1], {
+      type: 'samples',
+      amplitude: 3 / (peak || 1),
+      rate: 1 / sim.dt,
+      delay: 0,
+      data: Array.from(r).reverse().map((v) => +v.toFixed(6)),
+    }),
+  );
+  trCache = scene(
+    'Time-reversal focusing',
+    { outer: 'cpml', cpmlCells: 16 },
+    c,
+    drivers,
+    [probe('p1', focus[0], focus[1], 'Original source'), probe('p2', focus[0], focus[1] + 30, 'Beside it')],
+    `The 16 speakers replay reversed recordings of a pulse from the probe. The focus forms at t = ${(steps * sim.dt - 20).toFixed(0)}.`,
+  );
+  return trCache;
+}
 
 export function presetById(id: string): Preset | undefined {
   return PRESETS.find((p) => p.id === id);
