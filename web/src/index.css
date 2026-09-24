@@ -1028,3 +1028,36 @@ table.data th {
     max-height: none;
   }
 }
+
+/* ---------------- Learn: explainers ---------------- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+a.card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+a.card:hover {
+  border-color: var(--accent);
+}
+.livesim {
+  margin: 18px 0 22px;
+}
+.livesim-stage {
+  display: flex;
+  justify-content: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+.livesim-stage canvas {
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  border-radius: 6px;
+}

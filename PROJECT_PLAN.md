@@ -447,13 +447,15 @@ and explainers, and the write-ups are published.
     zone, and others. *(15 presets; the new ones are physics-tested in
     `web/tests/unit/presets.test.ts`: time-reversal focus 4× the field
     30 cells away, beam 20 dB on/off, quiet zone 58 dB.)*
-*   `[pending]` 10.6: Interactive explainer articles with live embedded
-    simulations.
-*   `[pending]` 10.7: Automated video and GIF rendering from scene
-    files.
+*   `[completed]` 10.6: Interactive explainer articles with live embedded
+    simulations. *(Six articles on `#/learn`, each with a live sim that
+    has variants and an "Open in sandbox" link.)*
+*   `[completed]` 10.7: Automated video and GIF rendering from scene
+    files. *(`npm run render`.)*
 *   `[pending]` 10.8: README rewrite with an animated hero and a "try
     it" link.
-*   `[pending]` 10.9: Docs website built from `docs/`.
+*   `[completed]` 10.9: Docs website built from `docs/`. *(`#/docs`: all
+    docs, reports and the plan, with maths and figures.)*
 *   `[pending]` 10.10: Public dataset and benchmark, with the baselines
     included.
 *   `[pending]` 10.11: Write-up: "What can a laptop hear?" (the sensing
