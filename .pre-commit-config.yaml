@@ -22,7 +22,8 @@ repos:
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
-        exclude: package-lock.json
+        # MANIFEST.json holds SHA-256 digests, which are high-entropy hex by design.
+        exclude: (package-lock.json|data/MANIFEST.json)
 
   - repo: local
     hooks:

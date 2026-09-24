@@ -1,0 +1,24 @@
+{
+  "format": "acoustic-system-manifest",
+  "version": 1,
+  "entries": [
+    {
+      "path": "data/training_data/active_sensing_v2_heldout_500x8.hdf5",
+      "kind": "dataset",
+      "seed": 161803,
+      "protocol": "v2",
+      "bytes": 89791240,
+      "content_sha256": "6af8d00c5b72022d6640760977ec31de3c9185c0b1b3998ef31f4ffb0fd9fc30",
+      "regenerate": "uv run python scripts/generate_active_sensing.py --output data/training_data/active_sensing_v2_heldout_500x8.hdf5 --num-samples 500 --grid 64 --duration 400 --record-step 1 --poses-per-room 8 --n-mics 2 --mic-spacing 12 --room-style mixed --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 --synth-f-start 0.02 --synth-f-end 0.45 --protocol v2 --seed 161803"
+    },
+    {
+      "path": "data/training_data/active_sensing_v2_train_10kx4.hdf5",
+      "kind": "dataset",
+      "seed": 271828,
+      "protocol": "v2",
+      "bytes": 1684289462,
+      "content_sha256": "d6ba401b83f6746d00d07c352026c1617877ee7a8ffef243cc013e951154bca2",
+      "regenerate": "uv run python scripts/generate_active_sensing.py --output data/training_data/active_sensing_v2_train_10kx4.hdf5 --num-samples 10000 --grid 64 --duration 400 --record-step 1 --poses-per-room 4 --n-mics 2 --mic-spacing 12 --room-style mixed --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 --synth-f-start 0.02 --synth-f-end 0.45 --protocol v2 --seed 271828"
+    }
+  ]
+}

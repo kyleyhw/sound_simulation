@@ -413,6 +413,9 @@ def main() -> None:
         hf.attrs["randomize_source"] = bool(args.randomize_source)
         hf.attrs["room_style"] = str(args.room_style)
         hf.attrs["protocol"] = str(args.protocol)
+        hf.attrs["n_obstacles"] = int(args.n_obstacles)
+        hf.attrs["obstacle_min"] = int(args.obstacle_min)
+        hf.attrs["obstacle_max"] = int(args.obstacle_max)
 
         def write_room(hf, job: dict, recordings_per_pose: list, timestep: float) -> None:
             s = job["index"]

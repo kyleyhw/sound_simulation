@@ -138,10 +138,13 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[completed]` 3.5.1: Stop tracking `.DS_Store` and `.idea/`.
     *   `[completed]` 3.5.2: Fix `README.md`: broken image paths, stale
         feature list, and the out-of-date layout.
-    *   `[pending]` 3.5.3: Store datasets and checkpoints remotely,
-        with checksums and seed manifests.
-*   `[pending]` **Task 3.6: Report**
-    *   `[pending]` 3.6.1: Write `tests/reports/debug_audit_<date>.md`
+    *   `[in-progress]` 3.5.3: Store datasets and checkpoints remotely,
+        with checksums and seed manifests. *(`data/MANIFEST.json` via
+        `scripts/manifest.py`: content digests plus regeneration
+        commands, verified by regenerating the held-out archive.
+        Remote hosting needs an authorised storage target.)*
+*   `[in-progress]` **Task 3.6: Report**
+    *   `[in-progress]` 3.6.1: Write `tests/reports/debug_audit_<date>.md`
         listing the bugs found, the fixes, and the open issues.
 
 ### Phase 4: UI Overhaul — `[in-progress]`
@@ -151,7 +154,7 @@ pieces of local state and an ad-hoc layout.
 **Done when:** The new UI matches every current feature, adds the core
 features below, passes end-to-end tests, and the old UI is deleted.
 
-*   `[pending]` **Task 4.1: Design**
+*   `[completed]` **Task 4.1: Design**
     *   `[completed]` 4.1.1: List the current features and their pain
         points.
     *   `[completed]` 4.1.2: Write a UX spec: layout (canvas, tool
@@ -162,7 +165,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
     *   `[completed]` 4.1.4: Choose the architecture: state store,
         component structure, a WebGL renderer, and a typed wire
         protocol shared with the backend.
-*   `[pending]` **Task 4.2: Foundation**
+*   `[completed]` **Task 4.2: Foundation**
     *   `[completed]` 4.2.1: New app shell with the layout and component
         structure.
     *   `[completed]` 4.2.2: Typed engine API in place of a socket protocol:
@@ -174,7 +177,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
         and a dB scale.
     *   `[completed]` 4.2.5: Port the 3D volume view into the new
         structure.
-*   `[pending]` **Task 4.3: Feature parity**
+*   `[in-progress]` **Task 4.3: Feature parity**
     *   `[completed]` 4.3.1: Run controls: start, stop, reset, and
         single-step.
     *   `[completed]` 4.3.2: Config panel with input validation.
@@ -183,7 +186,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
     *   `[completed]` 4.3.4: Driver placement with a per-driver editor
         (waveform, amplitude, delay).
     *   `[pending]` 4.3.5: Sensing panel.
-*   `[pending]` **Task 4.4: New core features**
+*   `[completed]` **Task 4.4: New core features**
     *   `[completed]` 4.4.1: Probes: virtual mics with a live waveform
         and spectrogram.
     *   `[completed]` 4.4.2: Listen at a probe through Web Audio.
@@ -196,7 +199,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
     *   `[completed]` 4.4.7: A starter set of preset scenes.
     *   `[completed]` 4.4.8: Export a screenshot, GIF, or MP4.
     *   `[completed]` 4.4.9: Keyboard shortcuts and first-run hints.
-*   `[pending]` **Task 4.5: Quality**
+*   `[completed]` **Task 4.5: Quality**
     *   `[completed]` 4.5.1: A Playwright test for every feature, run in
         CI.
     *   `[completed]` 4.5.2: Performance: 60 fps rendering at 512²,
