@@ -10,6 +10,10 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
+# Every commit in this repo is made under the owner's identity.
+git config user.name "Kyle"
+git config user.email "kyleyhw@gmail.com"
+
 # Python: .venv/ from uv.lock. Idempotent — a no-op when already synced.
 uv sync --extra dev --extra ml
 
