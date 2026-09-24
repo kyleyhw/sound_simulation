@@ -26,8 +26,9 @@ fast, verified, browser-based acoustic sandbox.
     baseline, such as the average-room guess or no control at all.
 *   **Verified physics:** Check the simulator against analytic
     solutions and use SI units at every interface.
-*   **Explicit permission:** Work on a phase starts only after the user
-    approves it.
+*   **Autonomous execution:** After the user's go-ahead, phases run in
+    order without approval for each phase (waived 2026-09-24). See
+    §4 for the rules and stop points.
 
 ## 3. Phases
 
@@ -417,3 +418,30 @@ and explainers, and the write-ups are published.
     results, negative results included).
 *   `[pending]` 10.12: Write-ups on control and on the real-hardware
     results.
+
+## 4. Execution Rules (agreed 2026-09-24)
+
+*   **Start:** Nothing runs until the user gives an explicit go-ahead.
+    After that, phases and tasks run in plan order.
+*   **Commits:** One commit per subtask, pushed to `main`. Every commit
+    passes ruff, ruff-format, ty, and the kernel checks.
+*   **Tracking:** Mark each subtask's status here as work lands.
+    `CURRENT_STATE.md` is updated at the end of every task.
+*   **Phase reports:** Every phase ends with a report in
+    `tests/reports/`.
+*   **Checkpoints:** Datasets and checkpoints are regenerated or
+    retrained on CPU from the documented seeds. There are no uploads
+    from the user's machine.
+*   **UI design (Phase 4):** Claude uses its own judgement. The user
+    may ask for revisions later.
+*   **Stop and report to the user** when:
+    *   a result changes the plan (for example, Phase 6 finds no usable
+        sensing signal), or
+    *   a step needs the user's hardware: the GPU checks (3.2.3, 5.1.2,
+        GPU parts of 5.7) and the real-room measurements (9.2–9.11), or
+    *   a step publishes something under the user's name: remote
+        artefact storage (3.5.3), GitHub Pages (10.4), the public
+        benchmark (10.10), and the write-ups (10.11–10.12).
+*   **After a stop:** Work continues on any tasks that don't depend on
+    the blocked one. The GPU code itself is still written, and marked
+    "untested on GPU".
