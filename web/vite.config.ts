@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 
 // BASE is set by the Pages workflow to "/<repo>/"; local dev serves at "/".
 export default defineConfig({

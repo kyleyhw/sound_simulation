@@ -140,7 +140,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[pending]` 3.6.1: Write `tests/reports/debug_audit_<date>.md`
         listing the bugs found, the fixes, and the open issues.
 
-### Phase 4: UI Overhaul — `[pending]`
+### Phase 4: UI Overhaul — `[in-progress]`
 **Objective:** Replace the current UI with a well-designed,
 well-structured app. Today it is a single ~1.1k-line `App.tsx` with 40+
 pieces of local state and an ad-hoc layout.
@@ -148,55 +148,56 @@ pieces of local state and an ad-hoc layout.
 features below, passes end-to-end tests, and the old UI is deleted.
 
 *   `[pending]` **Task 4.1: Design**
-    *   `[pending]` 4.1.1: List the current features and their pain
+    *   `[completed]` 4.1.1: List the current features and their pain
         points.
-    *   `[pending]` 4.1.2: Write a UX spec: layout (canvas, tool
+    *   `[completed]` 4.1.2: Write a UX spec: layout (canvas, tool
         palette, inspector, bottom plot/timeline dock) and the main
         user flows.
-    *   `[pending]` 4.1.3: Visual design: design tokens, typography,
+    *   `[completed]` 4.1.3: Visual design: design tokens, typography,
         colour maps, and light and dark themes.
-    *   `[pending]` 4.1.4: Choose the architecture: state store,
+    *   `[completed]` 4.1.4: Choose the architecture: state store,
         component structure, a WebGL renderer, and a typed wire
         protocol shared with the backend.
 *   `[pending]` **Task 4.2: Foundation**
-    *   `[pending]` 4.2.1: New app shell with the layout and component
+    *   `[completed]` 4.2.1: New app shell with the layout and component
         structure.
-    *   `[pending]` 4.2.2: Typed socket client plus protocol types
-        generated from one schema.
-    *   `[pending]` 4.2.3: A central state store to replace the scattered
+    *   `[completed]` 4.2.2: Typed engine API in place of a socket protocol:
+        the simulator runs in the browser (`web/src/engine/`), so there
+        is no wire protocol to type.
+    *   `[completed]` 4.2.3: A central state store to replace the scattered
         `useState` and `useRef` state.
-    *   `[pending]` 4.2.4: A 2D WebGL field renderer with colour maps
+    *   `[completed]` 4.2.4: A 2D WebGL field renderer with colour maps
         and a dB scale.
-    *   `[pending]` 4.2.5: Port the 3D volume view into the new
+    *   `[completed]` 4.2.5: Port the 3D volume view into the new
         structure.
 *   `[pending]` **Task 4.3: Feature parity**
-    *   `[pending]` 4.3.1: Run controls: start, stop, reset, and
+    *   `[completed]` 4.3.1: Run controls: start, stop, reset, and
         single-step.
-    *   `[pending]` 4.3.2: Config panel with input validation.
-    *   `[pending]` 4.3.3: Obstacle tools: brush, eraser, line,
+    *   `[completed]` 4.3.2: Config panel with input validation.
+    *   `[completed]` 4.3.3: Obstacle tools: brush, eraser, line,
         rectangle, and ellipse.
-    *   `[pending]` 4.3.4: Driver placement with a per-driver editor
+    *   `[completed]` 4.3.4: Driver placement with a per-driver editor
         (waveform, amplitude, delay).
     *   `[pending]` 4.3.5: Sensing panel.
 *   `[pending]` **Task 4.4: New core features**
-    *   `[pending]` 4.4.1: Probes: virtual mics with a live waveform
+    *   `[completed]` 4.4.1: Probes: virtual mics with a live waveform
         and spectrogram.
-    *   `[pending]` 4.4.2: Listen at a probe through Web Audio.
-    *   `[pending]` 4.4.3: Field views: dB scale, time-averaged loudness
+    *   `[completed]` 4.4.2: Listen at a probe through Web Audio.
+    *   `[completed]` 4.4.3: Field views: dB scale, time-averaged loudness
         map, and intensity arrows.
-    *   `[pending]` 4.4.4: Undo and redo.
-    *   `[pending]` 4.4.5: Scene save and load (JSON) and shareable
+    *   `[completed]` 4.4.4: Undo and redo.
+    *   `[completed]` 4.4.5: Scene save and load (JSON) and shareable
         URLs.
-    *   `[pending]` 4.4.6: Pause and scrub through recent frames.
-    *   `[pending]` 4.4.7: A starter set of preset scenes.
-    *   `[pending]` 4.4.8: Export a screenshot, GIF, or MP4.
-    *   `[pending]` 4.4.9: Keyboard shortcuts and first-run hints.
+    *   `[completed]` 4.4.6: Pause and scrub through recent frames.
+    *   `[completed]` 4.4.7: A starter set of preset scenes.
+    *   `[completed]` 4.4.8: Export a screenshot, GIF, or MP4.
+    *   `[completed]` 4.4.9: Keyboard shortcuts and first-run hints.
 *   `[pending]` **Task 4.5: Quality**
-    *   `[pending]` 4.5.1: A Playwright test for every feature, run in
+    *   `[completed]` 4.5.1: A Playwright test for every feature, run in
         CI.
-    *   `[pending]` 4.5.2: Performance: 60 fps rendering at 512²,
+    *   `[completed]` 4.5.2: Performance: 60 fps rendering at 512²,
         measured.
-    *   `[pending]` 4.5.3: Responsive layout and accessibility pass.
+    *   `[completed]` 4.5.3: Responsive layout and accessibility pass.
     *   `[pending]` 4.5.4: Delete the old UI and rewrite
         `docs/web_ui.md`.
 

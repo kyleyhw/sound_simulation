@@ -1,0 +1,154 @@
+# Web app (`web/`): the Acoustic Sandbox
+
+The browser application replaces the previous Socket.IO UI (`frontend/` +
+`app/main.py`). The simulator runs **entirely in the browser**, so the app
+is a static site hosted on GitHub Pages (`.github/workflows/pages.yml`) with
+no server.
+
+## 1. Why the UI was rebuilt (plan 4.1.1)
+
+Inventory of the previous UI:
+- A single ~1.1k-line `App.tsx` with 40+ `useState`/`useRef` variables.
+- A fixed 600 px canvas.
+- JSON nested-list frames sent over a socket.
+- The Python server was required, so there was no static hosting.
+- The backend audit (`tests/reports/debug_audit_2026_09_24.md`) found 12
+  bugs. Three were critical:
+  - one malformed `update_config` blocked every new client
+  - one config change could freeze the event loop for 61 s
+  - clients could make the server open arbitrary file paths
+
+Features the old UI had, all kept:
+- 2D and 3D views
+- obstacle brush and eraser
+- driver placement
+- waveform, grid and cadence settings
+- the sensing panel
+
+Features it lacked:
+- recordings, spectra and listening
+- dB, RMS and energy-flow views
+- materials and absorbing boundaries
+- undo and redo
+- saving, loading and sharing scenes
+- a history scrubber
+- presets
+- export
+- keyboard shortcuts
+- a responsive layout
+
+## 2. UX specification (4.1.2)
+
+Layout. The sandbox route is a four-region grid:
+
+| region | content |
+| --- | --- |
+| left rail | tools: select, brush, eraser, line, rectangle, ellipse, source, microphone |
+| centre stage | run controls, speed, undo/redo, share and export toolbar above the field canvas, with a HUD (step, time, fps, cursor cell) and a colour legend |
+| bottom dock | recording of the selected microphone (scope + spectrogram or spectrum), a Listen button, and the history scrubber |
+| right inspector | tabs: Scene (presets, grid, units, boundaries, materials), Sources, Mics, View, Sensing, Control |
+
+Below 980 px the regions stack vertically (rail as a horizontal strip).
+
+Main flows:
+1. Open the app, press Space: the default scene runs. First-run hints
+   explain the basics.
+2. Gallery → pick an experiment → it opens in the sandbox.
+3. Draw walls → place a source → place a microphone → run → listen.
+4. Share: the scene is compressed into the URL (`#/sandbox?s=…`).
+
+Other routes:
+- Learn: interactive explainers.
+- Research: results, benchmark and write-ups.
+- Lab: real-hardware measurement with the laptop's speakers and mics.
+
+## 3. Visual design (4.1.3)
+
+- **Themes:** dark ("instrument") and light, as CSS custom properties on
+  `:root` / `[data-theme=light]`. The default follows
+  `prefers-color-scheme`, and the choice is remembered.
+- **Pressure colormaps** (signed data, diverging): `icefire` is
+  dark-centred for the dark theme, `balance` is light-centred for the
+  light theme.
+- **Magnitude colormaps** (RMS, dB, spectrograms, sequential): `magma`,
+  `viridis`.
+- **Walls** are drawn in material-specific neutral colours, so they read
+  as geometry rather than data.
+- **Marker colours:** sources are rose circles, microphones amber
+  triangles.
+
+## 4. Architecture (4.1.4)
+
+```
+web/src/
+  engine/   simulation.ts   FDTD engine (TypeScript port of Simulate)
+            waveforms.ts    source waveforms (same formulas as Python)
+            scene.ts        serialisable scene, RLE, share-URL codec
+            presets.ts      gallery experiments
+  state/    store.ts        zustand store: scene, tools, view, undo/redo
+            runtime.ts      live Simulation + rAF loop + frame history
+            editable.ts     in-memory scene form (byte maps)
+  render/   fieldRenderer.ts  WebGL2 field renderer (Canvas2D fallback)
+            colormaps.ts
+  components/ Viewport, Volume3D, ToolRail, StageToolbar, Inspector, Dock, …
+  pages/    Sandbox, Gallery, Learn, Research, Lab
+  lib/      dsp (FFT, spectrogram), audio (Web Audio), exporters, geometry, router
+```
+
+**State.** The zustand store owns the *scene* (the single source of
+truth for geometry and sources) and the UI state. The `Runtime` owns the
+live `Simulation` outside React, mirrors store edits into it, and runs
+the `requestAnimationFrame` loop. Stepping is bounded per frame by a step
+count (the speed setting) and a 12 ms budget, so rendering stays smooth
+on any grid. Every edit goes through a store action that snapshots the
+scene for undo/redo, up to 60 levels.
+
+**Rendering.** The field is uploaded each frame as an R32F texture at
+native grid resolution and mapped through a 256-entry colormap in a
+fragment shader. Linear and dB scaling happen in the shader. Nearest
+sampling keeps cells crisp. Materials are a second texture composited in
+the same pass. Markers, previews and the brush cursor are an SVG
+overlay; energy-flow arrows are a Canvas2D overlay. 3D grids show either
+an editable slice or a ray-marched volume (Three.js). Drawing tools paint
+in the current slice plane.
+
+**Engine.** The engine has two paths:
+- **Fast path.** p = 0 walls and obstacles, uniform c. It is the exact
+  port of the Python kernels, and parity is tested against Python
+  fixtures (`tests/unit/parity.test.ts`, gate 1e-4).
+- **General path.** Rigid and impedance walls, the absorbing layer, and
+  c(x), with precomputed per-cell coefficients. The physics is
+  documented in `docs/physics.md`.
+
+## 5. Testing (4.5)
+
+| layer | tool | what |
+| --- | --- | --- |
+| unit | Vitest (`npm test`) | Python parity 2D/3D, energy conservation (closed box, rigid box), absorption, scene/RLE/URL round-trips, every preset runs finite, DSP, geometry, throughput guard |
+| end-to-end | Playwright (`npm run e2e`) | one test per feature: run/pause/step/reset, shortcuts, brush/eraser/undo/redo, shape tools, sources, microphones + listen, share link, scrubbing, view modes, grid/units/boundaries + input validation, 3D slice + volume, theme + help, PNG export, save, gallery, phone layout (no horizontal overflow) |
+
+The store is exposed as `window.__app`, so end-to-end tests assert on the
+engine's actual state, not just pixels.
+
+Throughput (Node 22, one core of the cloud container):
+
+| scene | steps/s |
+| --- | --- |
+| 2D 256², fast path | 3,600 |
+| 2D 200×240, rigid ellipse | 3,100 |
+| 2D 256², absorbing layer | 1,700 |
+| 3D 64³ | 505 |
+
+The UI renders at display rate and steps up to the speed setting per
+frame.
+
+## 6. Commands
+
+```bash
+cd web
+npm install
+npm run dev        # http://127.0.0.1:3000
+npm test           # unit tests
+npm run e2e        # end-to-end (builds + previews on :4173)
+npm run build      # static site in web/dist (BASE=/repo/ for Pages)
+```

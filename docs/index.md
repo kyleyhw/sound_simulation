@@ -8,6 +8,8 @@ This index provides an overview and links to the detailed documentation for each
 
 ## Web UI
 
+- [**`web_app.md`**](./web_app.md): The browser-native Acoustic Sandbox (`web/`), hosted on GitHub Pages. It covers the UX spec, visual design, architecture, engine paths and tests.
+
 - [**`web_ui.md`**](./web_ui.md): Architecture, wire protocol, and operation of the interactive browser-based simulation UI (the FastAPI/Socket.IO backend in `src/acoustic_system/app/` and the React frontend in `frontend/`).
 
 ## Machine learning (Phase 2)
