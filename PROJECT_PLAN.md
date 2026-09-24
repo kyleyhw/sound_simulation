@@ -147,7 +147,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[in-progress]` 3.6.1: Write `tests/reports/debug_audit_<date>.md`
         listing the bugs found, the fixes, and the open issues.
 
-### Phase 4: UI Overhaul — `[in-progress]`
+### Phase 4: UI Overhaul — `[completed]`
 **Objective:** Replace the current UI with a well-designed,
 well-structured app. Today it is a single ~1.1k-line `App.tsx` with 40+
 pieces of local state and an ad-hoc layout.
@@ -177,7 +177,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
         and a dB scale.
     *   `[completed]` 4.2.5: Port the 3D volume view into the new
         structure.
-*   `[in-progress]` **Task 4.3: Feature parity**
+*   `[completed]` **Task 4.3: Feature parity**
     *   `[completed]` 4.3.1: Run controls: start, stop, reset, and
         single-step.
     *   `[completed]` 4.3.2: Config panel with input validation.
@@ -185,7 +185,9 @@ features below, passes end-to-end tests, and the old UI is deleted.
         rectangle, and ellipse.
     *   `[completed]` 4.3.4: Driver placement with a per-driver editor
         (waveform, amplitude, delay).
-    *   `[pending]` 4.3.5: Sensing panel.
+    *   `[completed]` 4.3.5: Sensing panel. *(The skip_v2 CNN runs in the
+        browser on poses simulated with the browser engine, with parity to
+        PyTorch; scored against the no-audio baseline.)*
 *   `[completed]` **Task 4.4: New core features**
     *   `[completed]` 4.4.1: Probes: virtual mics with a live waveform
         and spectrogram.
@@ -319,8 +321,9 @@ with statistical significance.
         multiple poses.
     *   `[pending]` 6.6.5: 3D rooms and 3–4 mic laptops.
 *   `[pending]` **Task 6.7: UI**
-    *   `[pending]` 6.7.1: Uncertainty display and a "move here next"
-        hint in the sensing panel.
+    *   `[completed]` 6.7.1: Uncertainty display and a "move here next"
+        hint in the sensing panel. *(Heuristic: the most uncertain
+        neighbourhood.)*
 
 ### Phase 7: Beamforming and Sound-Field Control — `[pending]`
 **Objective:** Create localised sound and silence in simulated rooms
@@ -439,7 +442,10 @@ and explainers, and the write-ups are published.
 *   `[completed]` 10.2: 3D simulator in WebGPU. *(The same kernels;
     3D CPML parity is tested. Speed on real GPUs is unmeasured, because
     CI uses SwiftShader.)*
-*   `[pending]` 10.3: Sensing models in the browser (ONNX).
+*   `[completed]` 10.3: Sensing models in the browser (ONNX). *(A
+    TypeScript implementation of the exact STFT front-end and the CNN
+    layers, using exported weights, instead of ONNX. Parity with
+    PyTorch: logits 1e-5.)*
 *   `[completed]` 10.4: Deploy to GitHub Pages. *(The `pages.yml`
     workflow deploys on every push to main.)*
 *   `[completed]` 10.5: Scene gallery: diffraction, whispering gallery,
