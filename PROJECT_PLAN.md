@@ -373,29 +373,42 @@ moves, within a measured laptop latency budget.
 *   `[pending]` 8.6: UI dashboard: sensing map, twin vs truth,
     controller state, and zone metrics over time.
 
-### Phase 9: Real Hardware — `[pending]`
+### Phase 9: Real Hardware — `[in-progress]`
+*Tooling complete and tested (fake-device e2e, synthetic-room unit tests;
+see `docs/lab.md`). The "done when" numbers need real-room captures
+by the user (§4 stop point).*
 **Objective:** Check the simulated results against real laptops and
 real rooms.
 **Done when:** Distance to a real wall is measured within a few cm,
 real T60 is within 10 % of the simulated room, and the laptop
 virtual-headphones demo works.
 
-*   `[pending]` 9.1: Browser recording tool: play a chirp through the
+*   `[completed]` 9.1: Browser recording tool: play a chirp through the
     laptop speakers, record the mics, with auto gain and echo
     cancellation turned off.
-*   `[pending]` 9.2: Recover real room impulse responses.
-*   `[pending]` 9.3: Measure distance to a wall or desk from echoes.
-*   `[pending]` 9.4: Measure real-room T60.
-*   `[pending]` 9.5: Rebuild the same room in the simulator and compare.
-*   `[pending]` 9.6: Calibrate speaker and mic responses and latency,
-    per device.
-*   `[pending]` 9.7: Capture a small, measured real-room test set.
-*   `[pending]` 9.8: Test the sim-trained sensing models on it, and add
-    randomisation to close the gap.
-*   `[pending]` 9.9: Head tracking from the webcam in the browser.
-*   `[pending]` 9.10: Live virtual-headphones demo on laptop speakers.
-*   `[pending]` 9.11: Use a phone as a moving sensor (its IMU gives the
-    pose).
+*   `[in-progress]` 9.2: Recover real room impulse responses. *(ESS
+    deconvolution built and tested; awaiting a real room.)*
+*   `[in-progress]` 9.3: Measure distance to a wall or desk from echoes.
+    *(Echo picker built; accuracy needs tape-measured captures.)*
+*   `[in-progress]` 9.4: Measure real-room T60. *(Schroeder T20/T30/EDT
+    and octave bands built; awaiting a real room.)*
+*   `[in-progress]` 9.5: Rebuild the same room in the simulator and compare.
+    *(3D FDTD twin with Paris alpha-to-beta walls; comparison needs a
+    real T30.)*
+*   `[in-progress]` 9.6: Calibrate speaker and mic responses and latency,
+    per device. *(Latency + direct-path equalisation built and tested.)*
+*   `[in-progress]` 9.7: Capture a small, measured real-room test set.
+    *(Capture set, export and `scripts/eval_real_captures.py` built;
+    the captures themselves need the user.)*
+*   `[in-progress]` 9.8: Test the sim-trained sensing models on it, and add
+    randomisation to close the gap. *(`--augment-device` randomisation
+    built; applying models to real IRs needs the v3 laptop-scale protocol.)*
+*   `[in-progress]` 9.9: Head tracking from the webcam in the browser.
+    *(MediaPipe tracker built; needs a real face to verify.)*
+*   `[in-progress]` 9.10: Live virtual-headphones demo on laptop speakers.
+    *(CTC filters built, ≥15 dB modelled separation; needs listening.)*
+*   `[in-progress]` 9.11: Use a phone as a moving sensor (its IMU gives the
+    pose). *(Orientation capture built; needs a phone.)*
 
 ### Phase 10: Showcase — `[pending]`
 **Objective:** Make the work easy to try, understand, and cite.

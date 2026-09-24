@@ -106,6 +106,12 @@ def parse_args() -> argparse.Namespace:
             "multi-scale skip decoder; K-pose room-level samples like joint)."
         ),
     )
+    p.add_argument(
+        "--augment-device",
+        action="store_true",
+        help="Randomise the device response and latency on the training view "
+        "(sim-to-real, plan 9.8; see learning/augment.py).",
+    )
     p.add_argument("--ckpt-dir", required=True)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument(
@@ -151,6 +157,7 @@ def main() -> None:
         target_mask_size=args.target_size,
         augment=args.augment,
         flatten_poses=flatten,
+        device_randomization=args.augment_device,
     )
     val_dataset = ActiveSensingDataset(
         args.dataset,

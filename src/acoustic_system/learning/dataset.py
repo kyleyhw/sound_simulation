@@ -38,6 +38,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from .augment import randomize_device
+
 
 class ActiveSensingDataset(Dataset):
     """HDF5-backed dataset for the active-sensing CNN.
@@ -62,6 +64,7 @@ class ActiveSensingDataset(Dataset):
         gain_range: Tuple[float, float] = (0.7, 1.3),
         noise_std: float = 0.02,
         flatten_poses: bool = True,
+        device_randomization: bool = False,
     ) -> None:
         self.hdf5_path = str(hdf5_path)
         self.target_mask_size = target_mask_size
@@ -73,6 +76,10 @@ class ActiveSensingDataset(Dataset):
         self.augment = bool(augment)
         self.gain_range = gain_range
         self.noise_std = float(noise_std)
+        # Sim-to-real device response + latency randomisation (plan 9.8,
+        # learning/augment.py). Independent of ``augment`` so that it can
+        # be ablated; like ``augment`` it belongs on the training view only.
+        self.device_randomization = bool(device_randomization)
 
         # Inventory the archive in __init__ so __len__ is cheap and the
         # sample order is deterministic. We do NOT cache an open file
@@ -189,5 +196,8 @@ class ActiveSensingDataset(Dataset):
             # of waveform fingerprints.
             if self.noise_std > 0.0:
                 sensor = sensor + torch.randn_like(sensor) * self.noise_std
+
+        if self.device_randomization:
+            sensor = randomize_device(sensor)
 
         return sensor, source, mask

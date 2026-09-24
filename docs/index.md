@@ -9,6 +9,7 @@ This index provides an overview and links to the detailed documentation for each
 ## Web UI
 
 - [**`web_app.md`**](./web_app.md): The browser-native Acoustic Sandbox (`web/`), hosted on GitHub Pages. It covers the UX spec, visual design, architecture, engine paths and tests.
+- [**`lab.md`**](./lab.md): Phase 9 real-hardware tooling. It covers the browser Lab (sweep IRs, device calibration, echoes, T60, room twin, crosstalk cancellation, head tracking), `scripts/eval_real_captures.py`, and sim-to-real randomisation.
 
 
 ## Machine learning (Phase 2)
