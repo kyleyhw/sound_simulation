@@ -22,15 +22,21 @@ lab all run in the page.
 
 | Component | Location | Summary |
 | --- | --- | --- |
-| FDTD engine | `src/acoustic_system/simulation/` | Step-at-a-time leap-frog solver (`Simulate`). Fused numba kernels for 2D and 3D, an optional CUDA backend (`backend="gpu"`, CuPy), obstacles, drivers, and waveforms (Ricker, Gaussian, cosine, WAV file). |
-| Web app | `web/` | The Acoustic Sandbox: the FDTD engine ported to TypeScript and run in the browser (no server), hosted on GitHub Pages. Draw rooms, place sources and microphones, listen, and share scenes. |
-| Sensing (ML) | `src/acoustic_system/learning/` + `scripts/` | Dataset generation, CNN models that predict an obstacle map from stereo recordings, multi-pose Bayes fusion, and calibration. |
-| Checks and benchmarks | `tests/` | Kernel regression checks, learning checks, and benchmarks (`uv run pytest`). |
-| Docs | `docs/` | One page per module; index at [`docs/index.md`](docs/index.md). |
+| FDTD engine | `src/acoustic_system/simulation/` | Step-at-a-time leap-frog solver (`Simulate`) with fused numba kernels in 2D and 3D. Covers rigid, impedance and pressure-release walls, a CPML, a sponge, Mur edges, c(x), SI units, sub-cell and directional sources, and a differentiable batched PyTorch twin. Optional CUDA backend. Verified against analytic results in [`docs/physics.md`](docs/physics.md). |
+| Web app | `web/` | The Acoustic Sandbox: the same engine in TypeScript and WebGPU, run in the browser with no server. Hosted on GitHub Pages. It has the sandbox (draw rooms, sources, mics; listen; share), a 15-scene gallery, explainers, the sound-field control panel, in-browser room sensing, the closed-loop demo, the room-measurement Lab and a docs site. |
+| Room sensing | `src/acoustic_system/imaging/`, `learning/` | Physics imagers (deconvolution, echo ellipses, back-projection, time reversal, FWI), the Phase 2 CNNs, and the [benchmark](docs/benchmark.md) against a no-audio baseline. |
+| Sound-field control | `src/acoustic_system/control/` | Transfer functions from the engine; sound zones (DAS, pressure matching, ACC); crosstalk cancellation; FxLMS noise cancellation; sensing requirements; differentiable control. |
+| Real rooms | `web/src/lab/`, `scripts/eval_real_captures.py` | Laptop-only measurement of impulse responses, echoes and T60, with device calibration, a room twin and virtual headphones. |
+| Checks | `tests/`, `web/tests/` | pytest (engine, physics, sensing, control), Vitest and Playwright. CI runs all of them. |
+| Docs | `docs/` | One page per module ([`docs/index.md`](docs/index.md)), plus reports in `tests/reports/` and the write-ups in `docs/writeups/`. |
 
-**Status of the sensing results:** a no-audio baseline matches the
-published IoU numbers. See [`docs/plan_audit.md`](docs/plan_audit.md).
-They are being re-evaluated in Phase 3 of the plan.
+**Results so far.** The first sensing CNNs scored exactly at a no-audio
+baseline (IoU 0.10). Physics-based imaging beats that baseline by 19
+standard errors (IoU 0.189, or 0.244 with 8 poses). Acoustic contrast
+control reaches 25.5 dB between two zones in an absorbing room, and a
+closed sense-and-control loop holds its contrast while the room changes.
+See [the write-ups](https://kyleyhw.github.io/sound_simulation/#/research)
+and [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
 ## Quick start
 
