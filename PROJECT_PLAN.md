@@ -476,8 +476,11 @@ and explainers, and the write-ups are published.
     it" link.
 *   `[completed]` 10.9: Docs website built from `docs/`. *(`#/docs`: all
     docs, reports and the plan, with maths and figures.)*
-*   `[pending]` 10.10: Public dataset and benchmark, with the baselines
-    included.
+*   `[in-progress]` 10.10: Public dataset and benchmark, with the baselines
+    included. *(`docs/benchmark.md` and `scripts/benchmark.py`: rules,
+    paired scoring against the no-audio baseline, and a leaderboard. The
+    data regenerate byte-identically from the manifest. Hosting the
+    archives needs an authorised storage target.)*
 *   `[in-progress]` 10.11: Write-up: "What can a laptop hear?" (the sensing
     results, negative results included). *(Published on `#/research`:
     the Phase 2 negative result and the Phase 6 physics results. Needs
