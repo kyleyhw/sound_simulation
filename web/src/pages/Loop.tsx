@@ -82,7 +82,7 @@ function ContrastChart({ results, n }: { results: EpochResult[]; n: number }) {
     const X = (i: number) => pad.l + ((w - pad.l - pad.r) * (i + 0.5)) / n;
     const Y = (v: number) => pad.t + (h - pad.t - pad.b) * (1 - Math.max(-10, Math.min(ymax, v)) / ymax);
     ctx.strokeStyle = css('--border') || '#444';
-    ctx.fillStyle = css('--text-dim') || '#999';
+    ctx.fillStyle = css('--text-3') || '#999';
     ctx.font = '11px system-ui';
     for (const v of [0, 10, 20, 30, 40, 50]) {
       ctx.beginPath();

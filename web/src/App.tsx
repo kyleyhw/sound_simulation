@@ -9,6 +9,7 @@ const Learn = lazy(() => import('./pages/Learn'));
 const Research = lazy(() => import('./pages/Research'));
 const Lab = lazy(() => import('./pages/Lab'));
 const Loop = lazy(() => import('./pages/Loop'));
+const Docs = lazy(() => import('./pages/Docs'));
 
 const NAV: { path: string; label: string }[] = [
   { path: '/', label: 'Sandbox' },
@@ -17,6 +18,7 @@ const NAV: { path: string; label: string }[] = [
   { path: '/research', label: 'Research' },
   { path: '/loop', label: 'Loop' },
   { path: '/lab', label: 'Lab' },
+  { path: '/docs', label: 'Docs' },
 ];
 
 function Logo() {
@@ -74,6 +76,9 @@ export default function App() {
       break;
     case '/loop':
       page = <Loop />;
+      break;
+    case '/docs':
+      page = <Docs route={route} />;
       break;
     default:
       page = <Sandbox route={route} />;
