@@ -168,3 +168,20 @@ def test_default_is_fast_path_and_general_rejects_gpu_style_misuse() -> None:
     assert sim._general is False
     sim.set_material([(6, 6)], 2)
     assert sim._general is True
+
+
+def test_per_face_boundaries() -> None:
+    """Open (sponge) on one face, rigid elsewhere: energy leaves only
+    through the open face, and the p = 0 held face stays exactly zero."""
+    sim = Simulate((120, 120), boundary=("rigid", "sponge", "rigid", "soft"), sponge_cells=16)
+    sim.set_drivers([Driver((60, 60), _pulse())])
+    for _ in range(100):
+        sim.step()
+    e0 = _energy(sim)
+    for _ in range(800):
+        sim.step()
+    assert _energy(sim) < 0.6 * e0  # losing energy through the open face
+    assert float(np.abs(sim.p[:, -1]).max()) == 0.0  # soft face held at 0
+    assert float(np.abs(sim.p[0, 1:-1]).max()) > 0.0  # rigid face is active
+    with pytest.raises(ValueError):
+        Simulate((20, 20), boundary=("rigid", "soft"))

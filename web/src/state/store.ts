@@ -14,7 +14,7 @@ import type { ScaleMode } from '../render/fieldRenderer';
 import { cloneScene, type EditableScene, fromScene } from './editable';
 import { Runtime } from './runtime';
 
-export type Tool = 'select' | 'brush' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'driver' | 'probe';
+export type Tool = 'select' | 'brush' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'speed' | 'driver' | 'probe';
 export type Overlay = 'pressure' | 'rms' | 'intensity';
 export type Theme = 'dark' | 'light';
 export type InspectorTab = 'scene' | 'sources' | 'probes' | 'view' | 'sensing' | 'control';
@@ -55,6 +55,8 @@ export interface AppState {
   tool: Tool;
   brushSize: number;
   paintMaterial: number;
+  /** Relative sound speed painted by the speed tool. */
+  paintSpeed: number;
   newWaveform: WaveformSpec;
   view: ViewState;
   theme: Theme;
@@ -68,6 +70,9 @@ export interface AppState {
   setTool: (t: Tool) => void;
   setBrushSize: (n: number) => void;
   setPaintMaterial: (m: number) => void;
+  setPaintSpeed: (v: number) => void;
+  /** Paint relative sound speed into cells (1 restores nominal). */
+  paintSpeedCells: (indices: number[], value: number) => void;
   setNewWaveform: (w: WaveformSpec) => void;
   setView: (v: Partial<ViewState>) => void;
   setTheme: (t: Theme) => void;
@@ -116,6 +121,7 @@ export const useApp = create<AppState>((set, get) => {
     tool: 'brush',
     brushSize: 3,
     paintMaterial: 2,
+    paintSpeed: 0.6,
     newWaveform: defaultWaveform('ricker'),
     view: {
       colormap: theme === 'dark' ? 'icefire' : 'balance',
@@ -141,6 +147,18 @@ export const useApp = create<AppState>((set, get) => {
     setTool: (tool) => set({ tool }),
     setBrushSize: (brushSize) => set({ brushSize: Math.max(1, Math.min(40, Math.round(brushSize))) }),
     setPaintMaterial: (paintMaterial) => set({ paintMaterial }),
+    setPaintSpeed: (paintSpeed) => set({ paintSpeed }),
+    paintSpeedCells: (indices, value) => {
+      const cur = get().scene;
+      const speed = cur.speed ? cur.speed : new Float32Array(cur.materials.length).fill(1);
+      for (const idx of indices) if (idx >= 0 && idx < speed.length) speed[idx] = value;
+      let uniform = true;
+      for (let i = 0; i < speed.length; i++) if (speed[i] !== 1) (uniform = false), (i = speed.length);
+      const next = { ...cur, speed: uniform ? null : speed };
+      set({ scene: next, future: [] });
+      get().runtime.syncGeometry(next);
+      get().runtime.renderNow();
+    },
     setNewWaveform: (newWaveform) => set({ newWaveform }),
     setView: (v) => {
       const view = { ...get().view, ...v };

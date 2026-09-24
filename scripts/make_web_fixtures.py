@@ -87,6 +87,7 @@ def main() -> None:
         "general_mur": ("mur", 1.0, None),
         "general_sponge": ("sponge", 1.0, None),
         "general_speed": ("rigid", 1.0, speed),
+        "general_faces": (("mur", "rigid", "sponge", "absorb"), 0.4, None),
     }
     for name, (boundary, beta, spd) in general.items():
         drv = [((30, 22), RickerWavelet(5.0, 0.1, 15.0)), ((12, 40), Cosine(0.03, 0.4))]
@@ -94,7 +95,8 @@ def main() -> None:
         data = {
             "shape": list(shape),
             "courant": 0.5,
-            "boundary": boundary,
+            "boundary": boundary if isinstance(boundary, str) else "soft",
+            "faces": list(boundary) if not isinstance(boundary, str) else None,
             "outer_beta": beta,
             "sponge_cells": 12,
             "obstacles": [list(o) for o in soft],

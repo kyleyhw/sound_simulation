@@ -175,6 +175,28 @@ export function Viewport() {
     c.height = Math.round(size.h * dpr);
     ctx.clearRect(0, 0, c.width, c.height);
     const sim = runtime.sim;
+    // c(x) regions: translucent tint (blue = slower, amber = faster).
+    const speed = scene.speed;
+    if (speed && view.showMaterials) {
+      const img = ctx.createImageData(plane.cols, plane.rows);
+      for (let r = 0; r < plane.rows; r++)
+        for (let cc = 0; cc < plane.cols; cc++) {
+          const v = speed[plane.toIndex(r, cc)];
+          if (v === 1) continue;
+          const o = (r * plane.cols + cc) * 4;
+          const slow = v < 1;
+          img.data[o] = slow ? 90 : 245;
+          img.data[o + 1] = slow ? 170 : 180;
+          img.data[o + 2] = slow ? 255 : 60;
+          img.data[o + 3] = Math.min(150, 40 + Math.abs(1 - v) * 220);
+        }
+      const off = document.createElement('canvas');
+      off.width = plane.cols;
+      off.height = plane.rows;
+      off.getContext('2d')!.putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(off, 0, 0, c.width, c.height);
+    }
     if (view.overlay !== 'intensity' || !sim.intensity || scene.params.dims !== 2) return;
     const [Ir, Ic] = sim.intensity;
     const stride = Math.max(4, Math.round(plane.cols / 28));
@@ -280,6 +302,12 @@ export function Viewport() {
       st.setInspectorTab('probes');
       return;
     }
+    if (tool === 'speed') {
+      st.checkpoint();
+      st.paintSpeedCells(discCells(cell[0], cell[1], brushSize, plane.rows, plane.cols).map(([r, c]) => plane.toIndex(r, c)), st.paintSpeed);
+      dragRef.current = { kind: 'paint', last: cell };
+      return;
+    }
     if (tool === 'brush' || tool === 'eraser') {
       st.checkpoint();
       const m = tool === 'eraser' ? 0 : st.paintMaterial;
@@ -297,7 +325,10 @@ export function Viewport() {
     const drag = dragRef.current;
     if (!drag || !cell) return;
     const st = useApp.getState();
-    if (drag.kind === 'paint' && drag.last) {
+    if (drag.kind === 'paint' && drag.last && tool === 'speed') {
+      st.paintSpeedCells(lineCells(drag.last, cell, brushSize, plane.rows, plane.cols).map(([r, c]) => plane.toIndex(r, c)), st.paintSpeed);
+      drag.last = cell;
+    } else if (drag.kind === 'paint' && drag.last) {
       const m = tool === 'eraser' ? 0 : st.paintMaterial;
       paint(lineCells(drag.last, cell, brushSize, plane.rows, plane.cols), m);
       drag.last = cell;
@@ -404,7 +435,7 @@ export function Viewport() {
               )}
             </g>
           )}
-          {hover && (tool === 'brush' || tool === 'eraser') && (
+          {hover && (tool === 'brush' || tool === 'eraser' || tool === 'speed') && (
             <circle
               cx={hover[1] + 0.5}
               cy={hover[0] + 0.5}

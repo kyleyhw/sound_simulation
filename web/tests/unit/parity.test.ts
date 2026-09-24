@@ -8,7 +8,8 @@ import { type DriverSpec, Simulation } from '../../src/engine/simulation';
 import type { WaveformSpec } from '../../src/engine/waveforms';
 
 interface Fixture {
-  boundary?: 'rigid' | 'absorb' | 'mur' | 'sponge';
+  boundary?: 'soft' | 'rigid' | 'absorb' | 'mur' | 'sponge';
+  faces?: ('soft' | 'rigid' | 'absorb' | 'mur' | 'sponge')[] | null;
   outer_beta?: number;
   sponge_cells?: number;
   materials?: number[][];
@@ -26,7 +27,7 @@ function load(name: string): Fixture {
   return JSON.parse(readFileSync(new URL(`../fixtures/${name}.json`, import.meta.url), 'utf8'));
 }
 
-for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', 'general_mur', 'general_sponge', 'general_speed']) {
+for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', 'general_mur', 'general_sponge', 'general_speed', 'general_faces']) {
   describe(name, () => {
     it('matches the Python engine', () => {
       const fx = load(name);
@@ -37,6 +38,7 @@ for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', '
         outer: fx.boundary ?? 'soft',
         outerBeta: fx.outer_beta ?? 1,
         spongeCells: fx.sponge_cells ?? 24,
+        faces: fx.faces ?? undefined,
       });
       expect(sim.dt).toBeCloseTo(fx.timestep, 12);
       sim.setCells(fx.obstacles.map((pos) => sim.index(pos)), 1);

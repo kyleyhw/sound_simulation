@@ -68,6 +68,18 @@ export interface SimParams {
   outerBeta: number;
   /** Damping-layer thickness in cells when outer === 'sponge'. */
   spongeCells: number;
+  /**
+   * Optional per-face kinds overriding `outer`, ordered
+   * [axis0 low (top), axis0 high (bottom), axis1 low (left), axis1 high (right), axis2 low, axis2 high].
+   */
+  faces?: OuterKind[];
+}
+
+/** Per-face boundary kinds (length 2 * dims). */
+export function facesOf(p: SimParams): OuterKind[] {
+  const n = 2 * p.dims;
+  if (p.faces && p.faces.length === n) return p.faces.map((f) => ((f as string) === 'pml' ? 'sponge' : f));
+  return Array.from({ length: n }, () => p.outer);
 }
 
 export const DEFAULT_PARAMS: SimParams = {
@@ -250,8 +262,9 @@ export class Simulation {
     // The fast path is the exact Python-parity path: soft outer walls,
     // soft (p = 0) obstacles only, uniform c. Anything else uses the
     // general kernel.
-    this.generalPath = special || speedVaries || this.params.outer !== 'soft';
-    if (this.params.outer === 'sponge') this.buildSponge();
+    const faces = facesOf(this.params);
+    this.generalPath = special || speedVaries || faces.some((f) => f !== 'soft');
+    if (faces.includes('sponge')) this.buildSponge();
     this.gK = null; // rebuilt lazily on the next general step
   }
 
@@ -453,12 +466,14 @@ export class Simulation {
     const R0 = 1e-4;
     const sigmaMax = (-(3 + 1) * Math.log(R0) * this.params.c) / (2 * L * this.params.dx);
     const { nx, ny, nz } = this;
+    const sp = facesOf(this.params).map((f) => f === 'sponge');
+    const far = Number.POSITIVE_INFINITY;
     for (let i = 0; i < nx; i++)
       for (let j = 0; j < ny; j++)
         for (let z = 0; z < nz; z++) {
-          const di = Math.min(i, nx - 1 - i);
-          const dj = Math.min(j, ny - 1 - j);
-          const dz = this.dims === 3 ? Math.min(z, nz - 1 - z) : L;
+          const di = Math.min(sp[0] ? i : far, sp[1] ? nx - 1 - i : far);
+          const dj = Math.min(sp[2] ? j : far, sp[3] ? ny - 1 - j : far);
+          const dz = this.dims === 3 ? Math.min(sp[4] ? z : far, sp[5] ? nz - 1 - z : far) : far;
           const d = Math.min(di, dj, dz);
           if (d < L) {
             const f = (L - d) / L;
@@ -491,9 +506,9 @@ export class Simulation {
    */
   private buildGeneral(): void {
     const { nx, ny, nz, dims, material, n } = this;
-    const outer = this.params.outer;
-    const heldEdges = outer === 'soft' || outer === 'sponge' || outer === 'mur';
-    const outerBeta = outer === 'absorb' ? this.params.outerBeta : 0;
+    const faces = facesOf(this.params);
+    const held = faces.map((f) => f === 'soft' || f === 'sponge' || f === 'mur');
+    const faceBeta = faces.map((f) => (f === 'absorb' ? this.params.outerBeta : 0));
     const lam = Math.sqrt(this.coeff);
     const c = this.params.c;
     const rho = 1;
@@ -512,8 +527,13 @@ export class Simulation {
       for (let j = 0; j < ny; j++)
         for (let z = 0; z < nz; z++) {
           const idx = i * sx + j * sy + z;
-          const onEdge = i === 0 || i === nx - 1 || j === 0 || j === ny - 1 || (dims === 3 && (z === 0 || z === nz - 1));
-          if (material[idx] !== 0 || (heldEdges && onEdge)) continue;
+          const onHeld =
+            (held[0] && i === 0) ||
+            (held[1] && i === nx - 1) ||
+            (held[2] && j === 0) ||
+            (held[3] && j === ny - 1) ||
+            (dims === 3 && ((held[4] && z === 0) || (held[5] && z === nz - 1)));
+          if (material[idx] !== 0 || onHeld) continue;
           active[idx] = 1;
           const r = this.hasSpeed ? this.speed[idx] : 1;
           let k = 0;
@@ -529,7 +549,7 @@ export class Simulation {
               let beta = 0;
               let fc = 0;
               if (c2 < 0 || c2 >= size) {
-                beta = outerBeta; // rigid/impedance outer wall (held edges never get here)
+                beta = faceBeta[2 * a + (s2 < 0 ? 0 : 1)]; // rigid/impedance outer face
               } else {
                 const mat = MATERIALS[material[idx + s2 * stride]] ?? MATERIALS[1];
                 if (material[idx + s2 * stride] === 0 || mat.kind === 'soft') {
@@ -636,7 +656,7 @@ export class Simulation {
         }
       }
     }
-    if (this.params.outer === 'mur') this.murEdges();
+    if (facesOf(this.params).includes('mur')) this.murEdges();
   }
 
   /** First-order Engquist-Majda (Mur) edges, same as physics.mur_edges. */
@@ -646,12 +666,14 @@ export class Simulation {
     const k = (lam - 1) / (lam + 1);
     const sh = [nx, ny, nz];
     const strides = [ny * nz, nz, 1];
+    const faces = facesOf(this.params);
     for (let a = 0; a < dims; a++) {
       const n = sh[a];
-      for (const [face, inner] of [
-        [0, 1],
-        [n - 1, n - 2],
+      for (const [side, face, inner] of [
+        [0, 0, 1],
+        [1, n - 1, n - 2],
       ]) {
+        if (faces[2 * a + side] !== 'mur') continue;
         // iterate over the face
         const b1 = (a + 1) % 3;
         const b2 = (a + 2) % 3;

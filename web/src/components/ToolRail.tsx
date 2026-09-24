@@ -1,4 +1,4 @@
-import { Brush, Circle, Eraser, Minus, MousePointer2, Mic, Square, Volume2 } from 'lucide-react';
+import { Brush, Circle, Eraser, Mic, Minus, MousePointer2, Square, Volume2, Waves } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { type Tool, useApp } from '../state/store';
 
@@ -9,6 +9,7 @@ const TOOLS: { id: Tool; label: string; key: string; Icon: ComponentType<{ size?
   { id: 'line', label: 'Line wall', key: 'L', Icon: Minus },
   { id: 'rect', label: 'Rectangle (Shift = filled)', key: 'R', Icon: Square },
   { id: 'ellipse', label: 'Ellipse (Shift = filled)', key: 'O', Icon: Circle },
+  { id: 'speed', label: 'Sound-speed brush (lenses, gradients)', key: 'C', Icon: Waves },
   { id: 'driver', label: 'Place source', key: 'S', Icon: Volume2 },
   { id: 'probe', label: 'Place microphone', key: 'M', Icon: Mic },
 ];
@@ -22,7 +23,7 @@ export function ToolRail() {
     <nav className="rail" aria-label="Tools">
       {TOOLS.map(({ id, label, key, Icon }, i) => (
         <span key={id} style={{ display: 'contents' }}>
-          {(i === 1 || i === 6) && <span className="sep" aria-hidden />}
+          {(i === 1 || i === 7) && <span className="sep" aria-hidden />}
           <button
             className="tool"
             aria-pressed={tool === id}

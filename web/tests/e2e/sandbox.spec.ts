@@ -158,6 +158,24 @@ test.describe('sandbox', () => {
     expect(await app<number[]>(page, '(s) => s.runtime.sim.params.shape')).toEqual([120, 200]);
   });
 
+  test('sound-speed brush paints c(x) and per-face boundaries apply', async ({ page }) => {
+    await open(page);
+    await page.locator('[data-tool="speed"]').click();
+    await drag(page, [0.4, 0.4], [0.6, 0.6]);
+    expect(await app<boolean>(page, '(s) => s.scene.speed !== null')).toBe(true);
+    expect(await app<boolean>(page, '(s) => s.runtime.sim.maxSpeedRatio >= 1')).toBe(true);
+    await page.getByRole('button', { name: 'Reset sound speed' }).click();
+    expect(await app<boolean>(page, '(s) => s.scene.speed === null')).toBe(true);
+    await page.getByLabel('Set each face separately').check();
+    await page.getByLabel('Right face').selectOption('sponge');
+    expect(await app<string[]>(page, '(s) => s.runtime.sim.params.faces')).toEqual(['soft', 'soft', 'soft', 'sponge']);
+    await page.getByTestId('run').click();
+    await expect.poll(() => app<number>(page, '(s) => s.runtime.sim.step_count')).toBeGreaterThan(20);
+    // Curtain material is paintable.
+    await page.getByRole('radio', { name: 'Curtain' }).click();
+    expect(await app<number>(page, '(s) => s.paintMaterial')).toBe(6);
+  });
+
   test('3D mode: slices and volume view', async ({ page }) => {
     const errors = await open(page);
     await page.getByRole('button', { name: '3D' }).click();

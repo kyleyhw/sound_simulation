@@ -52,6 +52,7 @@ centred scheme :math:`(1+g)p^{n+1} = 2p^n + C\\mathcal{L} - (1-g)p^{n-1}`,
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 import numba
 import numpy as np
@@ -88,8 +89,25 @@ def absorption_from_beta(beta: float) -> float:
 OUTER_KINDS = ("soft", "rigid", "absorb", "mur", "sponge")
 
 
+def normalize_faces(outer: "str | Sequence[str]", dims: int) -> tuple[str, ...]:
+    """Per-face boundary kinds in order (axis 0 low, axis 0 high, axis 1 low, ...)."""
+    faces = (outer,) * (2 * dims) if isinstance(outer, str) else tuple(outer)
+    faces = tuple("sponge" if f == "pml" else f for f in faces)
+    if len(faces) != 2 * dims:
+        raise ValueError(f"need {2 * dims} face kinds, got {len(faces)}")
+    for f in faces:
+        if f not in OUTER_KINDS:
+            raise ValueError(f"boundary kind must be one of {OUTER_KINDS}, got {f!r}")
+    return faces
+
+
 def sponge_sigma(
-    shape: tuple[int, ...], cells: int, c: float, dx: float, r0: float = 1e-4
+    shape: tuple[int, ...],
+    cells: int,
+    c: float,
+    dx: float,
+    r0: float = 1e-4,
+    faces: "Sequence[bool] | None" = None,
 ) -> np.ndarray:
     """Cubic damping profile sigma(d) = sigma_max ((L-d)/L)^3 in the outer layer.
 
@@ -98,13 +116,16 @@ def sponge_sigma(
     """
     lcells = max(1, int(cells))
     sigma_max = -4.0 * np.log(r0) * c / (2.0 * lcells * dx)
+    faces = list(faces) if faces is not None else [True] * (2 * len(shape))
     d = np.full(shape, np.inf)
     for a, n in enumerate(shape):
-        idx = np.arange(n)
-        dist = np.minimum(idx, n - 1 - idx).astype(float)
+        idx = np.arange(n).astype(float)
         sh = [1] * len(shape)
         sh[a] = n
-        d = np.minimum(d, dist.reshape(sh))
+        if faces[2 * a]:
+            d = np.minimum(d, idx.reshape(sh))
+        if faces[2 * a + 1]:
+            d = np.minimum(d, (n - 1 - idx).reshape(sh))
     f = np.clip((lcells - d) / lcells, 0.0, 1.0)
     return (sigma_max * f**3).astype(np.float32)
 
@@ -120,12 +141,13 @@ class GeneralCoefficients:
     inv_a: np.ndarray  # float32 1 / a
     ks: np.ndarray  # float32 spring constant K_s
     mur_edges: bool
+    mur_faces: tuple[int, ...] = ()
 
 
 def build_coefficients(
     material: np.ndarray,
     speed: np.ndarray | None,
-    outer: str,
+    outer: "str | Sequence[str]",
     outer_beta: float,
     sponge_cells: int,
     coeff: float,
@@ -133,9 +155,13 @@ def build_coefficients(
     dx: float,
     dt: float,
 ) -> GeneralCoefficients:
-    """Vectorised per-cell coefficients for the general kernel (2D and 3D)."""
-    if outer not in OUTER_KINDS:
-        raise ValueError(f"outer must be one of {OUTER_KINDS}, got {outer!r}")
+    """Vectorised per-cell coefficients for the general kernel (2D and 3D).
+
+    ``outer`` is one kind for every face, or one per face in the order
+    (axis 0 low, axis 0 high, axis 1 low, ...).
+    """
+    faces = normalize_faces(outer, material.ndim)
+    held_kinds = ("soft", "sponge", "mur")
     shape = material.shape
     dims = material.ndim
     lam = float(np.sqrt(coeff))
@@ -146,15 +172,14 @@ def build_coefficients(
     fcs = np.array([m.fc_rel for m in MATERIALS])
     mat = np.clip(material.astype(np.int64), 0, len(MATERIALS) - 1)
 
-    edge = np.zeros(shape, dtype=bool)
+    held = np.zeros(shape, dtype=bool)  # cells on held faces (p = 0 or Mur)
     for a in range(dims):
-        sl: list[slice | int] = [slice(None)] * dims
-        sl[a] = 0
-        edge[tuple(sl)] = True
-        sl[a] = shape[a] - 1
-        edge[tuple(sl)] = True
-    held_edges = outer in ("soft", "sponge", "mur")
-    active = (mat == 0) & ~(edge & held_edges)
+        for side, pos in ((0, 0), (1, shape[a] - 1)):
+            if faces[2 * a + side] in held_kinds:
+                sl: list[slice | int] = [slice(None)] * dims
+                sl[a] = pos
+                held[tuple(sl)] = True
+    active = (mat == 0) & ~held
 
     # Neighbour classification. Pad with a sentinel for out-of-domain faces.
     outer_code = -1
@@ -165,20 +190,21 @@ def build_coefficients(
     fc_rep = np.zeros(shape, dtype=np.float64)
     for a in range(dims):
         for sgn in (-1, 1):
+            face = faces[2 * a + (0 if sgn < 0 else 1)]
             sl = [slice(1, n + 1) for n in shape]
             sl[a] = slice(1 + sgn, shape[a] + 1 + sgn)
             nb = padded[tuple(sl)]
             is_outer = nb == outer_code
             nb_kind = np.where(is_outer, 0, kinds[np.clip(nb, 0, None)])
             contributes = (~is_outer) & ((nb_kind == 0) | (nb_kind == 1))
-            if outer in ("soft", "sponge", "mur"):
+            if face in held_kinds:
                 contributes |= is_outer  # never reached by active cells
             k_air += contributes
             wall_face = (~is_outer) & ((nb_kind == 2) | (nb_kind == 3))
-            if outer in ("rigid", "absorb"):
+            if face in ("rigid", "absorb"):
                 wall_face |= is_outer
             nb_beta = np.where(
-                is_outer, outer_beta if outer == "absorb" else 0.0, betas[np.clip(nb, 0, None)]
+                is_outer, outer_beta if face == "absorb" else 0.0, betas[np.clip(nb, 0, None)]
             )
             nb_fc = np.where(is_outer, 0.0, fcs[np.clip(nb, 0, None)])
             beta_sum += np.where(wall_face, nb_beta, 0.0)
@@ -203,7 +229,13 @@ def build_coefficients(
     a_coef = R + ks * dt / 2.0
     qq = np.where(has_branch, rho * c_local * lam * r * m_eff, 0.0)
     qa = np.where(has_branch, qq / a_coef, 0.0)
-    s = sponge_sigma(shape, sponge_cells, c, dx) * dt if outer == "sponge" else np.zeros(shape)
+    sponge_faces = [f == "sponge" for f in faces]
+    s = (
+        sponge_sigma(shape, sponge_cells, c, dx, faces=sponge_faces) * dt
+        if any(sponge_faces)
+        else np.zeros(shape)
+    )
+    mur_faces = tuple(i for i, f in enumerate(faces) if f == "mur")
     return GeneralCoefficients(
         active=active.astype(np.uint8),
         k_air=k_air.astype(np.uint8),
@@ -213,7 +245,8 @@ def build_coefficients(
         qa=qa.astype(np.float32),
         inv_a=np.where(has_branch, 1.0 / a_coef, 0.0).astype(np.float32),
         ks=ks.astype(np.float32),
-        mur_edges=outer == "mur",
+        mur_edges=bool(mur_faces),
+        mur_faces=mur_faces,
     )
 
 
@@ -292,7 +325,9 @@ def general_step_3d(
                     pn[i, j, k] = rhs / (1.0 + sd)
 
 
-def mur_edges(p: np.ndarray, pn: np.ndarray, lam: float) -> None:
+def mur_edges(
+    p: np.ndarray, pn: np.ndarray, lam: float, faces: "Sequence[int] | None" = None
+) -> None:
     """First-order Engquist-Majda (Mur) absorbing condition on every face.
 
     For the face cell 0 with inward neighbour 1 (normal incidence exact):
@@ -300,9 +335,12 @@ def mur_edges(p: np.ndarray, pn: np.ndarray, lam: float) -> None:
     Corners/edges take the last face written (all faces agree to O(dx)).
     """
     k = (lam - 1.0) / (lam + 1.0)
+    todo = set(range(2 * p.ndim)) if faces is None else set(faces)
     for a in range(p.ndim):
         n = p.shape[a]
-        for face, inner in ((0, 1), (n - 1, n - 2)):
+        for side, (face, inner) in enumerate(((0, 1), (n - 1, n - 2))):
+            if 2 * a + side not in todo:
+                continue
             f: list[slice | int] = [slice(None)] * p.ndim
             g: list[slice | int] = [slice(None)] * p.ndim
             f[a] = face
@@ -320,6 +358,7 @@ __all__ = [
     "general_step_2d",
     "general_step_3d",
     "mur_edges",
+    "normalize_faces",
     "sponge_sigma",
     "numba",
 ]

@@ -2,7 +2,7 @@ import { Download, Eye, EyeOff, Trash2, Upload } from 'lucide-react';
 import { useRef } from 'react';
 import { PRESETS } from '../engine/presets';
 import { validateScene } from '../engine/scene';
-import { absorptionFromBeta, MATERIAL_NAMES, MATERIALS, type OuterKind } from '../engine/simulation';
+import { absorptionFromBeta, facesOf, MATERIAL_NAMES, MATERIALS, type OuterKind } from '../engine/simulation';
 import type { WaveformSpec } from '../engine/waveforms';
 import { download } from '../lib/exporters';
 import { DIVERGING, SEQUENTIAL } from '../render/colormaps';
@@ -215,7 +215,37 @@ function ScenePanel() {
           <option value="sponge">Anechoic (absorbing layer)</option>
         </select>
       </div>
-      {p.outer === 'absorb' && (
+      <label className="row tight" style={{ marginBottom: 8 }}>
+        <input
+          type="checkbox"
+          checked={!!p.faces}
+          onChange={(e) => setParams({ faces: e.target.checked ? facesOf(p) : undefined })}
+          aria-label="Set each face separately"
+        />{' '}
+        Set each face separately
+      </label>
+      {p.faces && (
+        <div className="row wrap" style={{ alignItems: 'flex-start' }}>
+          {facesOf(p).map((f, k) => (
+            <div key={k} className="field" style={{ flex: '1 1 45%' }}>
+              <label>{['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]}</label>
+              <select
+                className="input"
+                value={f}
+                aria-label={`${['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]} face`}
+                onChange={(e) => setParams({ faces: facesOf(p).map((x, q) => (q === k ? (e.target.value as OuterKind) : x)) })}
+              >
+                <option value="soft">p = 0</option>
+                <option value="rigid">Rigid</option>
+                <option value="absorb">Impedance</option>
+                <option value="mur">Mur edge</option>
+                <option value="sponge">Absorbing layer</option>
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+      {facesOf(p).includes('absorb') && (
         <NumberField
           label="Wall admittance β"
           value={p.outerBeta}
@@ -225,7 +255,7 @@ function ScenePanel() {
           onChange={(v) => setParams({ outerBeta: v })}
         />
       )}
-      {p.outer === 'sponge' && (
+      {facesOf(p).includes('sponge') && (
         <NumberField label="Layer thickness (cells)" value={p.spongeCells} integer min={4} max={80} onChange={(v) => setParams({ spongeCells: v })} />
       )}
 
@@ -247,9 +277,48 @@ function ScenePanel() {
           ),
         )}
       </div>
+      <h3>Sound speed (brush C)</h3>
+      <SpeedControls />
       <button className="btn sm danger" style={{ marginTop: 10 }} onClick={() => useApp.getState().clearObstacles()}>
         <Trash2 size={14} /> Clear all walls
       </button>
+    </div>
+  );
+}
+
+function SpeedControls() {
+  const paintSpeed = useApp((s) => s.paintSpeed);
+  const setPaintSpeed = useApp((s) => s.setPaintSpeed);
+  const scene = useApp((s) => s.scene);
+  const runtime = useApp((s) => s.runtime);
+  // Local Courant sigma * r must stay <= 1/sqrt(d) (clamped 0.99 of that).
+  const sigma = Math.sqrt(runtime.sim.coeff);
+  const maxRatio = Math.max(1, (0.99 / Math.sqrt(scene.params.dims)) / sigma);
+  return (
+    <div>
+      <div className="field">
+        <label>
+          <span>Speed ratio c(x)/c</span>
+          <span className="mono">{paintSpeed.toFixed(2)}×</span>
+        </label>
+        <input
+          type="range"
+          min={0.3}
+          max={maxRatio}
+          step={0.01}
+          value={Math.min(paintSpeed, maxRatio)}
+          onChange={(e) => setPaintSpeed(Number(e.target.value))}
+          aria-label="Speed ratio"
+        />
+        <span className="hint">
+          Slower regions bend waves towards them (a lens). Up to {maxRatio.toFixed(2)}× keeps the scheme stable at this Courant number; paint 1.00 to restore.
+        </span>
+      </div>
+      {scene.speed && (
+        <button className="btn sm" onClick={() => useApp.getState().setSpeed(null)}>
+          Reset sound speed
+        </button>
+      )}
     </div>
   );
 }

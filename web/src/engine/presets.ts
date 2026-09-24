@@ -54,8 +54,16 @@ function scene(
   drivers: DriverSpec[],
   probes: ProbeSpec[],
   description: string,
+  speed?: Float32Array,
 ): Scene {
+  let speedRle: string | undefined;
+  if (speed) {
+    const q = new Uint8Array(speed.length);
+    for (let i = 0; i < q.length; i++) q[i] = speed[i] === 1 ? 0 : Math.max(1, Math.min(255, Math.round(speed[i] * 100)));
+    speedRle = encodeRle(q);
+  }
   return {
+    speed: speedRle,
     version: 1,
     name,
     params: { ...DEFAULT_PARAMS, ...params, shape: [canvas.nx, canvas.ny] },
@@ -242,6 +250,37 @@ export const PRESETS: Preset[] = [
         [drv('d1', 50, 100, ricker(0.05, 6, 30))],
         [probe('p1', 140, 100, 'Inside cavity'), probe('p2', 60, 60, 'Outside')],
         'Rigid box with a 8-cell neck; broadband pulse from outside.',
+      );
+    },
+  },
+  {
+    id: 'lens',
+    title: 'Acoustic lens',
+    blurb: 'A disc of slower sound focuses a plane wave.',
+    physics:
+      'Sound bends towards regions where it travels slower (Snell’s law). A disc whose centre is slowest acts like a converging lens: the flat wavefront curves and meets at a focus behind it.',
+    build: () => {
+      const c = new Canvas(200, 260);
+      const speed = new Float32Array(200 * 260).fill(1);
+      const ci = 100;
+      const cj = 100;
+      const R = 50;
+      for (let i = 0; i < 200; i++)
+        for (let j = 0; j < 260; j++) {
+          const r = Math.hypot(i - ci, j - cj);
+          // Gradient-index profile n(r) = n0 (1 - (r/R)^2 / 2): c = c0 / n.
+          if (r < R) speed[i * 260 + j] = 1 / (1.6 - 0.6 * (r / R) ** 2);
+        }
+      const drivers: DriverSpec[] = [];
+      for (let i = 20; i < 180; i += 2) drivers.push(drv(`s${i}`, i, 25, ricker(0.06, 1, 20)));
+      return scene(
+        'Acoustic lens',
+        { outer: 'sponge', spongeCells: 20 },
+        c,
+        drivers,
+        [probe('p1', 100, 185, 'Focus')],
+        'Graded sound-speed disc (c from 0.63 at the centre to 1 at the rim).',
+        speed,
       );
     },
   },

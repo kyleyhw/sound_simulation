@@ -99,7 +99,7 @@ class Simulate:
         gridstep: float = 1.0,
         courant: float = 0.5,
         backend: str = "cpu",
-        boundary: str = "soft",
+        boundary: "str | Sequence[str]" = "soft",
         boundary_beta: float = 1.0,
         sponge_cells: int = 24,
         scheme: str = "standard",
@@ -212,13 +212,12 @@ class Simulate:
         # and a relative wave-speed map. Any non-default setting routes
         # step() through the general kernel; the default leaves the fast
         # path (and reference.npz) untouched.
-        from .physics import OUTER_KINDS
+        from .physics import normalize_faces
 
-        if boundary == "pml":  # accepted alias: the graded absorbing layer
-            boundary = "sponge"
-        if boundary not in OUTER_KINDS:
-            raise ValueError(f"boundary must be one of {OUTER_KINDS}, got {boundary!r}")
-        self.boundary: str = boundary
+        # One kind for every face, or one per face (axis 0 low/high, axis 1
+        # low/high, ...). "pml" is accepted as an alias of "sponge".
+        faces = normalize_faces(boundary, self.dims)
+        self.boundary: "str | tuple[str, ...]" = faces[0] if len(set(faces)) == 1 else faces
         self.boundary_beta: float = float(boundary_beta)
         self.sponge_cells: int = int(sponge_cells)
         self.material: np.ndarray = np.zeros(self.grid_shape, dtype=np.uint8)
@@ -526,7 +525,7 @@ class Simulate:
                 p, p_prev, p_next, self._gcoef_dev[1], self._wall_v, self._wall_x, self.timestep
             )
             if g.mur_edges:
-                mur_edges(p, p_next, float(np.sqrt(self._coeff)))
+                mur_edges(p, p_next, float(np.sqrt(self._coeff)), g.mur_faces)
             return
         step = general_step_2d if self.dims == 2 else general_step_3d
         step(
@@ -534,7 +533,7 @@ class Simulate:
             self._wall_v, self._wall_x, np.float32(self.timestep),
         )  # fmt: skip
         if g.mur_edges:
-            mur_edges(p, p_next, float(np.sqrt(self._coeff)))
+            mur_edges(p, p_next, float(np.sqrt(self._coeff)), g.mur_faces)
 
     def clear_obstacles(self) -> None:
         """Remove every obstacle. Field is left untouched."""
