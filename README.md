@@ -8,7 +8,15 @@ sound field in it (directed audio, local quiet). The roadmap is in
 [`PROJECT_PLAN.md`](PROJECT_PLAN.md) and the live status in
 [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
-![Sample 2D simulation](data/plots/sample_figure.png)
+**[Try it in the browser →](https://kyleyhw.github.io/sound_simulation/)** No install needed: the
+simulator, gallery, control panel, closed-loop demo and room-measurement
+lab all run in the page.
+
+<p align="center">
+  <img src="docs/media/quiet-zone.gif" width="320" alt="Ten speakers make a loud zone and a quiet zone">
+  <img src="docs/media/time_reversal.gif" width="320" alt="Time-reversed echoes refocus on their source">
+</p>
+<p align="center"><sub>Left: acoustic contrast control makes one spot loud and a nearby spot silent (58 dB), with a rigid table in the way. Right: 16 speakers replay reversed recordings of a pulse, which refocus on the source through a cluster of scatterers. Both GIFs are rendered from the gallery scenes by <code>npm run render</code>.</sub></p>
 
 ## What is here
 
