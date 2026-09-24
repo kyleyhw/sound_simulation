@@ -433,11 +433,15 @@ virtual-headphones demo works.
 **Done when:** A public zero-install site hosts the sandbox, gallery,
 and explainers, and the write-ups are published.
 
-*   `[pending]` 10.1: 2D simulator in WebGPU, running entirely in the
-    browser.
-*   `[pending]` 10.2: 3D simulator in WebGPU.
+*   `[completed]` 10.1: 2D simulator in WebGPU, running entirely in the
+    browser. *(`web/src/engine/gpu.ts`, every physics path; parity with
+    the CPU engine to about 1e-6.)*
+*   `[completed]` 10.2: 3D simulator in WebGPU. *(The same kernels;
+    3D CPML parity is tested. Speed on real GPUs is unmeasured, because
+    CI uses SwiftShader.)*
 *   `[pending]` 10.3: Sensing models in the browser (ONNX).
-*   `[pending]` 10.4: Deploy to GitHub Pages.
+*   `[completed]` 10.4: Deploy to GitHub Pages. *(The `pages.yml`
+    workflow deploys on every push to main.)*
 *   `[completed]` 10.5: Scene gallery: diffraction, whispering gallery,
     acoustic lens, room modes, time-reversal, beam steering, quiet
     zone, and others. *(15 presets; the new ones are physics-tested in

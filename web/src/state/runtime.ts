@@ -5,6 +5,7 @@
  * budget, so rendering stays at display rate regardless of grid size.
  */
 
+import type { GpuStepper } from '../engine/gpu';
 import { Simulation } from '../engine/simulation';
 import type { EditableScene } from './editable';
 
@@ -42,6 +43,10 @@ export class Runtime {
   version = 0;
   unstable = false;
   private frameCallbacks = new Set<() => void>();
+  /** WebGPU backend (plan 10.1/10.2): null = CPU. */
+  gpu: GpuStepper | null = null;
+  backend: 'cpu' | 'gpu' = 'cpu';
+  private gpuSteps = 8;
 
   constructor(scene: EditableScene) {
     this.sim = this.build(scene);
@@ -60,7 +65,14 @@ export class Runtime {
   load(scene: EditableScene): void {
     const rms = this.sim.rmsAccum !== null;
     const inten = this.sim.intensity !== null;
+    const wasGpu = this.backend === 'gpu';
+    if (this.gpu) {
+      this.gpu.destroy();
+      this.gpu = null;
+      this.backend = 'cpu';
+    }
     this.sim = this.build(scene);
+    if (wasGpu) void this.setBackend('gpu');
     this.sim.enableRms(rms);
     this.sim.enableIntensity(inten);
     this.history = [];
@@ -139,6 +151,31 @@ export class Runtime {
     return m;
   }
 
+  /**
+   * Switch compute backends. Going to the GPU mirrors the current state onto
+   * the device; coming back reads the full device state first, so the run
+   * continues seamlessly either way.
+   */
+  async setBackend(kind: 'cpu' | 'gpu'): Promise<void> {
+    if (kind === this.backend) return;
+    const wasRunning = this.running;
+    if (wasRunning) this.stop();
+    if (kind === 'gpu') {
+      const { GpuStepper } = await import('../engine/gpu');
+      this.gpu = await GpuStepper.create(this.sim);
+      this.gpuSteps = 8;
+      this.backend = 'gpu';
+    } else if (this.gpu) {
+      while (this.gpu.busy) await new Promise((r) => setTimeout(r, 5));
+      await this.gpu.syncState();
+      this.gpu.destroy();
+      this.gpu = null;
+      this.backend = 'cpu';
+    }
+    this.emit();
+    if (wasRunning) this.start();
+  }
+
   start(): void {
     if (this.running) return;
     this.scrubIndex = null;
@@ -161,6 +198,18 @@ export class Runtime {
 
   stepOnce(n = 1): void {
     this.scrubIndex = null;
+    if (this.gpu) {
+      const g = this.gpu;
+      if (g.busy) return;
+      g.busy = true;
+      void g.run(n).then(() => {
+        g.busy = false;
+        this.record();
+        this.renderNow();
+        this.emit();
+      });
+      return;
+    }
     for (let k = 0; k < n; k++) this.advance();
     this.renderNow();
     this.emit();
@@ -195,21 +244,62 @@ export class Runtime {
 
   private advance(): void {
     this.sim.step();
-    if (this.sim.step_count % this.historyEvery === 0 && this.sim.n <= 1_200_000) {
-      const recycled = this.history.length >= HISTORY_FRAMES ? this.history.shift()!.p : new Float32Array(this.sim.n);
-      recycled.set(this.sim.p);
-      this.history.push({ step: this.sim.step_count, time: this.sim.time, p: recycled });
-    }
+    if (this.sim.step_count % this.historyEvery === 0) this.record();
+  }
+
+  private record(): void {
+    if (this.sim.n > 1_200_000) return;
+    const recycled = this.history.length >= HISTORY_FRAMES ? this.history.shift()!.p : new Float32Array(this.sim.n);
+    recycled.set(this.sim.p);
+    this.history.push({ step: this.sim.step_count, time: this.sim.time, p: recycled });
   }
 
   private tick = (): void => {
     if (!this.running) return;
+    if (this.gpu) return this.tickGpu();
     const t0 = performance.now();
     let steps = 0;
     while (steps < this.stepsPerFrame && performance.now() - t0 < this.budgetMs) {
       this.advance();
       steps++;
     }
+    this.afterFrame(steps);
+    if (this.running) this.raf = requestAnimationFrame(this.tick);
+  };
+
+  /** GPU frame: one batch in flight at a time, sized to fill the frame budget. */
+  private tickGpu(): void {
+    const g = this.gpu!;
+    if (g.busy) {
+      this.raf = requestAnimationFrame(this.tick);
+      return;
+    }
+    g.busy = true;
+    const steps = this.gpuSteps;
+    const t0 = performance.now();
+    void g.run(steps).then(
+      () => {
+        g.busy = false;
+        const ms = performance.now() - t0;
+        // Aim for ~2 frame budgets per batch, so the device stays busy while
+        // the main thread renders.
+        this.gpuSteps = Math.max(1, Math.min(4096, Math.round(steps * Math.min(2, Math.max(0.5, (2 * this.budgetMs) / Math.max(ms, 0.1))))));
+        this.record();
+        if (this.running) this.afterFrame(steps);
+      },
+      (err) => {
+        g.busy = false;
+        console.warn('GPU step failed; falling back to the CPU', err);
+        this.gpu?.destroy();
+        this.gpu = null;
+        this.backend = 'cpu';
+        this.stop();
+      },
+    );
+    this.raf = requestAnimationFrame(this.tick);
+  }
+
+  private afterFrame(steps: number): void {
     // Instability guard: a CFL-violating or runaway field shows as NaN/huge.
     const probe = this.sim.p[(this.sim.n / 2) | 0];
     if (!Number.isFinite(probe) || this.peak() > 1e12) {
@@ -231,6 +321,5 @@ export class Runtime {
     }
     this.renderNow();
     this.emit();
-    this.raf = requestAnimationFrame(this.tick);
-  };
+  }
 }

@@ -87,6 +87,15 @@ export class Cpml {
     this.ext = new Float32Array(n);
   }
 
+  /** Profiles, memory variables and wall mask, for a device backend. */
+  deviceState() {
+    return {
+      shape: this.shape,
+      axes: this.axes.map((s) => (s ? { an: s.an, bn: s.bn, ah: s.ah, bh: s.bh, psi: s.psi, zeta: s.zeta } : null)),
+      wall: this.wall,
+    };
+  }
+
   /** Mark no-flux cells (rigid/impedance walls); null clears them. */
   setWalls(wall: Uint8Array | null): void {
     this.wall = wall && wall.some((v) => v) ? wall : null;

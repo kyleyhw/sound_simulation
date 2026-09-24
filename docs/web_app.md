@@ -223,6 +223,46 @@ obstacle, and that the guarded loop stays at or above 10 dB, stays at or
 above the static design, and stays at or below the oracle.
 `tests/e2e/loop.spec.ts` runs the dashboard end to end.
 
+## 5c. WebGPU engine (plan 10.1, 10.2)
+
+`engine/gpu.ts` runs the simulation in WGSL compute shaders, and the
+**Engine** selector in the stage toolbar switches between CPU and GPU.
+The CPU `Simulation` still owns the model. The GPU mirrors it from
+`Simulation.deviceState()`, the precomputed general-update coefficients
+(C, S, Q, Q/a, 1/a, K_s, K and the active flags). The same update also
+expresses the fast path, so one kernel covers:
+- p = 0, rigid and impedance walls and materials;
+- the sponge and c(x);
+- the CPML, as two extra passes for ψ and ζ;
+- Mur edges, as one pass per axis in the CPU's face order.
+
+It works in 2D and in 3D.
+
+Each frame encodes a batch of steps. Driver values for the batch come from
+the CPU waveform code, and probe samples and RMS accumulate on the device.
+After each batch, p and p_prev are read back, so rendering, probes,
+history and the instability guard work unchanged. Switching back to the
+CPU first reads the full state (branch and CPML memory), so a run
+continues seamlessly. Intensity arrows need the CPU engine, and the app
+switches automatically.
+
+Parity (`tests/e2e/gpu.spec.ts`) runs the CPU and GPU engines on eight
+scenes. The relative field error is 7e-7 to 2e-6, and 4e-5 on a
+low-amplitude 3D CPML case. The scenes cover:
+
+- the fast path;
+- rigid ellipse;
+- impedance materials;
+- c(x) lens;
+- CPML with obstacles;
+- the quiet-zone array;
+- mixed Mur/impedance/sponge faces;
+- a 3D CPML box.
+
+Headless Chromium in CI provides a SwiftShader (CPU-emulated) WebGPU
+adapter, which checks correctness, not speed. Speed on real GPUs has not
+been measured here.
+
 ## 5. Testing (4.5)
 
 | layer | tool | what |

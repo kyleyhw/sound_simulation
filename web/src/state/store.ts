@@ -186,6 +186,11 @@ export const useApp = create<AppState>((set, get) => {
       if (v.overlay !== undefined) {
         sim.enableRms(view.overlay === 'rms');
         sim.enableIntensity(view.overlay === 'intensity');
+        // Intensity (particle velocity) is only computed by the CPU engine.
+        if (view.overlay === 'intensity' && get().runtime.backend === 'gpu') {
+          void get().runtime.setBackend('cpu');
+          get().notify('Intensity arrows run on the CPU engine; switched from the GPU.');
+        }
       }
       get().runtime.renderNow();
     },

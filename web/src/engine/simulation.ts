@@ -327,7 +327,12 @@ export class Simulation {
     this.rmsCount = 0;
     this.vel?.forEach((v) => v.fill(0));
     this.intensity?.forEach((v) => v.fill(0));
+    this.onResetAccumulators?.();
   }
+
+  /** Hooks for a device backend that mirrors this state (engine/gpu.ts). */
+  onReset?: () => void;
+  onResetAccumulators?: () => void;
 
   // ------------------------------------------------------------------ //
   // Time stepping
@@ -344,6 +349,7 @@ export class Simulation {
     this.wallX?.fill(0);
     this.cpml?.reset();
     this.resetAccumulators();
+    this.onReset?.();
   }
 
   step(): void {
@@ -602,6 +608,77 @@ export class Simulation {
     }
   }
 
+  /** The CPML for the current faces and geometry (null if no CPML face). */
+  private ensureCpml(): Cpml | null {
+    const faces = facesOf(this.params);
+    if (!faces.includes('cpml')) return null;
+    if (!this.gK) this.buildGeneral();
+    const K = this.gK!;
+    const cf = faces.map((f) => f === 'cpml');
+    const key = `${this.params.shape.join('x')}|${cf.join(',')}|${Math.max(2, Math.round(this.params.cpmlCells ?? 16))}|${this.params.c}|${this.params.dx}|${this.dt}`;
+    if (!this.cpml || this.cpml.key !== key) this.cpml = new Cpml(this.params.shape, cf, this.params.cpmlCells ?? 16, this.params.c, this.params.dx, this.dt);
+    if (this.cpml.wallsFor !== K) {
+      const wall = new Uint8Array(this.n);
+      for (let q = 0; q < this.n; q++) {
+        const m = this.material[q];
+        if (m !== 0) wall[q] = (MATERIALS[m] ?? MATERIALS[1]).kind === 'soft' ? 0 : 1;
+      }
+      this.cpml.setWalls(wall);
+      this.cpml.wallsFor = K;
+    }
+    return this.cpml;
+  }
+
+  /**
+   * Everything a device backend (engine/gpu.ts) needs to reproduce step()
+   * exactly: the general-path coefficients (they also describe the fast
+   * path, where every neighbour counts and walls are held at 0), the
+   * impedance-branch state, the CPML profiles and the Mur faces.
+   */
+  deviceState() {
+    if (!this.gK) this.buildGeneral();
+    const faces = facesOf(this.params);
+    return {
+      K: this.gK!,
+      C: this.gC!,
+      S: this.gS!,
+      Q: this.gQ!,
+      Qa: this.gQa!,
+      InvA: this.gInvA!,
+      Ks: this.gKs!,
+      active: this.gActive!,
+      V: this.wallV!,
+      X: this.wallX!,
+      cpml: this.ensureCpml()?.deviceState() ?? null,
+      murFaces: faces.map((f) => f === 'mur'),
+      lam: Math.sqrt(this.coeff),
+      /** Bumped when geometry changes, so a device copy knows to re-upload. */
+      geometryKey: this.gK,
+    };
+  }
+
+  /** Take over state computed elsewhere (a device backend's readback). */
+  importState(s: { p: Float32Array; pPrev: Float32Array; V?: Float32Array; X?: Float32Array; time: number; step_count: number }): void {
+    this.p.set(s.p);
+    this.pPrev.set(s.pPrev);
+    if (s.V && this.wallV) this.wallV.set(s.V);
+    if (s.X && this.wallX) this.wallX.set(s.X);
+    this.time = s.time;
+    this.step_count = s.step_count;
+  }
+
+  /** Append externally computed probe samples (one row per step, probes in order). */
+  pushProbeSamples(rows: Float32Array, steps: number): void {
+    const np = this.probes.length;
+    for (let k = 0; k < steps; k++)
+      for (let j = 0; j < np; j++) {
+        const d = this.probeData.get(this.probes[j].id);
+        if (!d) continue;
+        d.buf[d.count % PROBE_CAPACITY] = rows[k * np + j];
+        d.count++;
+      }
+  }
+
   private stepGeneral(): void {
     if (!this.gK) this.buildGeneral();
     const { p, pPrev, pNext, nx, ny, nz, dims, dt } = this;
@@ -615,23 +692,9 @@ export class Simulation {
     const act = this.gActive!;
     const V = this.wallV!;
     const X = this.wallX!;
-    let ext: Float32Array | null = null;
     const faces = facesOf(this.params);
-    if (faces.includes('cpml')) {
-      const cf = faces.map((f) => f === 'cpml');
-      const key = `${this.params.shape.join('x')}|${cf.join(',')}|${Math.max(2, Math.round(this.params.cpmlCells ?? 16))}|${this.params.c}|${this.params.dx}|${dt}`;
-      if (!this.cpml || this.cpml.key !== key) this.cpml = new Cpml(this.params.shape, cf, this.params.cpmlCells ?? 16, this.params.c, this.params.dx, dt);
-      if (this.cpml.wallsFor !== K) {
-        const wall = new Uint8Array(this.n);
-        for (let q = 0; q < this.n; q++) {
-          const m = this.material[q];
-          if (m !== 0) wall[q] = (MATERIALS[m] ?? MATERIALS[1]).kind === 'soft' ? 0 : 1;
-        }
-        this.cpml.setWalls(wall);
-        this.cpml.wallsFor = K;
-      }
-      ext = this.cpml.update(p);
-    }
+    const cpml = this.ensureCpml();
+    const ext: Float32Array | null = cpml ? cpml.update(p) : null;
     const sx = ny * nz;
     const sy = nz;
     const zs = dims === 3 ? nz : 1;

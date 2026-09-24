@@ -16,6 +16,31 @@ export function StageToolbar() {
   const [stats, setStats] = useState<FrameStats>(() => runtime.stats());
   const [speed, setSpeed] = useState(runtime.stepsPerFrame);
   const [busy, setBusy] = useState<string | null>(null);
+  const [gpuOk, setGpuOk] = useState(false);
+  const [backend, setBackendState] = useState(runtime.backend);
+
+  useEffect(() => {
+    let live = true;
+    void import('../engine/gpu').then((m) => m.gpuAvailable()).then((ok) => live && setGpuOk(ok));
+    return () => {
+      live = false;
+    };
+  }, []);
+  useEffect(() => setBackendState(runtime.backend), [runtime, stats]);
+
+  const chooseBackend = async (kind: 'cpu' | 'gpu') => {
+    if (kind === 'gpu' && useApp.getState().view.overlay === 'intensity') {
+      notify('Intensity arrows need the CPU engine; switch the overlay first.', 'error');
+      return;
+    }
+    try {
+      await runtime.setBackend(kind);
+      setBackendState(runtime.backend);
+      notify(kind === 'gpu' ? 'Running on the GPU (WebGPU)' : 'Running on the CPU');
+    } catch (e) {
+      notify(`WebGPU unavailable: ${(e as Error).message}`, 'error');
+    }
+  };
 
   useEffect(() => runtime.subscribe(setStats), [runtime]);
   useEffect(() => {
@@ -77,6 +102,15 @@ export function StageToolbar() {
               {s}×
             </option>
           ))}
+        </select>
+      </label>
+      <label className="row tight" title={gpuOk ? 'Compute backend: WebGPU runs the same kernels on the graphics card' : 'WebGPU is not available in this browser'}>
+        <span className="muted" style={{ fontSize: 12.5 }}>Engine</span>
+        <select className="input" style={{ width: 84 }} value={backend} onChange={(e) => void chooseBackend(e.target.value as 'cpu' | 'gpu')} aria-label="Compute backend">
+          <option value="cpu">CPU</option>
+          <option value="gpu" disabled={!gpuOk}>
+            GPU
+          </option>
         </select>
       </label>
       <span style={{ flex: 1 }} />
