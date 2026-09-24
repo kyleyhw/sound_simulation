@@ -69,7 +69,7 @@ export default function App() {
       page = <Learn route={route} />;
       break;
     case '/research':
-      page = <Research />;
+      page = <Research route={route} />;
       break;
     case '/lab':
       page = <Lab />;

@@ -472,10 +472,15 @@ and explainers, and the write-ups are published.
     docs, reports and the plan, with maths and figures.)*
 *   `[pending]` 10.10: Public dataset and benchmark, with the baselines
     included.
-*   `[pending]` 10.11: Write-up: "What can a laptop hear?" (the sensing
-    results, negative results included).
-*   `[pending]` 10.12: Write-ups on control and on the real-hardware
-    results.
+*   `[in-progress]` 10.11: Write-up: "What can a laptop hear?" (the sensing
+    results, negative results included). *(Published on `#/research`:
+    the Phase 2 negative result and the Phase 6 physics results. Needs
+    updating with the learned models on physics images and the 3.4.7
+    re-score.)*
+*   `[in-progress]` 10.12: Write-ups on control and on the real-hardware
+    results. *(Published: simulator verification, and real-room tooling
+    awaiting measurements. The control write-up follows the Phase 7
+    report.)*
 
 ## 4. Execution Rules (agreed 2026-09-24)
 
