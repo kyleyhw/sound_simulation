@@ -123,9 +123,9 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
         threshold-selection leakage.
     *   `[completed]` 3.4.4: `sensing.py`: live inference must preprocess
         exactly like the offline evaluation.
-    *   `[pending]` 3.4.5: Run `eval_no_audio_baseline.py` on the exact
+    *   `[completed]` 3.4.5: Run `eval_no_audio_baseline.py` on the exact
         training and held-out archives.
-    *   `[pending]` 3.4.6: Add metrics that don't depend on a threshold:
+    *   `[completed]` 3.4.6: Add metrics that don't depend on a threshold:
         information gained over the prior (bits), average precision,
         and boundary F-score.
     *   `[pending]` 3.4.7: Re-score every checkpoint and update the

@@ -6,7 +6,9 @@
 #
 # Tooling
 # -------
-# Lint + format: ruff via the upstream pre-commit hook (isolated venv).
+# Lint + format: ruff through `uv run`, i.e. the version pinned in uv.lock
+#                (the upstream hook pinned ruff 0.4.4, whose import sorting
+#                disagreed with the project's ruff and flip-flopped fixes).
 # Secret scan:   detect-secrets. The .secrets.baseline file lists known-safe
 #                pre-existing findings; new commits may not introduce
 #                findings outside that baseline.
@@ -15,13 +17,6 @@
 #                uv.lock and stays consistent across contributors.
 
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
-    hooks:
-      - id: ruff
-        args: [--fix]
-      - id: ruff-format
-
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
@@ -31,6 +26,16 @@ repos:
 
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff-format
+        entry: uv run ruff format
+        language: system
+        types: [python]
       - id: ty
         name: ty
         entry: uv run ty check
