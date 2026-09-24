@@ -1,4 +1,36 @@
-# Project Status as of 2026-07-15
+# Project Status as of 2026-09-24
+
+## Audit (2026-09-24) — read first
+
+A full plan audit (`docs/plan_audit.md`) produced a revised
+`PROJECT_PLAN.md`. It added Phase 0 (audit fixes), 1B (engine
+fidelity), 1C (UI v2), 5 (sim-to-real), and 6 (showcase), rewrote
+Phases 3–4, and reopened Phase 2 as a research programme (2R).
+
+**The key finding changes how to read the Phase 2 results below.**
+Predictors that ignore the audio match the sensing headline on the
+same per-room IoU metric (`scripts/eval_no_audio_baseline.py`, 500
+held-out rooms, ± SE):
+
+| no-audio predictor | v2 mixed | v1 rect |
+| --- | --- | --- |
+| prior map, best τ | 0.104 ± 0.003 | 0.090 ± 0.002 |
+| fixed interior box | 0.103 ± 0.003 | 0.091 ± 0.002 |
+
+For comparison, the v2 calibrated K=4 result is 0.100 and the v1 best
+(K=8) is 0.092. The "information ceiling ≈ 0.10" below is therefore
+better explained as convergence to the prior. It is not yet evidence
+that the audio carries geometry the model extracts. Three more audit
+findings matter:
+
+- $p = 0$ walls are *pressure-release*, not rigid.
+- The rooms are lossless.
+- The simulation has no physical units.
+
+Next steps are Phase 0 in the plan: exact-archive re-scoring,
+threshold-free and information-gain metrics, Neumann walls, and a
+verification suite.
+
 
 ## 0. Sensing v2 (Task 2.3, added 2026-07-15)
 
@@ -38,7 +70,7 @@ simulation keeps streaming (`sense_room`/`sense_result` events, E2E
 Playwright-verified). Shared engine: `learning/sensing.py`. Report:
 `tests/reports/demos_2026_07_12.md`.
 
-## 2. Resolution (Phase 1 + 2 close, 2026-07-11)
+## 2. Resolution (Phase 1 + 2 close, 2026-07-11) — superseded in part by the 2026-09-24 audit
 
 **Phases 1 and 2 are complete.** Phase 1 closed with the GPU backend
 (Task 1.5); Phase 2 closed with the multi-pose active-sensing campaign
@@ -86,7 +118,7 @@ at ~1e-6 relative L2 vs the CPU truth chain; RTX 2070 SUPER speedups:
 untouched (evolve-harness gates pass with identical error values).
 See `docs/gpu.md` + `tests/reports/gpu_backend_2026_07_10.md`.
 
-## 2. Assets
+## 3. Assets
 
 - Datasets (`data/training_data/`, gitignored, regenerable by seed;
   commands in `docs/learning.md`): single-pose train/held-out
@@ -98,7 +130,7 @@ See `docs/gpu.md` + `tests/reports/gpu_backend_2026_07_10.md`.
 - Models: `DualInputCNN` / `PassiveCNN` / `JointPoseCNN` behind
   `build_model`; checkpoints carry a `model_type` tag.
 
-## 3. Operational notes
+## 4. Operational notes
 
 - Artifact convention: datasets → `data/training_data/`, checkpoints →
   `checkpoints/`, never `/tmp` (a temp cleanup destroyed the
@@ -109,10 +141,11 @@ See `docs/gpu.md` + `tests/reports/gpu_backend_2026_07_10.md`.
   kill took the process tree. Seeded CPU reruns replay near-identically
   (the restart reproduced val IoU 0.0464 at epoch 36 exactly).
 
-## 4. Open follow-ups (Phase 3+)
+## 5. Open follow-ups (Phase 3+)
 
-- Phase 3 (beamforming) is next per `PROJECT_PLAN.md`; the engine
-  already supports multiple independent drivers.
+- Superseded by the 2026-09-24 plan: Phase 0 (audit remediation) now
+  comes next. Phase 3 is gated on absorbing boundaries, materials, and
+  the G1 verification gate.
 - Sensing-side upgrades, if needed later: variance-normalised or
   log-sum-exp pose pooling / variable-K training; GCC-PHAT (TDOA)
   input channel for passive; passive multi-pose.

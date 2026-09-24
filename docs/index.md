@@ -2,6 +2,10 @@
 
 This index provides an overview and links to the detailed documentation for each component of the project.
 
+## Project plan
+
+- [**`plan_audit.md`**](./plan_audit.md): The 2026-09-24 audit of `PROJECT_PLAN.md`. It covers the no-audio IoU baseline (`scripts/eval_no_audio_baseline.py`), the boundary-physics and units findings, plan-structure gaps, and hygiene.
+
 ## Web UI
 
 - [**`web_ui.md`**](./web_ui.md): Architecture, wire protocol, and operation of the interactive browser-based simulation UI (the FastAPI/Socket.IO backend in `src/acoustic_system/app/` and the React frontend in `frontend/`).
