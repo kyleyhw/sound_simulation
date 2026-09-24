@@ -12,7 +12,7 @@ test('docs site renders documents with maths, tables, images and in-app links', 
   await expect(page).toHaveURL(/#\/docs\/tests\/reports\/debug_audit_2026_09_24/);
   await expect(page.getByTestId('doc-body')).toContainText('Debug audit');
   // Images (the README hero GIFs) resolve to bundled assets.
-  await page.goto('/#/docs/README');
+  await page.goto('./#/docs/README');
   const img = page.getByTestId('doc-body').locator('img').first();
   await expect(img).toBeVisible();
   expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);

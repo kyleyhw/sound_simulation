@@ -13,7 +13,7 @@ export async function open(page: Page, hash = '#/'): Promise<string[]> {
       /* ignore */
     }
   });
-  await page.goto(`/${hash}`);
+  await page.goto(`./${hash}`);
   await expect(page.getByTestId('field').or(page.locator('.content'))).toBeVisible();
   return errors;
 }

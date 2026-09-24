@@ -17,7 +17,7 @@ test('explainers render maths and run live simulations', async ({ page }) => {
   await expect(sim.getByRole('button', { name: 'Rigid' })).toHaveAttribute('aria-pressed', 'true');
   // Every article opens without errors.
   for (const id of ['fdtd', 'rooms', 'echolocation', 'control', 'diffraction']) {
-    await page.goto(`/#/learn/${id}`);
+    await page.goto(`./#/learn/${id}`);
     await expect(page.getByTestId('learn-article')).toBeVisible();
     await expect(page.getByTestId('livesim').first()).toBeVisible();
   }

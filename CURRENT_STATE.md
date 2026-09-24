@@ -11,7 +11,7 @@ by phase:
 | phase | status | headline |
 |---|---|---|
 | 3 Debug audit | in progress | 18 engine, 12 backend and 10 learning findings fixed or retired (`tests/reports/debug_audit_2026_09_24.md`). **Open:** the re-score of the retrained skip_v2 (3.4.7, training running), remote data hosting (3.5.3, needs a storage target), GPU run (3.2.3, needs hardware). |
-| 4 UI overhaul | done | Browser app with no server. 23 Playwright end-to-end tests and 46 unit tests. |
+| 4 UI overhaul | done | Browser app with no server. 27 Playwright end-to-end tests and 46 unit tests, run in CI and against the live site. |
 | 5 Physics | done except the GPU run | Verification report `docs/physics.md`: modes to 1e-5 % of theory, second-order convergence, 1e-7 energy drift, CPML at −49 dB at 62°, T60 between Sabine and Eyring. |
 | 6 Sensing, second attempt | "done when" met | Physics imagers beat the no-audio baseline: IoU 0.189 vs 0.101, z = 19.3 (K = 4); 0.244 at K = 8 (`tests/reports/imaging_2026_09_24.md`). **The Phase 2 CNNs sat at the baseline, so the "information ceiling" reading below is wrong.** Learned models on physics images are in progress (6.3). |
 | 7 Control | done | ACC 25.5 dB broadband, measured in the time domain. Crosstalk cancellation 17.7 dB broadband in an absorbing room (84 % of the band per frequency). 15 dB needs walls known to 1.5–4 cm (`tests/reports/control_2026_09_24.md`). |
