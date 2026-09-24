@@ -17,6 +17,9 @@ git config user.email "kyleyhw@gmail.com"
 # Python: .venv/ from uv.lock. Idempotent — a no-op when already synced.
 uv sync --extra dev --extra ml
 
+# Git pre-commit hooks (ruff, ruff-format, detect-secrets, ty) on every commit.
+uv run pre-commit install >/dev/null
+
 # Frontend: npm ci, not install. `npm install` rewrites package-lock.json
 # (npm-version metadata churn), which would dirty the tree every session.
 # ~6 s for this small dependency set.
