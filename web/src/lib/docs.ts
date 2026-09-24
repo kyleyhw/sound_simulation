@@ -8,7 +8,7 @@ const TEXTS = import.meta.glob(['../../../docs/**/*.md', '../../../tests/reports
   import: 'default',
 }) as Record<string, () => Promise<string>>;
 
-const ASSETS = import.meta.glob(['../../../docs/**/*.{png,gif,jpg,svg}', '../../../tests/reports/**/*.{png,gif,jpg,svg}'], {
+const ASSETS = import.meta.glob(['../../../docs/**/*.{png,gif,jpg,svg}', '../../../tests/reports/**/*.{png,gif,jpg,svg}', '../../../data/plots/*.{png,gif,jpg}'], {
   query: '?url',
   import: 'default',
   eager: true,
