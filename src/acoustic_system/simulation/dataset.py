@@ -36,6 +36,7 @@ def generate_random_obstacles(
     max_size: int = 30,
     margin: int = 2,
     rng: Optional[np.random.Generator] = None,
+    protocol: str = "v3",
 ) -> np.ndarray:
     """Sample a boolean obstacle mask consisting of axis-aligned rectangles.
 
@@ -65,18 +66,24 @@ def generate_random_obstacles(
     n_obstacles
         How many rectangles to draw. ``0`` returns an empty mask.
     min_size, max_size
-        Inclusive lower / exclusive upper bounds (numpy convention) on
-        rectangle side length, in cells.
+        Inclusive bounds on rectangle side length, in cells.
     margin
         Minimum free border between any obstacle and the outer wall.
     rng
         A ``numpy.random.Generator`` for reproducibility. If ``None``,
         a fresh generator is used and results are non-deterministic.
+    protocol
+        ``"v3"`` (default): the corner draw's upper bound is inclusive, so
+        the bottom/right margin equals ``margin`` exactly. ``"v2"``: the
+        original draw (effective bottom/right margin ``margin + 1``),
+        kept so the v1/v2 archives regenerate byte-identically.
 
     Returns
     -------
     A boolean ``np.ndarray`` of shape ``grid_shape``.
     """
+    _check_protocol(protocol)
+    edge = 0 if protocol == "v2" else 1
     if rng is None:
         rng = np.random.default_rng()
     mask = np.zeros(grid_shape, dtype=bool)
@@ -90,10 +97,15 @@ def generate_random_obstacles(
         w = min(w, nj - 2 * margin - 1)
         if h <= 0 or w <= 0:
             continue
-        i0 = int(rng.integers(margin, ni - h - margin))
-        j0 = int(rng.integers(margin, nj - w - margin))
+        i0 = int(rng.integers(margin, ni - h - margin + edge))
+        j0 = int(rng.integers(margin, nj - w - margin + edge))
         mask[i0 : i0 + h, j0 : j0 + w] = True
     return mask
+
+
+def _check_protocol(protocol: str) -> None:
+    if protocol not in ("v2", "v3"):
+        raise ValueError(f"protocol must be 'v2' or 'v3', got {protocol!r}")
 
 
 def generate_diverse_obstacles(
@@ -103,6 +115,7 @@ def generate_diverse_obstacles(
     max_size: int = 14,
     margin: int = 2,
     rng: Optional[np.random.Generator] = None,
+    protocol: str = "v3",
 ) -> np.ndarray:
     """Sample a boolean obstacle mask from a mixture of shape families.
 
@@ -137,15 +150,23 @@ def generate_diverse_obstacles(
     assume the v1 prior of 0.058.
 
     Returns a boolean ``np.ndarray`` of shape ``grid_shape``. 2D only
-    (matching the sensing pipeline); non-2D shapes return an empty mask
+    (matching the sensing pipeline); non-2D shapes, and grids too small to
+    hold a ``min_size`` obstacle inside the margin, return an empty mask
     like the rectangle generator does.
+
+    ``protocol="v3"`` (default) stamps thin walls with exactly the drawn
+    thickness (``"v2"`` stamped thickness 2 as 3 cells, so realised
+    thicknesses were {1, 3, 3}); ``"v2"`` reproduces the v2 archives.
     """
+    _check_protocol(protocol)
     if rng is None:
         rng = np.random.default_rng()
     mask = np.zeros(grid_shape, dtype=bool)
     if len(grid_shape) != 2:
         return mask
     ni, nj = grid_shape
+    if min(ni, nj) - 2 * margin <= max(min_size, 1):
+        return mask
     lo, hi = int(n_obstacles_range[0]), int(n_obstacles_range[1])
     n_obstacles = int(rng.integers(lo, hi + 1))
 
@@ -193,9 +214,12 @@ def generate_diverse_obstacles(
                 int(rng.integers(margin, nj - margin)),
             )
             half = thickness // 2
+            # v3: a brush spanning exactly `thickness` cells
+            # [i - half, i - half + thickness - 1]; v2 spanned 2*half + 1.
+            span = thickness - 1 if protocol == "v3" else 2 * half
             for _step in range(length):
-                i0, i1 = clip_i(i - half), clip_i(i + half)
-                j0, j1 = clip_j(j - half), clip_j(j + half)
+                i0, i1 = clip_i(i - half), clip_i(i - half + span)
+                j0, j1 = clip_j(j - half), clip_j(j - half + span)
                 mask[i0 : i1 + 1, j0 : j1 + 1] = True
                 i, j = i + di, j + dj
                 if not (margin <= i < ni - margin and margin <= j < nj - margin):
@@ -221,6 +245,7 @@ def pick_mic_positions(
     rng: Optional[np.random.Generator] = None,
     margin: int = 2,
     max_attempts: int = 200,
+    exclude: Optional[Sequence[Tuple[int, ...]]] = None,
 ) -> list[tuple[int, ...]]:
     """Pick ``n_mics`` interior cells representing a microphone array.
 
@@ -238,8 +263,10 @@ def pick_mic_positions(
       the user is holding the device.
 
     Rejection sampling: redraw centre + orientation if any mic falls
-    outside the interior margin or coincides with an obstacle. Raises
-    ``RuntimeError`` after ``max_attempts``.
+    outside the interior margin, coincides with an obstacle, or lands on
+    a cell in ``exclude`` (pass the source cell so a mic never records
+    the injected drive directly). Raises ``RuntimeError`` after
+    ``max_attempts``. ``exclude=None`` keeps the original RNG stream.
 
     Higher mic counts (3-mic webcam setups) are not yet implemented;
     the project's hardware constraint caps at 2-3 channels, so this
@@ -249,8 +276,13 @@ def pick_mic_positions(
         rng = np.random.default_rng()
     if n_mics < 1:
         raise ValueError("n_mics must be >= 1")
+    banned = {tuple(int(c) for c in e) for e in (exclude or [])}
     if n_mics == 1:
-        return [random_free_position(grid_shape, obstacle_mask, rng, margin)]
+        for _ in range(max_attempts):
+            pos = random_free_position(grid_shape, obstacle_mask, rng, margin)
+            if pos not in banned:
+                return [pos]
+        raise RuntimeError("could not place the mic away from the excluded cells")
     if n_mics != 2:
         raise NotImplementedError(f"n_mics={n_mics} not yet supported; only 1 and 2 implemented")
 
@@ -279,7 +311,7 @@ def pick_mic_positions(
             if not all(margin <= c < s - margin for c, s in zip(tpos, grid_shape)):
                 ok = False
                 break
-            if obstacle_mask[tpos]:
+            if obstacle_mask[tpos] or tpos in banned:
                 ok = False
                 break
             positions.append(tpos)
@@ -307,16 +339,16 @@ def random_free_position(
     """
     if rng is None:
         rng = np.random.default_rng()
-    ni, nj = grid_shape
+    # N-D: one draw per axis in axis order (identical stream to the original
+    # 2D (i, j) draw order, so existing archives regenerate unchanged).
     for _ in range(max_attempts):
-        i = int(rng.integers(margin, ni - margin))
-        j = int(rng.integers(margin, nj - margin))
-        if not obstacle_mask[i, j]:
-            return (i, j)
+        pos = tuple(int(rng.integers(margin, n - margin)) for n in grid_shape)
+        if not obstacle_mask[pos]:
+            return pos
     # Exhaustive fallback. Build the list of free interior cells and
     # pick uniformly. ``np.argwhere`` keeps this allocation bounded.
     interior = np.zeros(grid_shape, dtype=bool)
-    interior[margin : ni - margin, margin : nj - margin] = True
+    interior[tuple(slice(margin, n - margin) for n in grid_shape)] = True
     free = np.argwhere(interior & ~obstacle_mask)
     if free.size == 0:
         raise RuntimeError("no free interior cells: obstacle_mask fills the entire interior")
@@ -349,14 +381,20 @@ def run_with_sensors(
     16 kHz observations: record_step = round(1 / (16000 * dt_sim))).
     Set to 1 to record every step (the default).
 
-    The sensors' positions must be in-bounds tuples matching ``sim.dims``;
-    the runner does not validate this (a bad index will raise from numpy).
+    Sensor positions must be in-bounds tuples matching ``sim.dims``;
+    anything else raises ``ValueError`` up front (a negative index would
+    otherwise silently wrap to the opposite wall).
     """
+    if record_step < 1:
+        raise ValueError(f"record_step must be >= 1, got {record_step}")
+    positions = [tuple(int(c) for c in s.position) for s in sensors]
+    for pos in positions:
+        if len(pos) != sim.dims or not all(0 <= c < n for c, n in zip(pos, sim.grid_shape)):
+            raise ValueError(f"sensor position {pos} is outside grid {sim.grid_shape}")
     if duration <= 0:
         return np.zeros((0, len(sensors)), dtype=np.float32)
     n_recorded = (duration + record_step - 1) // record_step
     out = np.zeros((n_recorded, len(sensors)), dtype=np.float32)
-    positions = [tuple(int(c) for c in s.position) for s in sensors]
     write_idx = 0
     for step_idx in range(duration):
         sim.step()

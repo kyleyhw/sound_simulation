@@ -22,10 +22,19 @@ class Simulate:
         C = c \\Delta t / \\Delta x \\le 1 / \\sqrt{d}
     where d is the spatial dimensionality. A warning is raised when violated.
 
-    The 2D path uses a numba ``@njit`` fused stencil kernel
-    (``fused_leapfrog_step_2d``); 1D and 3D paths fall back to the legacy
-    ``scipy.ndimage.laplace`` based code so the public API behaves identically
-    for all supported dimensionalities.
+    2D and 3D use numba ``@njit`` fused stencil kernels
+    (``fused_leapfrog_step_2d`` / ``fused_leapfrog_step_3d``); other
+    dimensionalities (1D, N-D) fall back to the legacy
+    ``scipy.ndimage.laplace`` based code so the public API behaves
+    identically for all supported dimensionalities.
+
+    Source convention: a driver's value evaluated at time $t_n$ is *added*
+    to $p^{n+1}$ (soft source), after the wall and obstacle zeroing.
+
+    ``drivers`` is a read-only tuple; mutate it only through
+    ``add_driver`` / ``remove_driver`` / ``set_drivers`` (or assign a new
+    sequence to ``sim.drivers``) so the single-driver fast-path cache can
+    never go stale. ``Driver`` is frozen for the same reason.
 
     Backends (Task 1.5)
     -------------------
@@ -91,10 +100,20 @@ class Simulate:
         courant: float = 0.5,
         backend: str = "cpu",
     ) -> None:
-        self.grid_shape: Tuple[int, ...] = tuple(grid_shape)
+        self.grid_shape: Tuple[int, ...] = tuple(int(n) for n in grid_shape)
         self.wavespeed: float = float(wavespeed)
         self.gridstep: float = float(gridstep)
         self.dims: int = len(self.grid_shape)
+        if self.dims == 0:
+            raise ValueError("grid_shape must have at least one axis")
+        if not (self.wavespeed > 0 and np.isfinite(self.wavespeed)):
+            raise ValueError(f"wavespeed must be positive and finite, got {wavespeed!r}")
+        if not (self.gridstep > 0 and np.isfinite(self.gridstep)):
+            raise ValueError(f"gridstep must be positive and finite, got {gridstep!r}")
+        if timestep is None and not (courant > 0):
+            raise ValueError(f"courant must be positive, got {courant!r}")
+        if timestep is not None and not (float(timestep) > 0):
+            raise ValueError(f"timestep must be positive, got {timestep!r}")
 
         # Backend selection (Task 1.5). "cpu" (default) is the numba fast
         # path / scipy fallback, byte-identical to the pre-GPU engine.
@@ -126,19 +145,29 @@ class Simulate:
         # The CFL limit in d dimensions is C_max = 1/sqrt(d); we stay strictly under it.
         cfl_limit = 1.0 / np.sqrt(self.dims)
         if timestep is None:
-            chosen_courant = min(courant, 0.95 * cfl_limit)
-            self.timestep = chosen_courant * self.gridstep / self.wavespeed
+            chosen_courant = min(float(courant), 0.95 * float(cfl_limit))
+            # Plain Python float: a numpy float64 here would silently promote
+            # the float32 field buffers on the non-fused (1D / N-D) path.
+            self.timestep = float(chosen_courant * self.gridstep / self.wavespeed)
         else:
             self.timestep = float(timestep)
             actual_courant = self.wavespeed * self.timestep / self.gridstep
-            if actual_courant >= cfl_limit:
+            # sigma <= 1/sqrt(d) is stable (the bound itself is marginally
+            # stable), so warn strictly above it, with a float tolerance.
+            if actual_courant > cfl_limit * (1.0 + 1e-9):
                 warnings.warn(
-                    f"CFL violated: Courant={actual_courant:.3f} >= 1/sqrt({self.dims})={cfl_limit:.3f}. "
+                    f"CFL violated: Courant={actual_courant:.3f} > 1/sqrt({self.dims})={cfl_limit:.3f}. "
                     f"Simulation will be unstable.",
                     RuntimeWarning,
                 )
 
-        self.drivers: List[Driver] = list(drivers) if drivers is not None else []
+        self._drivers: List[Driver] = []
+        for d in drivers or []:
+            self._validate_driver(d)
+            self._drivers.append(d)
+        # Sensors are a caller-owned container (e.g. main.py records into
+        # them); step() does not sample them. Use dataset.run_with_sensors
+        # for streaming sensor recording.
         self.sensors: List[Sensor] = list(sensors) if sensors is not None else []
 
         self.time: float = 0.0
@@ -217,6 +246,32 @@ class Simulate:
 
     # ----- Driver mutation ---------------------------------------------- #
 
+    @property
+    def drivers(self) -> Tuple[Driver, ...]:
+        """Read-only view of the drivers. Mutate via add/remove/set_drivers."""
+        return tuple(self._drivers)
+
+    @drivers.setter
+    def drivers(self, drivers: Sequence[Driver]) -> None:
+        self.set_drivers(drivers)
+
+    def _validate_driver(self, driver: Driver) -> None:
+        if len(driver.position) != self.dims:
+            raise ValueError(
+                f"driver position {driver.position} has {len(driver.position)} "
+                f"coordinates but the grid is {self.dims}D"
+            )
+        aliased = getattr(driver.waveform, "aliased_energy_fraction", None)
+        if callable(aliased):
+            frac = float(aliased(self.timestep))
+            if frac > 0.01:
+                warnings.warn(
+                    f"{frac:.0%} of the driver waveform's energy lies above the "
+                    f"simulation Nyquist 1/(2 dt) = {0.5 / self.timestep:.4g} and will "
+                    f"alias. Use waveform.resampled_for(sim.timestep).",
+                    RuntimeWarning,
+                )
+
     def _refresh_driver_cache(self) -> None:
         """Recompute the single-driver fast-path cache.
 
@@ -225,25 +280,29 @@ class Simulate:
         """
         self._fast_driver = None
         self._fast_driver_pos = None
-        if len(self.drivers) == 1:
-            d0 = self.drivers[0]
+        if len(self._drivers) == 1:
+            d0 = self._drivers[0]
             if all(0 <= pos < size for pos, size in zip(d0.position, self.grid_shape)):
                 self._fast_driver = d0
                 self._fast_driver_pos = tuple(d0.position)
 
     def add_driver(self, driver: Driver) -> None:
         """Append a driver and refresh the fast-path cache."""
-        self.drivers.append(driver)
+        self._validate_driver(driver)
+        self._drivers.append(driver)
         self._refresh_driver_cache()
 
     def remove_driver(self, index: int) -> None:
         """Remove the driver at ``index`` (raises IndexError if invalid)."""
-        del self.drivers[index]
+        del self._drivers[index]
         self._refresh_driver_cache()
 
     def set_drivers(self, drivers: Sequence[Driver]) -> None:
         """Replace the entire driver list."""
-        self.drivers = list(drivers)
+        new = list(drivers)
+        for d in new:
+            self._validate_driver(d)
+        self._drivers = new
         self._refresh_driver_cache()
 
     # ----- Obstacle mutation -------------------------------------------- #
@@ -290,7 +349,10 @@ class Simulate:
         same stale-pressure reason documented on ``set_obstacle``.
         """
         xp = self._xp
-        m = xp.asarray(mask, dtype=bool)
+        # Always copy: asarray would alias a caller's bool array, so later
+        # caller edits (or our clear_obstacles) would silently cross over and
+        # desynchronise the cached _has_obstacles flag.
+        m = xp.array(mask, dtype=bool, copy=True)
         if m.shape != self.grid_shape:
             raise ValueError(f"mask shape {m.shape} != grid shape {self.grid_shape}")
         self.obstacle_mask = m
@@ -397,7 +459,7 @@ class Simulate:
             # Generic path: zero or many drivers, or out-of-bounds single
             # driver. Behaviour is bit-identical to the original code.
             grid_shape = self.grid_shape
-            for driver in self.drivers:
+            for driver in self._drivers:
                 value = driver.get_value(time)
                 if all(0 <= pos < size for pos, size in zip(driver.position, grid_shape)):
                     p_next[tuple(driver.position)] += value

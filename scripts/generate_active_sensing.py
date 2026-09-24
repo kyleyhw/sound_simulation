@@ -290,6 +290,18 @@ def main() -> None:
             "of shape (K, T_rec, n_mics) with plural position attrs."
         ),
     )
+    parser.add_argument(
+        "--protocol",
+        choices=["v2", "v3"],
+        default="v3",
+        help=(
+            "Generator protocol. v3 (default): symmetric obstacle margins, exact "
+            "thin-wall thickness, and mics never on the source cell (plan 3.2.6). "
+            "v2: the original draws, to regenerate the published v1/v2 archives "
+            "byte-identically from their seeds. Archives without a 'protocol' "
+            "attr were written by v2."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
     parser.add_argument("--verbose", action="store_true", help="Print per-sample status to stderr.")
     args = parser.parse_args()
@@ -348,6 +360,7 @@ def main() -> None:
         hf.attrs["synth_f_end"] = float(args.synth_f_end)
         hf.attrs["randomize_source"] = bool(args.randomize_source)
         hf.attrs["room_style"] = str(args.room_style)
+        hf.attrs["protocol"] = str(args.protocol)
 
         occupancy_sum = 0.0
         for s in range(int(args.num_samples)):
@@ -357,6 +370,7 @@ def main() -> None:
                     min_size=args.obstacle_min,
                     max_size=args.obstacle_max,
                     rng=rng,
+                    protocol=args.protocol,
                 )
             else:
                 obstacle_mask = generate_random_obstacles(
@@ -365,6 +379,7 @@ def main() -> None:
                     min_size=args.obstacle_min,
                     max_size=args.obstacle_max,
                     rng=rng,
+                    protocol=args.protocol,
                 )
             occupancy_sum += float(obstacle_mask.mean())
             # Per-pose placements. The RNG draw order (driver, then mics,
@@ -388,6 +403,7 @@ def main() -> None:
                         n_mics=args.n_mics,
                         spacing=args.mic_spacing,
                         rng=rng,
+                        exclude=[driver_positions[-1]] if args.protocol == "v3" else None,
                     )
                 )
             # One source per room, shared by all poses: the physical story

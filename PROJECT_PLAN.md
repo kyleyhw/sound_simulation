@@ -80,21 +80,21 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[completed]` 3.1.4: Set up GitHub Actions CI: ruff, ty, pytest,
         the CPU kernel checks, and the frontend typecheck and build.
 *   `[pending]` **Task 3.2: Simulation engine (`simulation/`)**
-    *   `[pending]` 3.2.1: `simulate.py`: step ordering, buffer
+    *   `[completed]` 3.2.1: `simulate.py`: step ordering, buffer
         rotation, `reset()`, the driver cache, obstacle masking, and
         the CFL logic.
-    *   `[pending]` 3.2.2: `calculate.py`: kernel indexing, edge
+    *   `[completed]` 3.2.2: `calculate.py`: kernel indexing, edge
         handling, and the thread-cap logic.
-    *   `[pending]` 3.2.3: `calculate_gpu.py`: agreement with the CPU
+    *   `[in-progress]` 3.2.3: `calculate_gpu.py`: agreement with the CPU
         kernels in 2D and 3D, including obstacles.
-    *   `[pending]` 3.2.4: The 1D fallback path: test it or remove it.
-    *   `[pending]` 3.2.5: `waveforms.py` and `setup.py`: sampling
+    *   `[completed]` 3.2.4: The 1D fallback path: test it or remove it.
+    *   `[completed]` 3.2.5: `waveforms.py` and `setup.py`: sampling
         limits and `AudioFileWaveform` edge cases (start, end,
         resampling).
-    *   `[pending]` 3.2.6: `dataset.py`: obstacle generators, mic and
+    *   `[completed]` 3.2.6: `dataset.py`: obstacle generators, mic and
         source placement (never inside obstacles), and seed
         reproducibility.
-    *   `[pending]` 3.2.7: Legacy modules (`data_io`, `visualize`,
+    *   `[completed]` 3.2.7: Legacy modules (`data_io`, `visualize`,
         `reconstruct`, `interactive_setup`, `boundary`, `generate`,
         `utils`): fix, or delete if dead.
     *   `[completed]` 3.2.8: Correct the boundary wording everywhere: p = 0

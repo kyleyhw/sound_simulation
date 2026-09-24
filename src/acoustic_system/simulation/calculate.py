@@ -3,11 +3,11 @@
 Two code paths are exposed:
 
 1. ``Calculate.laplacian_operator`` -- the legacy ``scipy.ndimage.laplace``
-   based path, used as a fallback for 1D and 3D simulations and kept on the
-   public surface for any external users that imported it.
-2. ``fused_leapfrog_step_2d`` -- a numba ``@njit`` kernel that performs the
-   2D five-point Laplacian, the leap-frog combine, and the Dirichlet
-   hard-wall edge zeroing in a single fused pass over the interior.
+   based path, used as the fallback for 1D and N-D (d >= 4) simulations and
+   kept on the public surface for any external users that imported it.
+2. ``fused_leapfrog_step_2d`` / ``fused_leapfrog_step_3d`` -- numba ``@njit``
+   kernels that perform the five-/seven-point Laplacian, the leap-frog
+   combine, and the Dirichlet (p = 0) edge zeroing in a single fused pass.
    Numerically equivalent to the legacy path within the 1e-5 / 1e-4
    correctness tolerance.
 
@@ -75,7 +75,9 @@ from numba import njit, prange
 #
 # The user can override at runtime with ``numba.set_num_threads(n)``
 # after importing this module — set_num_threads only adjusts the
-# active count, not the maximum.
+# active count, not the maximum. Note the count is *per calling thread*:
+# a Simulate stepped from a worker thread (e.g. asyncio.to_thread) runs
+# with numba's default unless that thread calls set_num_threads itself.
 _cpu = int(os.cpu_count() or 1)
 _FDTD_THREAD_CAP = max(min(_cpu - 3, 13), 4) if _cpu >= 8 else _cpu
 try:
@@ -93,8 +95,8 @@ class Calculate:
 
     The FDTD step previously computed the Laplacian via
     ``scipy.ndimage.laplace`` and combined it with the leap-frog update in
-    Python. The 2D hot path now uses :func:`fused_leapfrog_step_2d`; this
-    class is retained for non-2D fallbacks and any external callers.
+    Python. The 2D and 3D hot paths now use the fused kernels; this class
+    is retained for the 1D / N-D fallback and any external callers.
     """
 
     def __init__(self, dims: int = 3) -> None:

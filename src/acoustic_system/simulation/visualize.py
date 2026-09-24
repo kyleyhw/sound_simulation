@@ -1,18 +1,15 @@
-import matplotlib
-import numpy as np
-from tqdm import tqdm
-
-matplotlib.use("TkAgg")
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import FuncAnimation
+from tqdm import tqdm
 
 # from mayavi import mlab
 # from tvtk.util.ctf import ColorTransferFunction, PiecewiseFunction
 
+# Saved figures go to ./plots, created on first save (not at import).
 directory_path = "plots"
-os.makedirs(directory_path, exist_ok=True)
 
 
 class Visualize:
@@ -59,6 +56,7 @@ class Visualize:
             plt.show()
         if save:
             # 1. Create a tqdm progress bar instance
+            os.makedirs(directory_path, exist_ok=True)
             with tqdm(total=self.number_of_frames, desc="saving") as pbar:
                 # 2. Define the callback function that updates the bar
                 def progress_update(current_frame, total_frames):
@@ -136,6 +134,7 @@ class Visualize:
         self.set_params_as_title(fig=fig, plot_type="timeseries")
 
         if save:
+            os.makedirs(directory_path, exist_ok=True)
             plt.savefig(f"./{directory_path}/sensor_timeseries.png")
         if show:
             plt.show()
@@ -160,10 +159,7 @@ class Visualize:
         self.set_params_as_title(fig=fig, plot_type="fft of timeseries")
 
         if save:
+            os.makedirs(directory_path, exist_ok=True)
             plt.savefig(f"./{directory_path}/sensor_fft.png")
         if show:
             plt.show()
-
-
-if __name__ == "__main__":
-    print("hello visualize")

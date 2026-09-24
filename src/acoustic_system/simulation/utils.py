@@ -40,23 +40,6 @@ def get_edge_indices(arr: np.ndarray) -> np.ndarray:
     return indices
 
 
-def get_edge_values(arr: np.ndarray) -> np.ndarray:
-    """
-    Gets the values of elements on the edges of a NumPy ndarray.
-
-    Args:
-        arr: An input NumPy ndarray.
-
-    Returns:
-        A 1D NumPy array containing the values of the edge elements.
-    """
-    # Get the indices of the edge elements.
-    indices = get_edge_indices(arr)
-    # NumPy's advanced indexing requires indices to be a tuple of arrays.
-    # We transpose the (N, D) array of indices to a (D, N) tuple of arrays.
-    return arr[tuple(indices.T)]
-
-
 def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     """
     Sets the values of elements on the edges of a NumPy ndarray in-place.
@@ -74,61 +57,3 @@ def set_edge_values(arr: np.ndarray, value) -> np.ndarray:
     # Use the indices to set the value for all edge elements.
     arr[tuple(indices.T)] = value
     return arr
-
-
-class LocationGenerator:
-    """
-    Generates random coordinates for a grid of a fixed size.
-    """
-
-    def __init__(self, gridsize: tuple):
-        """
-        Initializes the generator for a specific grid size.
-
-        Args:
-            gridsize (tuple): The dimensions of the grid.
-        """
-        self.gridsize = gridsize
-        self.dims = len(gridsize)
-        self.low = (1,) * self.dims
-        self.high = tuple(dim - 1 for dim in self.gridsize)
-
-    def get_new_location(self) -> tuple:
-        """
-        Generates a new random location within the grid.
-
-        Returns:
-            tuple: A random N-dimensional coordinate.
-        """
-        location = np.random.randint(low=self.low, high=self.high, size=self.dims, dtype=int)
-        return tuple(location)
-
-
-if __name__ == "__main__":
-    print("--- Array Demonstration ---")
-    test_array = np.array([[10, 11, 12, 13], [14, 15, 16, 17], [18, 19, 20, 21]])
-
-    print("Original Array:")
-    print(test_array)
-    print(f"\nShape: {test_array.shape}\n")
-
-    # --- Using get_edge_indices ---
-    edge_indices = get_edge_indices(test_array)
-    print("Edge Indices:")
-    print(edge_indices)
-
-    # --- Using get_edge_values ---
-    print("\n" + "=" * 40 + "\n")
-    edge_values = get_edge_values(test_array)
-    print("Edge Values:")
-    print(edge_values)
-
-    # --- Using set_edge_values ---
-    print("\n" + "=" * 40 + "\n")
-    print("Setting edge values to 99...")
-    # Create a copy to avoid modifying the original array used in other examples
-    modified_array = test_array.copy()
-    set_edge_values(modified_array, 99)
-
-    print("\nArray after setting edge values:")
-    print(modified_array)

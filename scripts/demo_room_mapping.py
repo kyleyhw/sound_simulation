@@ -107,6 +107,7 @@ def main() -> None:
             min_size=args.obstacle_min,
             max_size=args.obstacle_max,
             rng=np.random.default_rng(room_seed),
+            protocol="v2",  # the demo seed was swept under the v2 generator
         )
     else:
         room = generate_random_obstacles(
@@ -115,6 +116,7 @@ def main() -> None:
             min_size=args.obstacle_min,
             max_size=args.obstacle_max,
             rng=np.random.default_rng(room_seed),
+            protocol="v2",  # the demo seed was swept under the v2 generator
         )
     print(
         f"[demo] room seed={room_seed}: {int(room.sum())} obstacle cells "

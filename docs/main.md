@@ -1,35 +1,42 @@
-# Documentation for `main.py`
+# `main.py` — standalone batch simulation
 
-## 1. Purpose
+## Purpose
 
-`main.py` serves as the primary entry point for running a simulation with a predefined configuration. It is a script designed to be executed directly (`if __name__ == '__main__':`).
+`src/acoustic_system/simulation/main.py` is a small end-to-end example:
+it builds a 2D `Simulate`, adds two sources and three sensors, runs a
+fixed number of steps, and plots the sensor timeseries, their spectra,
+and an animation of the field.
 
-Its main role is to demonstrate how to instantiate the `Simulate` class, add drivers and sensors, run the simulation, and generate visualizations from the results.
+```bash
+cd src
+uv run python -m acoustic_system.simulation.main            # interactive windows
+uv run python -m acoustic_system.simulation.main --save     # headless: ./plots/*.png
+uv run python -m acoustic_system.simulation.main --grid 128 --steps 300
+```
 
-## 2. Implementation Details
+## Walkthrough
 
-This script is not designed for general-purpose use but rather as a specific example. Here is a breakdown of its workflow:
+1. `Simulate(grid_shape=(n, n), courant=0.5)`. The timestep comes from
+   the Courant number: $\Delta t = 0.5\,\Delta x / c$.
+2. Two drivers are added through `add_driver` (the `drivers` attribute is
+   read-only; see `simulate.md`):
+   - a Ricker pulse, dominant frequency $f = 0.05$, i.e. a 20-cell
+     wavelength
+   - a continuous tone at $f = 0.03$
+3. Three `Sensor`s are placed on the diagonal. The script records the
+   full field history and then slices each sensor's timeseries out of
+   it.
+4. `Visualize` draws the sensor timeseries and FFT, then the 2D
+   animation. `--save` selects matplotlib's non-interactive `Agg`
+   backend and writes PNGs instead.
 
-1.  **Configuration**: It starts by setting hard-coded parameters for the simulation:
-    -   `dims`: The number of spatial dimensions (2 or 3).
-    -   `gridsize`: The size of the grid, determined by `dims`.
-    -   `duration`, `timestep`, `wavespeed`: Core physical and simulation parameters.
+## Why these source parameters
 
-2.  **Initialization**: It creates an instance of the `Simulate` class with the specified parameters.
+Both sources stay well inside the grid's limits. The tone has
+$f\,\Delta t = 0.015$ cycles per step, far below Nyquist (0.5) and the
+10-samples-per-period guideline (0.1). Its wavelength of 33 cells is
+far above the ~10-cell minimum for low numerical dispersion.
 
-3.  **Adding Components**:
-    -   It creates and adds two `Driver` objects with different `Cosine` waveforms, frequencies, and amplitudes at fixed locations.
-    -   It creates and adds three `Sensor` objects at different locations.
-
-4.  **Stability Check**: It calls `simulation.check_stability()` to verify that the chosen parameters satisfy the CFL condition, issuing a warning if they do not.
-
-5.  **Execution**: It calls `simulation.run()` to execute the main FDTD loop and then `simulation.assign_sensors()` to populate the sensor objects with the recorded time-series data.
-
-6.  **Visualization**: Based on the number of dimensions, it calls the appropriate methods from the `Visualize` class:
-    -   For 2D simulations, it plots the time-series data and the Fast Fourier Transform (FFT) for each sensor.
-    -   For 3D simulations, it is configured to generate a 3D animation of the wave field (note: the `plot3D` method using `mayavi` is currently commented out in the source code).
-
-## 3. Design Rationale
-
--   **Example Script**: The primary value of this script is as a clear, working example of how to use the simulation library's components together. It shows the end-to-end process from setup to visualization.
--   **Configuration Hub**: It acts as a central place to set all the parameters for a specific simulation run. For more advanced use, these hard-coded values could be replaced by command-line arguments or a configuration file.
+An earlier version of this script used `Cosine(frequency=5)` at
+$\Delta t = 0.1$. That gives exactly 0.5 cycles per step: a $\pm 1$
+alternating checkerboard rather than a wave (see `waveforms.md`).

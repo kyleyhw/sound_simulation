@@ -63,15 +63,17 @@ def per_room_iou(pred: np.ndarray, truth: np.ndarray) -> np.ndarray:
 
 
 def sample_masks(style: str, n: int, grid: int, seed: int) -> np.ndarray:
-    """Draw masks with the dataset generators' documented v1/v2 settings."""
+    """Draw masks with the documented v1/v2 settings (protocol v2, as archived)."""
     rng = np.random.default_rng(seed)
     if style == "mixed":
         # v2 archives: --room-style mixed, sizes 4-14 (7.0 % mean occupancy)
-        masks = [generate_diverse_obstacles((grid, grid), rng=rng) for _ in range(n)]
+        masks = [generate_diverse_obstacles((grid, grid), rng=rng, protocol="v2") for _ in range(n)]
     else:
         # v1 archives: --n-obstacles 3 --obstacle-min 4 --obstacle-max 14
         masks = [
-            generate_random_obstacles((grid, grid), n_obstacles=3, min_size=4, max_size=14, rng=rng)
+            generate_random_obstacles(
+                (grid, grid), n_obstacles=3, min_size=4, max_size=14, rng=rng, protocol="v2"
+            )
             for _ in range(n)
         ]
     return np.stack(masks).astype(bool)

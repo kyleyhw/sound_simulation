@@ -1,23 +1,32 @@
-# Documentation for `setup.py`
+# `setup.py` — `Driver` and `Sensor`
 
-## 1. Purpose
+## `Driver` (frozen dataclass)
 
-`setup.py` is responsible for defining and generating the core components of the simulation environment other than the grid itself: **Drivers** (sound sources) and **Sensors** (virtual microphones).
+A point source: a grid `position` and a callable `waveform`
+$p_\mathrm{src}(t)$. `get_value(t)` returns `float(waveform(t))`.
 
-It uses dataclasses for simple and clear data structures and provides generator classes to create randomized instances of these components, which is particularly useful for generating varied datasets for machine learning.
+- **Frozen.** `Simulate` caches the single-driver fast path, i.e. the
+  index of the only driver. If a driver's position could be changed in
+  place, that cache would silently go stale and the source would keep
+  emitting at the old cell. To move a source, build a new `Driver` and
+  call `Simulate.set_drivers` or `add_driver`.
+- **Normalised position.** `__post_init__` converts the position to a
+  tuple of Python `int`s, rounding float coordinates. A float index would
+  otherwise fail inside NumPy on the first step.
+- **Injection.** The value evaluated at $t_n$ is *added* to $p^{n+1}$
+  after wall and obstacle zeroing (a soft source). See `simulate.md`.
 
-## 2. Implementation Details
+## `Sensor` (dataclass)
 
-### Data Structures
+A recording point with `position`, and `timeseries` / `sample_rate`
+fields that the caller fills. `dataset.run_with_sensors` records
+sensors in streaming fashion and fills both fields. `Simulate.step()`
+does not sample sensors itself.
 
--   **`@dataclass class Driver`**: A simple container to associate a physical `location` on the grid with a specific `waveform` object. The `get_value(self, time)` method retrieves the waveform's amplitude at a given time.
+## Removed
 
--   **`@dataclass class Sensor`**: A container that holds the `location` of a sensor. The `timeseries` and `sample_rate` fields are populated *after* the simulation has run by the `assign_sensors` method in the `Simulate` class.
-
-### Generator Classes
-
--   **`class GenerateSensor`**: A factory for creating `Sensor` objects.
-    -   **Rationale**: Encapsulating the sensor generation logic in a class makes it easy to create sensors with consistent properties tied to a specific grid size. The `get_random_basic` method uses the `LocationGenerator` from `utils.py` to place sensors at random, non-edge locations, ensuring they capture meaningful data from within the simulation domain.
-
--   **`class GenerateDriver`**: A factory for creating `Driver` objects.
-    -   **Rationale**: Similar to the sensor generator, this class simplifies the creation of drivers. The `get_random_cosine` method demonstrates how to create a driver with a specific waveform (`Cosine`) and randomized parameters (frequency, amplitude). This allows for the programmatic creation of diverse simulation scenarios.
+The random factories `GenerateDriver` and `GenerateSensor`, together
+with `utils.LocationGenerator`, were used only by the deleted legacy
+`generate.py`. `LocationGenerator` drew from the unseeded global
+`np.random`. Seeded placement lives in `dataset.random_free_position`
+and `dataset.pick_mic_positions`.

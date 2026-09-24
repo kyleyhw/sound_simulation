@@ -1,66 +1,75 @@
+"""Standalone batch simulation: two sources, three sensors, three figures.
+
+Run from ``src/`` with ``python -m acoustic_system.simulation.main``.
+Pass ``--save`` to write the figures to ./plots instead of opening
+windows (headless machines have no interactive matplotlib backend).
+
+Source choice. Both sources are sampled well inside the FDTD limits: the
+Ricker pulse has its dominant frequency at f = 0.05 (wavelength 20 cells)
+and the tone at f = 0.03 gives f * dt = 0.015 samples per step, far below
+the Nyquist bound 0.5 and the 10-samples-per-period rule of thumb. (An
+earlier version drove Cosine(frequency=5) at dt = 0.1, i.e. f * dt = 0.5
+exactly: an alternating +-1 checkerboard, not a wave.)
+"""
+
+from __future__ import annotations
+
+import argparse
+
 import numpy as np
 
 from .setup import Driver, Sensor
 from .simulate import Simulate
-from .visualize import Visualize
-from .waveforms import Cosine
+from .waveforms import Cosine, RickerWavelet
 
 
-def main():
-    """
-    A standalone script for running and visualizing a simulation.
-    This is not used by the web UI but serves as a useful testbed.
-    """
-    dims = 2
-    grid_shape = (256, 256)
-    duration = 500  # Number of steps
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--grid", type=int, default=256)
+    ap.add_argument("--steps", type=int, default=500)
+    ap.add_argument("--save", action="store_true", help="write figures to ./plots (headless)")
+    args = ap.parse_args(argv)
 
-    # Initialize Simulation
-    simulation = Simulate(grid_shape=grid_shape, wavespeed=1.0, timestep=0.1, gridstep=1.0)
+    n = args.grid
+    simulation = Simulate(grid_shape=(n, n), wavespeed=1.0, gridstep=1.0, courant=0.5)
+    simulation.add_driver(
+        Driver(position=(n // 4, n // 4), waveform=RickerWavelet(amplitude=5.0, frequency=0.05))
+    )
+    simulation.add_driver(
+        Driver(position=(3 * n // 4, 3 * n // 4), waveform=Cosine(frequency=0.03, amplitude=0.5))
+    )
+    sensors = [Sensor(position=(n // 4 * (i + 1), n // 4 * (i + 1))) for i in range(3)]
+    simulation.sensors.extend(sensors)
 
-    # Add Drivers
-    waveform1 = Cosine(frequency=2, amplitude=1)
-    driver1 = Driver(position=(grid_shape[0] // 4,) * dims, waveform=waveform1)
-    simulation.drivers.append(driver1)
-
-    waveform2 = Cosine(frequency=5, amplitude=0.5)
-    driver2 = Driver(position=(grid_shape[0] * 3 // 4,) * dims, waveform=waveform2)
-    simulation.drivers.append(driver2)
-
-    # Add Sensors
-    for i in range(3):
-        sensor_pos = (grid_shape[0] // 4 * (i + 1),) * dims
-        simulation.sensors.append(Sensor(position=sensor_pos, timeseries=None, sample_rate=None))
-
-    # --- Run Simulation and Collect History ---
-    history = np.zeros((duration,) + grid_shape, dtype=np.float32)
-    for i in range(duration):
+    history = np.zeros((args.steps, n, n), dtype=np.float32)
+    for i in range(args.steps):
         simulation.step()
         history[i] = simulation.p
-        # Simple progress indicator
-        if (i % 100) == 0:
-            print(f"Step {i}/{duration}")
-
+        if i % 100 == 0:
+            print(f"Step {i}/{args.steps}")
     print("Simulation finished.")
 
-    # --- Assign Sensor Data ---
-    # Manually extract timeseries for each sensor from the history
-    for sensor in simulation.sensors:
-        timeseries_list = [history[t][sensor.position] for t in range(duration)]
-        sensor.timeseries = np.array(timeseries_list)
-        sensor.sample_rate = 1 / simulation.timestep
+    for sensor in sensors:
+        sensor.timeseries = history[(slice(None),) + tuple(sensor.position)].copy()
+        sensor.sample_rate = 1.0 / simulation.timestep
 
-    # --- Visualize ---
-    if dims == 2:
-        params = {
-            "grid_shape": grid_shape,
-            "wavespeed": simulation.wavespeed,
-            "timestep": simulation.timestep,
-        }
-        visualize = Visualize(history=history, params=params)
-        visualize.plot2D(show=True, save=False)
-        visualize.plot_sensor_timeseries(sensors=simulation.sensors, show=True, save=False)
-        visualize.plot_sensor_fft(sensors=simulation.sensors, show=True, save=False)
+    import matplotlib
+
+    if args.save:
+        matplotlib.use("Agg")
+    from .visualize import Visualize
+
+    params = {
+        "grid_shape": (n, n),
+        "wavespeed": simulation.wavespeed,
+        "timestep": simulation.timestep,
+    }
+    vis = Visualize(history=history, params=params)
+    show = not args.save
+    vis.plot_sensor_timeseries(sensors=sensors, show=show, save=args.save)
+    vis.plot_sensor_fft(sensors=sensors, show=show, save=args.save)
+    if show:
+        vis.plot2D(show=True, save=False)
 
 
 if __name__ == "__main__":

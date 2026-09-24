@@ -165,13 +165,62 @@ class AudioFileWaveform(Waveform):
             return 0.0
         idx_f = t_audio * self._fs_audio
         idx0 = int(idx_f)
-        # idx_f < (N-1) because t_audio < duration; safety clamp anyway.
-        if idx0 >= self._samples.shape[0] - 1:
+        n = self._samples.shape[0]
+        if idx0 >= n:
             return 0.0
         frac = idx_f - idx0
         a = self._samples[idx0]
-        b = self._samples[idx0 + 1]
+        # The final interval [(N-1)/fs, N/fs) interpolates the last sample
+        # down to the implicit zero that follows the clip, so every sample
+        # (including the last) is actually played.
+        b = self._samples[idx0 + 1] if idx0 + 1 < n else np.float32(0.0)
         return float(self.amplitude * ((1.0 - frac) * a + frac * b))
+
+    @property
+    def sample_rate(self) -> float:
+        """Audio samples per unit of simulation time."""
+        return self._fs_audio
+
+    def aliased_energy_fraction(self, timestep: float) -> float:
+        """Fraction of the clip's spectral energy above 1/(2 dt).
+
+        Sampling faster than the simulation is harmless when the content is
+        band-limited (e.g. the synthetic chirps); only energy above the
+        simulation Nyquist actually aliases, so that is what is measured.
+        """
+        if self._samples.size < 2 or self._fs_audio <= 0.0:
+            return 0.0
+        spec = np.abs(np.fft.rfft(self._samples.astype(np.float64))) ** 2
+        freqs = np.fft.rfftfreq(self._samples.size, d=1.0 / self._fs_audio)
+        total = float(spec.sum())
+        if total <= 0.0:
+            return 0.0
+        return float(spec[freqs > 0.5 / float(timestep)].sum() / total)
+
+    def resampled_for(self, timestep: float) -> "AudioFileWaveform":
+        """Return an anti-aliased copy sampled at the simulation rate 1/dt.
+
+        Reading a source at the FDTD step by linear interpolation aliases
+        any content above the simulation Nyquist $1/(2\\Delta t)$ (a 44.1 kHz
+        clip read at a coarse step can collapse to DC). ``resample_poly``
+        applies a windowed-sinc low-pass before decimating, so the returned
+        waveform carries only representable frequencies. Upsampling (audio
+        rate already below 1/dt) returns ``self`` unchanged.
+        """
+        from fractions import Fraction
+
+        from scipy.signal import resample_poly
+
+        target = 1.0 / float(timestep)
+        if self._samples.size == 0 or self._fs_audio <= target:
+            return self
+        ratio = Fraction(target / self._fs_audio).limit_denominator(1000)
+        up, down = max(ratio.numerator, 1), max(ratio.denominator, 1)
+        res = resample_poly(self._samples.astype(np.float64), up, down).astype(np.float32)
+        fs_new = self._fs_audio * up / down
+        return AudioFileWaveform.from_samples(
+            res, sample_rate=fs_new, amplitude=self.amplitude, delay=self.delay
+        )
 
     @classmethod
     def from_samples(
@@ -196,7 +245,10 @@ class AudioFileWaveform(Waveform):
             delay=delay,
             sim_time_per_second=sim_time_per_second,
         )
-        wf._samples = np.ascontiguousarray(samples, dtype=np.float32)
+        arr = np.asarray(samples, dtype=np.float32)
+        if arr.ndim == 2:  # (N, channels) -> mono, as for WAV input
+            arr = arr.mean(axis=1)
+        wf._samples = np.ascontiguousarray(arr.reshape(-1), dtype=np.float32)
         wf._native_fs = float(sample_rate)
         wf._fs_audio = wf._native_fs * float(sim_time_per_second)
         wf._duration = len(wf._samples) / wf._fs_audio if wf._fs_audio > 0 else 0.0

@@ -101,7 +101,7 @@ The leap-frog scheme is stable iff $\sigma \equiv c \Delta t / \Delta x \le 1/\s
 
 ### Thread cap
 
-`simulation/calculate.py` calls `numba.set_num_threads(min(cpu_count - 3, 13))` for the 5-point stencil. This is an empirically tuned sweet spot on a 16-logical-core machine; above ~13 the kernel oversubscribes the memory bus. The cap is set **twice** (before and after kernel registration) because the first `@njit(parallel=True)` decoration lazily initialises numba's threading runtime and the pre-init `set_num_threads` call can be reset. Users can override at runtime with `numba.set_num_threads(n)` after import.
+`simulation/calculate.py` calls `numba.set_num_threads(max(min(cpu_count - 3, 13), 4) if cpu_count >= 8 else cpu_count)` for the fused kernels (the count is per calling thread — a `Simulate` stepped from a worker thread uses numba's default unless that thread sets it). This is an empirically tuned sweet spot on a 16-logical-core machine; above ~13 the kernel oversubscribes the memory bus. The cap is set **twice** (before and after kernel registration) because the first `@njit(parallel=True)` decoration lazily initialises numba's threading runtime and the pre-init `set_num_threads` call can be reset. Users can override at runtime with `numba.set_num_threads(n)` after import.
 
 ### Waveforms
 
@@ -113,7 +113,7 @@ Watch out for sampling errors on `Cosine`: the source must satisfy $f \cdot \Del
 
 ### Boundary conditions
 
-Hard wall (Dirichlet, $p = 0$) only. Absorbing boundaries (PML) are listed under Future Work but not implemented. The wall enforcement lives in the kernel (2D) and in `set_edge_values` (1D/3D); `simulation/boundary.py` is a generic scaffold that is not currently wired in.
+Dirichlet $p = 0$ (pressure-release) only, so far; rigid, absorbing and impedance boundaries are Phase 5 of `PROJECT_PLAN.md`. The wall enforcement lives in the fused 2D/3D kernels and in `set_edge_values` (1D/N-D fallback).
 
 ### Web UI (`app/main.py` + `frontend/`)
 

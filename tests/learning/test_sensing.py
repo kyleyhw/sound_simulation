@@ -52,6 +52,7 @@ def main() -> None:
         min_size=4,
         max_size=14,
         rng=np.random.default_rng(20260712),
+        protocol="v2",
     )
     k = 3
 

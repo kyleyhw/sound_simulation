@@ -65,7 +65,7 @@ Constructor arguments:
 | name        | meaning |
 | ----------- | ------- |
 | `grid_shape` | tuple giving the spatial extent in cells, any dimension |
-| `drivers`    | list of `Driver` objects, each with `position` and a callable `waveform` |
+| `drivers`    | read-only tuple of frozen `Driver` objects (`position`, callable `waveform`); assign a new sequence or use the mutators below |
 | `sensors`    | list of `Sensor` objects (passive, not used inside `step`) |
 | `wavespeed`  | $c$ |
 | `timestep`   | $\Delta t$; if `None`, derived from `courant` and the CFL bound |
@@ -189,7 +189,7 @@ for each driver: p_next[driver.position] += waveform(time)
 Drivers placed on obstacle cells still emit. This is intentional and
 matches the boundary semantics: a `Driver` at a corner cell overwrites
 the wall zero in exactly the same way. If you want to silence drivers
-inside walls, remove them from `simulation.drivers`.
+inside walls, remove them with `simulation.remove_driver(i)`.
 
 ### Hot-loop guard
 
@@ -207,10 +207,33 @@ well inside the `atol=1e-5 / rtol=1e-4` gate.
 | `set_obstacle(positions, value=True)` | mark/clear a batch of cells; out-of-bounds entries are silently dropped; marking also zeros the field at those cells so no stale pressure leaks through one final stencil read |
 | `clear_obstacles()` | reset the mask without touching the field |
 | `add_driver(driver)` | append a `Driver` and refresh the single-driver fast-path cache |
-| `remove_driver(index)` | `del self.drivers[index]` and refresh the cache |
+| `remove_driver(index)` | delete the driver at `index` and refresh the cache |
 | `set_drivers(drivers)` | replace the entire list |
 
 The single-driver fast path (`_fast_driver`, `_fast_driver_pos`) is now
 refreshed on every driver mutation rather than only at construction, so
 live add/remove during a UI session still hits the precomputed tuple-
 index write.
+
+## Audit notes (Phase 3, 2026-09-24)
+
+- The driver list is private (`_drivers`) behind a read-only `drivers`
+  property, and `Driver` is frozen. Previously, `sim.drivers.clear()` or
+  `sim.drivers.append(...)`, or editing `driver.position`, bypassed the
+  single-driver cache. A removed source kept emitting, and a new one was
+  ignored.
+- A driver's position must have `dims` coordinates (`ValueError`
+  otherwise). A 1-tuple on a 2D grid used to broadcast into a whole row.
+- `set_obstacle_mask` copies its argument. It used to alias the caller's
+  array.
+- `timestep` is always a Python `float`. A NumPy float64 promoted the
+  float32 fields on the 1D / N-D path.
+- The constructor rejects non-positive `wavespeed`, `gridstep`,
+  `courant` and `timestep`. The CFL warning is now strict: exactly
+  $\sigma = 1/\sqrt d$ is marginally stable and does not warn.
+- A driver whose `AudioFileWaveform` carries more than 1 % of its energy
+  above $1/(2\Delta t)$ triggers an aliasing warning. Use
+  `waveform.resampled_for(sim.timestep)`, which applies an anti-aliasing
+  filter before decimating.
+
+Regression tests: `tests/simulation/test_engine_audit.py`.
