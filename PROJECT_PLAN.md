@@ -360,11 +360,12 @@ with 2 laptop speakers, in an absorbing room.
 *   `[pending]` **Task 7.6: Differentiable control**
     *   `[pending]` 7.6.1: Optimise speaker signals directly through the
         differentiable simulator.
-*   `[pending]` **Task 7.7: UI**
-    *   `[pending]` 7.7.1: Speaker-array tool.
-    *   `[pending]` 7.7.2: Paint loud and quiet zones.
-    *   `[pending]` 7.7.3: Live contrast readout and before/after
-        loudness maps.
+*   `[completed]` **Task 7.7: UI**
+    *   `[completed]` 7.7.1: Speaker-array tool.
+    *   `[completed]` 7.7.2: Paint loud and quiet zones.
+    *   `[completed]` 7.7.3: Live contrast readout and before/after
+        loudness maps. *(Control tab; `docs/web_app.md` §5a. ACC 44.8 dB
+        measured in the browser engine.)*
 
 ### Phase 8: Closed Loop in Simulation — `[pending]`
 **Objective:** Connect sensing and control in one live loop.

@@ -1,4 +1,4 @@
-import { Brush, Circle, Eraser, Mic, Minus, MousePointer2, Square, Volume2, Waves } from 'lucide-react';
+import { Brush, Circle, Eraser, Mic, Minus, MousePointer2, Square, SquareDashed, Volume2, Waves } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { type Tool, useApp } from '../state/store';
 
@@ -12,6 +12,7 @@ const TOOLS: { id: Tool; label: string; key: string; Icon: ComponentType<{ size?
   { id: 'speed', label: 'Sound-speed brush (lenses, gradients)', key: 'C', Icon: Waves },
   { id: 'driver', label: 'Place source', key: 'S', Icon: Volume2 },
   { id: 'probe', label: 'Place microphone', key: 'M', Icon: Mic },
+  { id: 'zone', label: 'Control zone (loud / quiet)', key: 'Z', Icon: SquareDashed },
 ];
 
 export const TOOL_KEYS: Record<string, Tool> = Object.fromEntries(TOOLS.map((t) => [t.key.toLowerCase(), t.id]));

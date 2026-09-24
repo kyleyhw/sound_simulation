@@ -14,7 +14,10 @@ import type { ScaleMode } from '../render/fieldRenderer';
 import { cloneScene, type EditableScene, fromScene } from './editable';
 import { Runtime } from './runtime';
 
-export type Tool = 'select' | 'brush' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'speed' | 'driver' | 'probe';
+export type Tool = 'select' | 'brush' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'speed' | 'driver' | 'probe' | 'zone';
+export type ZoneKind = 'bright' | 'dark';
+/** Control zone rectangle [r0, c0, r1, c1] in 2D cells. */
+export type ZoneRect = [number, number, number, number];
 export type Overlay = 'pressure' | 'rms' | 'intensity';
 export type Theme = 'dark' | 'light';
 export type InspectorTab = 'scene' | 'sources' | 'probes' | 'view' | 'sensing' | 'control';
@@ -66,6 +69,9 @@ export interface AppState {
   future: EditableScene[];
   toast: { text: string; kind: 'info' | 'error' } | null;
   showHelp: boolean;
+  /** Sound-field control zones (plan 7.7.2): loud (bright) and quiet (dark). */
+  zones: { bright: ZoneRect | null; dark: ZoneRect | null };
+  zoneKind: ZoneKind;
 
   setTool: (t: Tool) => void;
   setBrushSize: (n: number) => void;
@@ -80,6 +86,10 @@ export interface AppState {
   select: (s: AppState['selected']) => void;
   notify: (text: string, kind?: 'info' | 'error') => void;
   setShowHelp: (v: boolean) => void;
+  setZone: (kind: ZoneKind, r: ZoneRect | null) => void;
+  setZoneKind: (k: ZoneKind) => void;
+  /** Replace the drivers with ids starting `prefix` (array tools); undoable. */
+  replaceDrivers: (prefix: string, drivers: DriverSpec[]) => void;
 
   /** Record the current scene on the undo stack (call before an edit). */
   checkpoint: () => void;
@@ -145,6 +155,15 @@ export const useApp = create<AppState>((set, get) => {
     showHelp: false,
 
     setTool: (tool) => set({ tool }),
+    zones: { bright: null, dark: null },
+    zoneKind: 'bright',
+    setZone: (kind, r) => set((st) => ({ zones: { ...st.zones, [kind]: r } })),
+    setZoneKind: (zoneKind) => set({ zoneKind }),
+    replaceDrivers: (prefix, drivers) => {
+      get().checkpoint();
+      const sc = get().scene;
+      commitSources({ ...sc, drivers: [...sc.drivers.filter((d) => !d.id.startsWith(prefix)), ...drivers] });
+    },
     setBrushSize: (brushSize) => set({ brushSize: Math.max(1, Math.min(40, Math.round(brushSize))) }),
     setPaintMaterial: (paintMaterial) => set({ paintMaterial }),
     setPaintSpeed: (paintSpeed) => set({ paintSpeed }),

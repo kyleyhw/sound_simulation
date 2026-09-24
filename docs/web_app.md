@@ -120,6 +120,44 @@ in the current slice plane.
   c(x), with precomputed per-cell coefficients. The physics is
   documented in `docs/physics.md`.
 
+## 5a. Sound-field control panel (plan 7.7)
+
+The **Control** tab is `components/ControlPanel.tsx`, backed by
+`control/soundfield.ts` and `control/complex.ts`. The workflow:
+
+1. **Zones.** The Zone tool (Z) drags a loud (bright) and a quiet (dark)
+   rectangle. They live in the store (`zones`), not in the scene file.
+2. **Array.** Place N speakers on a line (count, spacing, centre,
+   orientation). They are ordinary drivers with ids `arr-*`.
+3. **Measure and design.** The browser engine drives each speaker in turn
+   with cos(ωt). Once the room has settled, it reads the steady-state
+   transfer function H by a DFT over whole periods at up to 40 points per
+   zone. The walls, materials and c(x) all come from the current scene.
+   The panel predicts contrast for four designs, all scaled to the same
+   array effort (‖w‖² = N):
+   - delay-and-sum (free-field alignment);
+   - focus (time reversal, conj H);
+   - pressure matching (regularised least squares);
+   - acoustic contrast control (the principal generalised eigenvector of
+     R_b and R_d + δI).
+4. **Apply.** Each weight w_s = g_s e^{−jωd_s} becomes the driver's `gain`
+   and `delay`, so the drivers play g cos(ω(t − d)).
+5. **Live readout.** The measured bright/dark contrast comes from the
+   time-averaged loudness map (RMS overlay). *Reset averaging* drops the
+   start-up transient.
+
+Verified in `tests/unit/soundfield.test.ts`: an 8-speaker array in a
+90² CPML room at 20 cells per wavelength.
+
+| design | contrast |
+|---|---|
+| delay-and-sum | 19.1 dB predicted |
+| pressure matching | 21.2 dB predicted |
+| ACC | 46.6 dB predicted, **44.8 dB measured** in the time domain |
+
+`tests/e2e/control.spec.ts` runs the same flow through the UI and checks
+that the live measured contrast exceeds 10 dB.
+
 ## 5. Testing (4.5)
 
 | layer | tool | what |

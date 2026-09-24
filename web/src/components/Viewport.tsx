@@ -72,6 +72,8 @@ export function Viewport() {
   const tool = useApp((s) => s.tool);
   const brushSize = useApp((s) => s.brushSize);
   const selected = useApp((s) => s.selected);
+  const zones = useApp((s) => s.zones);
+  const zoneKind = useApp((s) => s.zoneKind);
   const plane = usePlane();
 
   const hostRef = useRef<HTMLDivElement>(null);
@@ -342,6 +344,15 @@ export function Viewport() {
   const onPointerUp = (e: React.PointerEvent) => {
     const drag = dragRef.current;
     dragRef.current = null;
+    if (drag?.kind === 'shape' && drag.start && tool === 'zone') {
+      const end = cellAt(e) ?? preview?.b ?? drag.start;
+      const st = useApp.getState();
+      if (scene.params.dims === 2)
+        st.setZone(st.zoneKind, [Math.min(drag.start[0], end[0]), Math.min(drag.start[1], end[1]), Math.max(drag.start[0], end[0]), Math.max(drag.start[1], end[1])]);
+      st.setInspectorTab('control');
+      setPreview(null);
+      return;
+    }
     if (drag?.kind === 'shape' && drag.start) {
       const end = cellAt(e) ?? preview?.b ?? drag.start;
       const st = useApp.getState();
@@ -414,6 +425,37 @@ export function Viewport() {
               </g>
             );
           })}
+          {scene.params.dims === 2 &&
+            (['bright', 'dark'] as const).map((k) => {
+              const z = zones[k];
+              if (!z) return null;
+              return (
+                <rect
+                  key={k}
+                  data-testid={`zone-${k}`}
+                  x={z[1]}
+                  y={z[0]}
+                  width={z[3] - z[1] + 1}
+                  height={z[2] - z[0] + 1}
+                  fill={k === 'bright' ? 'rgba(255, 196, 0, 0.12)' : 'rgba(80, 160, 255, 0.12)'}
+                  stroke={k === 'bright' ? '#ffc400' : '#50a0ff'}
+                  strokeWidth={Math.max(0.5, plane.cols / 300)}
+                  strokeDasharray="3 2"
+                />
+              );
+            })}
+          {preview && tool === 'zone' && (
+            <rect
+              x={Math.min(preview.a[1], preview.b[1])}
+              y={Math.min(preview.a[0], preview.b[0])}
+              width={Math.abs(preview.b[1] - preview.a[1]) + 1}
+              height={Math.abs(preview.b[0] - preview.a[0]) + 1}
+              fill="none"
+              stroke={zoneKind === 'bright' ? '#ffc400' : '#50a0ff'}
+              strokeWidth={Math.max(0.6, plane.cols / 250)}
+              strokeDasharray="2 1.5"
+            />
+          )}
           {preview && (tool === 'rect' || tool === 'ellipse' || tool === 'line') && (
             <g fill="none" stroke="var(--accent)" strokeWidth={Math.max(0.6, plane.cols / 250)} strokeDasharray="2 1.5">
               {tool === 'line' && <line x1={preview.a[1] + 0.5} y1={preview.a[0] + 0.5} x2={preview.b[1] + 0.5} y2={preview.b[0] + 0.5} />}

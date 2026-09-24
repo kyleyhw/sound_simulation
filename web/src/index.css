@@ -898,3 +898,20 @@ table.data th {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Wrapping rows of natural-width buttons (narrow inspector panels). */
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.btn-row > * {
+  flex: none;
+}
+/* Compact multi-column form fields that reflow with the panel width. */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 0 8px;
+}
