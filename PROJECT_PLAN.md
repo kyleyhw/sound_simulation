@@ -445,7 +445,11 @@ virtual-headphones demo works.
 *   `[in-progress]` 9.11: Use a phone as a moving sensor (its IMU gives the
     pose). *(Orientation capture built; needs a phone.)*
 
-### Phase 10: Showcase — `[pending]`
+### Phase 10: Showcase — `[in-progress]`
+*Live at https://kyleyhw.github.io/sound_simulation/. The end-to-end
+suite (27 tests) passes against the deployed site. Open: hosting the
+dataset, and folding the Phase 6 learned models and the 3.4.7 re-score
+into the sensing write-up.*
 **Objective:** Make the work easy to try, understand, and cite.
 **Done when:** A public zero-install site hosts the sandbox, gallery,
 and explainers, and the write-ups are published.
@@ -472,7 +476,7 @@ and explainers, and the write-ups are published.
     has variants and an "Open in sandbox" link.)*
 *   `[completed]` 10.7: Automated video and GIF rendering from scene
     files. *(`npm run render`.)*
-*   `[pending]` 10.8: README rewrite with an animated hero and a "try
+*   `[completed]` 10.8: README rewrite with an animated hero and a "try
     it" link.
 *   `[completed]` 10.9: Docs website built from `docs/`. *(`#/docs`: all
     docs, reports and the plan, with maths and figures.)*
