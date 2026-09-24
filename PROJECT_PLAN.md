@@ -367,23 +367,29 @@ with 2 laptop speakers, in an absorbing room.
         loudness maps. *(Control tab; `docs/web_app.md` §5a. ACC 44.8 dB
         measured in the browser engine.)*
 
-### Phase 8: Closed Loop in Simulation — `[pending]`
+### Phase 8: Closed Loop in Simulation — `[completed]`
 **Objective:** Connect sensing and control in one live loop.
 **Done when:** Control quality holds while a listener or obstacle
 moves, within a measured laptop latency budget.
+*Result (`docs/web_app.md` §5b): the guarded loop keeps 16.6–40.7 dB of
+contrast through a listener move, an obstacle move and a new partition,
+never below the static design. The loop period is about 5 s.*
 
-*   `[pending]` 8.1: A "digital twin" bridge: sensing estimates the
+*   `[completed]` 8.1: A "digital twin" bridge: sensing estimates the
     room, the twin simulates the transfer functions, and the controller
-    is designed from them.
-*   `[pending]` 8.2: Real-time loop in the backend: sense, update the
-    twin, redesign, act.
-*   `[pending]` 8.3: Measure the latency of each stage on a laptop CPU.
-*   `[pending]` 8.4: Dynamic scenes: a moving listener, a moving
+    is designed from them. *(Coherent back-projection → rigid twin →
+    ACC; `web/src/loop/closedLoop.ts`.)*
+*   `[completed]` 8.2: Real-time loop: sense, update the twin, redesign,
+    act. *(Runs in a browser Web Worker; the server was retired in
+    4.5.4. Guarded by monitor mics.)*
+*   `[completed]` 8.3: Measure the latency of each stage on a laptop CPU.
+    *(Per stage and per epoch, shown on the dashboard.)*
+*   `[completed]` 8.4: Dynamic scenes: a moving listener, a moving
     obstacle, an opening door.
-*   `[pending]` 8.5: Compare against a controller that knows the true
-    room.
-*   `[pending]` 8.6: UI dashboard: sensing map, twin vs truth,
-    controller state, and zone metrics over time.
+*   `[completed]` 8.5: Compare against a controller that knows the true
+    room. *(Oracle, plus static and empty-room references.)*
+*   `[completed]` 8.6: UI dashboard: sensing map, twin vs truth,
+    controller state, and zone metrics over time. *(`#/loop`.)*
 
 ### Phase 9: Real Hardware — `[in-progress]`
 *Tooling complete and tested (fake-device e2e, synthetic-room unit tests;

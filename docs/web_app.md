@@ -158,6 +158,71 @@ Verified in `tests/unit/soundfield.test.ts`: an 8-speaker array in a
 `tests/e2e/control.spec.ts` runs the same flow through the UI and checks
 that the live measured contrast exceeds 10 dB.
 
+## 5b. Closed-loop dashboard (plan Phase 8)
+
+`#/loop` (`pages/Loop.tsx`) runs `loop/closedLoop.ts` in a Web Worker
+(`loop/loopWorker.ts`) on the scenario in `loop/scenarios.ts`: an
+8-speaker bar in an anechoic (CPML) room, over four epochs:
+
+1. initial room;
+2. the listener (loud zone) moves;
+3. the obstacle moves;
+4. a partition with a door appears.
+
+Each epoch runs:
+
+- **Sense:** every speaker pings, every array position records, and the
+  residual against an empty-room reference is back-projected by
+  *coherent* delay-and-sum migration. The largest blob above 0.7 × max,
+  dilated by one cell, is the obstacle estimate. An envelope sum only
+  resolves range and smears whole arcs.
+- **Twin:** the true outer boundary plus the estimate as rigid cells.
+- **Design:** ACC on the twin.
+- **Act and measure:** the steady-state contrast over the whole zones in
+  the true room.
+- **Guard:** five monitor mics per zone score the twin design and the
+  empty-room design in the true room, and the loop keeps the better one.
+
+Each epoch also scores three references: a **static** controller designed
+once at epoch 0, an **empty-room** design (no sensing), and an **oracle**
+designed on the true room.
+
+Results on the 100² scene (exploration run):
+
+| epoch | closed loop | twin | empty room | static | oracle |
+|---|---|---|---|---|---|
+| initial | 35.8 (twin) | 35.8 | 33.0 | 35.8 | 45.4 |
+| listener moves | 40.7 (twin) | 40.7 | 36.6 | 39.8 | 50.3 |
+| obstacle moves | 19.4 (empty) | 9.6 | 19.4 | 16.0 | 34.6 |
+| partition + door | 16.6 (empty) | 15.5 | 16.6 | 15.4 | 29.9 |
+
+(All values are contrast in dB; the closed-loop column names the design the guard kept.)
+
+What this shows:
+
+- The guarded loop holds the 10 dB target through every change, and never
+  does worse than the static design.
+- The 10–15 dB gap to the oracle is the sensing gap. The back-projected
+  twin finds the obstacle's front face (IoU 0.13–0.32 against the full
+  block), which sometimes helps and sometimes hurts compared with
+  assuming an empty room.
+
+Latency, measured single-threaded in Node on the 4-core container at 100²:
+
+| stage | time |
+|---|---|
+| sense (2 × 8 pings) | about 2.3 s |
+| design (8 steady-state tones on the twin) | about 2.3 s |
+| act and measure | about 0.3 s |
+
+This is a loop period of about 5 s, which is room-change pace, not
+audio-rate. Applying new weights is instant.
+
+Tests: `tests/unit/loop.test.ts` checks that the estimate lies on the
+obstacle, and that the guarded loop stays at or above 10 dB, stays at or
+above the static design, and stays at or below the oracle.
+`tests/e2e/loop.spec.ts` runs the dashboard end to end.
+
 ## 5. Testing (4.5)
 
 | layer | tool | what |

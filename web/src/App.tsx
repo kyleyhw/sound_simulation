@@ -8,12 +8,14 @@ import { useApp } from './state/store';
 const Learn = lazy(() => import('./pages/Learn'));
 const Research = lazy(() => import('./pages/Research'));
 const Lab = lazy(() => import('./pages/Lab'));
+const Loop = lazy(() => import('./pages/Loop'));
 
 const NAV: { path: string; label: string }[] = [
   { path: '/', label: 'Sandbox' },
   { path: '/gallery', label: 'Gallery' },
   { path: '/learn', label: 'Learn' },
   { path: '/research', label: 'Research' },
+  { path: '/loop', label: 'Loop' },
   { path: '/lab', label: 'Lab' },
 ];
 
@@ -69,6 +71,9 @@ export default function App() {
       break;
     case '/lab':
       page = <Lab />;
+      break;
+    case '/loop':
+      page = <Loop />;
       break;
     default:
       page = <Sandbox route={route} />;
