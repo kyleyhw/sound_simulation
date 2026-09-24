@@ -3,9 +3,11 @@
 ## Audit (2026-09-24) — read first
 
 A full plan audit (`docs/plan_audit.md`) produced a revised
-`PROJECT_PLAN.md`. It added Phase 0 (audit fixes), 1B (engine
-fidelity), 1C (UI v2), 5 (sim-to-real), and 6 (showcase), rewrote
-Phases 3–4, and reopened Phase 2 as a research programme (2R).
+`PROJECT_PLAN.md` with ten sequential phases. The next two phases come
+before any new feature work:
+
+- **Phase 3:** a full codebase debug audit.
+- **Phase 4:** a complete overhaul of the web UI.
 
 **The key finding changes how to read the Phase 2 results below.**
 Predictors that ignore the audio match the sensing headline on the
@@ -27,9 +29,8 @@ findings matter:
 - The rooms are lossless.
 - The simulation has no physical units.
 
-Next steps are Phase 0 in the plan: exact-archive re-scoring,
-threshold-free and information-gain metrics, Neumann walls, and a
-verification suite.
+Re-scoring against the exact archives and adding threshold-free metrics
+is plan Task 3.4. Rigid walls and the verification suite are Phase 5.
 
 
 ## 0. Sensing v2 (Task 2.3, added 2026-07-15)
@@ -141,11 +142,11 @@ See `docs/gpu.md` + `tests/reports/gpu_backend_2026_07_10.md`.
   kill took the process tree. Seeded CPU reruns replay near-identically
   (the restart reproduced val IoU 0.0464 at epoch 36 exactly).
 
-## 5. Open follow-ups (Phase 3+)
+## 5. Open follow-ups
 
-- Superseded by the 2026-09-24 plan: Phase 0 (audit remediation) now
-  comes next. Phase 3 is gated on absorbing boundaries, materials, and
-  the G1 verification gate.
+- Superseded by the 2026-09-24 plan: the Phase 3 debug audit comes
+  next, then the Phase 4 UI overhaul. Beamforming is now Phase 7 and waits on the
+  Phase 5 physics fixes (absorbing boundaries, materials, verification).
 - Sensing-side upgrades, if needed later: variance-normalised or
   log-sum-exp pose pooling / variable-K training; GCC-PHAT (TDOA)
   input channel for passive; passive multi-pose.

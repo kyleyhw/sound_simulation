@@ -2,7 +2,9 @@
 
 A full review of `PROJECT_PLAN.md` against the code, the reports in
 `tests/reports/`, and the stated vision. The revised plan acts on every
-finding below. The finding ids (A1, B3, …) are used in the plan.
+finding below. Plan references use the numbering of the 2026-09-24
+revision: Phase 3 is the codebase debug audit and Phase 4 the UI
+overhaul, and both come before any new feature work. The finding ids (A1, B3, …) are used in the plan.
 
 Severity: **critical** = changes a published conclusion or blocks a
 later phase; **major** = the plan's structure or assumptions are wrong;
@@ -72,7 +74,7 @@ What this does and does not show:
   same metric artefact that inflated the 2.4× fusion gain (found in
   Task 2.3) also covers the residual gain.
 
-Required changes (plan 0.1): report every result against the prior-map
+Required changes (plan 3.4.5–3.4.7): report every result against the prior-map
 baseline. Add threshold-free and information-theoretic metrics:
 
 - information gain over the prior, in bits per room: $\Delta = \mathrm{NLL}_\text{prior} - \mathrm{NLL}_\text{model}$
@@ -90,7 +92,7 @@ the field. Only surfaces that some pose illuminates scatter energy, and
 obstacles in the acoustic shadow of others are largely invisible. A
 filled-mask target asks the network to hallucinate unobservable cells.
 The only safe answer to that is the prior. Replace the target with
-observable quantities (plan 2.4): illuminated boundaries, the room
+observable quantities (plan Task 6.1): illuminated boundaries, the room
 polygon, distance fields, or object detections.
 
 ### A3 — Known-pose assumption (major)
@@ -98,8 +100,8 @@ polygon, distance fields, or object detections.
 Bayes fusion uses the *true* driver and mic positions of every pose. A
 hand-carried laptop does not know its pose to centimetre accuracy.
 Without a pose-noise study, the multi-pose recipe cannot be deployed.
-Plan 2.9 covers joint pose and map estimation. Phones have IMUs, so
-plan 5.6 covers them too.
+Plan 6.6.1–6.6.2 cover pose noise and joint pose and map estimation.
+Phones have IMUs, so plan 9.11 covers them too.
 
 ### A4 — Boundary physics mislabelled; rooms are lossless (critical)
 
@@ -123,7 +125,7 @@ absorbing materials, so reverberation is infinite. For sensing, late
 reverberation is unphysically strong. For Phase 3, control inside a
 lossless cavity is purely modal and says little about real rooms.
 Absorbing boundaries and materials therefore come **before**
-beamforming (plan 0.2, 1.6, 1.7).
+beamforming (plan Phase 5, before Phase 7).
 
 ### A5 — No physical units (major)
 
@@ -136,7 +138,7 @@ about 2 kHz. Neither is a laptop in a room.
 
 The 2D-versus-3D gap is also undocumented. In 2D, spreading goes as
 $1/\sqrt{r}$ and the Green's function has a wake tail. In 3D, spreading
-goes as $1/r$ and Huygens' principle holds sharply. Plan 0.2.2 adds an
+goes as $1/r$ and Huygens' principle holds sharply. Plan Task 5.2 adds an
 SI scene layer and a physical-plausibility check for datasets.
 
 ### A6 — Regression-only verification (major)
@@ -151,7 +153,7 @@ There are no analytic checks, such as:
 - the numerical-dispersion curve
 - point-source Green's functions
 
-Plan 0.2.3 adds them. Adding Neumann, PML, and impedance boundary
+Plan Task 5.3 adds them. Adding Neumann, PML, and impedance boundary
 conditions makes them mandatory.
 
 ## B. Plan structure and consistency
@@ -160,7 +162,7 @@ conditions makes them mandatory.
   conclusions have since changed. The 2.1.4 text still claims "2.4×",
   which Task 2.3 already overturned. The "information ceiling" claim in
   2.3 is contested by A1. → Phase 2 is reopened as a research programme
-  (2R), and the superseded claims are annotated in place.
+  (Phase 6), and the superseded claims are annotated in place.
 - **B2 (minor):** Task 3.1.1 ("support multiple, independently
   controlled drivers") is already done. The engine and UI support N
   drivers with independent waveforms. → Marked completed.
@@ -179,23 +181,23 @@ conditions makes them mandatory.
   with 2 speakers. Arrays and personal sound zones are the research
   tier.
 - **B5 (major):** No phase ever touches real audio. The consumer
-  real-time claim is never measured. → New Phase 5 (sim-to-real)
+  real-time claim is never measured. → New Phase 9 (real hardware)
   starts with a browser acoustic lab built on Web Audio. This is cheap
   and matches the browser-first principle.
 - **B6 (major):** Phases 3–4 have no success criteria or decision
-  gates. → Gates G0–G5 are added.
+  gates. → Every phase now has a "Done when" criterion.
 - **B7 (major):** The plan has no plan for showcasing the work. → New
-  Phase 6: a zero-install WebGPU sandbox, a scene gallery, interactive
+  Phase 10: a zero-install WebGPU sandbox, a scene gallery, interactive
   explainers, a media pipeline, write-ups, and an open benchmark.
 - **B8 (minor):** The UI has no probes or oscilloscope, no dB or
   time-averaged view, no materials, and no scene save or share. These
   are the features that make a sandbox useful and demoable. → New
-  Phase 1C.
+  Phase 4 (full UI overhaul).
 
 ## C. Engineering hygiene
 
 - **C1:** No CI. The gates exist only as scripts, and pytest is not a
-  dev dependency. → Plan 0.3.
+  dev dependency. → Plan Tasks 3.1 and 3.5.
 - **C2:** `README.md` is stale:
   - it presents the matplotlib editor as the main UI
   - it lists GPU acceleration as future work
