@@ -484,9 +484,9 @@ and explainers, and the write-ups are published.
     updating with the learned models on physics images and the 3.4.7
     re-score.)*
 *   `[in-progress]` 10.12: Write-ups on control and on the real-hardware
-    results. *(Published: simulator verification, and real-room tooling
-    awaiting measurements. The control write-up follows the Phase 7
-    report.)*
+    results. *(Published: control ("Shaping sound"), simulator
+    verification, and real-room tooling. The real-hardware write-up
+    awaits the user's measurements (§4 stop point).)*
 
 ## 4. Execution Rules (agreed 2026-09-24)
 
