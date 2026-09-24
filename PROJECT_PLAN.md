@@ -205,58 +205,66 @@ features below, passes end-to-end tests, and the old UI is deleted.
     *   `[completed]` 4.5.4: Delete the old UI and rewrite
         `docs/web_ui.md`.
 
-### Phase 5: Physics Correctness and Realism — `[pending]`
+### Phase 5: Physics Correctness and Realism — `[in-progress]`
+*Report: `docs/physics.md`. Every CPU and browser item is done and
+verified. The GPU items are written but need an NVIDIA GPU to run
+(§4 stop point); that is all that remains.*
 **Objective:** Make the simulator physically right for real rooms.
 **Done when:** Analytic checks pass (grid convergence, room
 resonances within 0.5 %, energy conservation), absorbing walls reflect
 less than −40 dB, and T60 matches the Sabine formula.
 
-*   `[pending]` **Task 5.1: Rigid walls**
-    *   `[pending]` 5.1.1: Neumann (rigid) walls and obstacles in the
+*   `[in-progress]` **Task 5.1: Rigid walls**
+    *   `[completed]` 5.1.1: Neumann (rigid) walls and obstacles in the
         2D and 3D CPU kernels.
-    *   `[pending]` 5.1.2: The same in the GPU kernels.
-    *   `[pending]` 5.1.3: A per-cell wall-type option, with the
+    *   `[in-progress]` 5.1.2: The same in the GPU kernels. *(CUDA kernel
+        written, including the CPML term; untested without a GPU.)*
+    *   `[completed]` 5.1.3: A per-cell wall-type option, with the
         current p = 0 path unchanged so `reference.npz` still passes.
-*   `[pending]` **Task 5.2: Physical units**
-    *   `[pending]` 5.2.1: An SI scene layer (metres, seconds, Hz,
+*   `[completed]` **Task 5.2: Physical units**
+    *   `[completed]` 5.2.1: An SI scene layer (metres, seconds, Hz,
         c = 343 m/s) mapped to grid units.
-    *   `[pending]` 5.2.2: Pick and document a realistic physical scale
-        for future datasets.
-*   `[pending]` **Task 5.3: Verification suite**
-    *   `[pending]` 5.3.1: Room resonances vs the analytic
+    *   `[completed]` 5.2.2: Pick and document a realistic physical scale
+        for future datasets. *(`units.LAPTOP_ROOM`: 2.5 cm cells,
+        300–1700 Hz, 3–6 m rooms, 20 cm baseline.)*
+*   `[completed]` **Task 5.3: Verification suite**
+    *   `[completed]` 5.3.1: Room resonances vs the analytic
         eigenfrequencies, for both wall types.
-    *   `[pending]` 5.3.2: Grid convergence (expect second order).
-    *   `[pending]` 5.3.3: Energy conservation in lossless runs.
-    *   `[pending]` 5.3.4: Numerical dispersion vs theory.
-    *   `[pending]` 5.3.5: Point source vs the analytic 2D and 3D
+    *   `[completed]` 5.3.2: Grid convergence (expect second order).
+    *   `[completed]` 5.3.3: Energy conservation in lossless runs.
+    *   `[completed]` 5.3.4: Numerical dispersion vs theory.
+    *   `[completed]` 5.3.5: Point source vs the analytic 2D and 3D
         Green's functions.
-    *   `[pending]` 5.3.6: Report with figures.
-*   `[pending]` **Task 5.4: Absorbing boundaries**
-    *   `[pending]` 5.4.1: Simple absorbing edges (Mur).
-    *   `[pending]` 5.4.2: A perfectly matched layer (CPML).
-    *   `[pending]` 5.4.3: Measure reflection against angle and
+    *   `[completed]` 5.3.6: Report with figures.
+*   `[completed]` **Task 5.4: Absorbing boundaries**
+    *   `[completed]` 5.4.1: Simple absorbing edges (Mur).
+    *   `[completed]` 5.4.2: A perfectly matched layer (CPML). *(−94 dB
+        normal, −49 dB at 62°; the sponge manages −5 dB there.)*
+    *   `[completed]` 5.4.3: Measure reflection against angle and
         frequency.
-*   `[pending]` **Task 5.5: Wall materials**
-    *   `[pending]` 5.5.1: Frequency-independent absorbing walls
+*   `[completed]` **Task 5.5: Wall materials**
+    *   `[completed]` 5.5.1: Frequency-independent absorbing walls
         (absorption coefficient per cell).
-    *   `[pending]` 5.5.2: Frequency-dependent absorption.
-    *   `[pending]` 5.5.3: Check T60 against the Sabine and Eyring
+    *   `[completed]` 5.5.2: Frequency-dependent absorption.
+    *   `[completed]` 5.5.3: Check T60 against the Sabine and Eyring
         formulas.
-*   `[pending]` **Task 5.6: Media, sources, and receivers**
-    *   `[pending]` 5.6.1: Spatially varying sound speed c(x).
-    *   `[pending]` 5.6.2: Soft, band-limited source injection.
-    *   `[pending]` 5.6.3: Sub-cell source and mic positions.
-    *   `[pending]` 5.6.4: Speaker and mic directivity patterns.
-    *   `[pending]` 5.6.5: Mic noise model.
-*   `[pending]` **Task 5.7: Engine capabilities**
-    *   `[pending]` 5.7.1: A low-dispersion scheme (more usable
+*   `[completed]` **Task 5.6: Media, sources, and receivers**
+    *   `[completed]` 5.6.1: Spatially varying sound speed c(x).
+    *   `[completed]` 5.6.2: Soft, band-limited source injection.
+    *   `[completed]` 5.6.3: Sub-cell source and mic positions.
+    *   `[completed]` 5.6.4: Speaker and mic directivity patterns.
+    *   `[completed]` 5.6.5: Mic noise model.
+*   `[completed]` **Task 5.7: Engine capabilities**
+    *   `[completed]` 5.7.1: A low-dispersion scheme (more usable
         bandwidth per cell).
-    *   `[pending]` 5.7.2: A differentiable PyTorch copy of the kernels,
+    *   `[completed]` 5.7.2: A differentiable PyTorch copy of the kernels,
         checked against the numba ones.
-    *   `[pending]` 5.7.3: Batched multi-room simulation for faster
-        dataset generation.
-*   `[pending]` **Task 5.8: UI**
-    *   `[pending]` 5.8.1: Material painting, per-edge absorbing
+    *   `[completed]` 5.7.3: Batched multi-room simulation for faster
+        dataset generation. *(`TorchFDTD` batch axis for GPU and
+        gradients; on CPU, `generate_active_sensing.py --workers N`, which is
+        byte-identical for any N. See `tests/perf/bench_batched.py`.)*
+*   `[completed]` **Task 5.8: UI**
+    *   `[completed]` 5.8.1: Material painting, per-edge absorbing
         toggles, and sound-speed painting.
 
 ### Phase 6: Room Sensing, second attempt — `[pending]`

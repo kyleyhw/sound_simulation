@@ -145,6 +145,8 @@ class TorchFDTD:
             ]
             if any(c.mur_edges for c in cs):
                 raise NotImplementedError("Mur edges are not implemented in the tensor engine")
+            if any(any(c.cpml_faces) for c in cs):
+                raise NotImplementedError("CPML is not implemented in the tensor engine")
 
             def stack(name: str) -> torch.Tensor:
                 return torch.tensor(

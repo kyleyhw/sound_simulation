@@ -112,7 +112,13 @@ Watch out for sampling errors on `Cosine`: the source must satisfy $f \cdot \Del
 
 ### Boundary conditions
 
-Dirichlet $p = 0$ (pressure-release) only, so far; rigid, absorbing and impedance boundaries are Phase 5 of `PROJECT_PLAN.md`. The wall enforcement lives in the fused 2D/3D kernels and in `set_edge_values` (1D/N-D fallback).
+The fast path is Dirichlet $p = 0$ (pressure-release) only. Its wall enforcement lives in the fused 2D/3D kernels and in `set_edge_values` (1D/N-D fallback). Any other setting routes `step()` through the general path (`simulation/physics.py`), which covers:
+
+- rigid walls and impedance materials, using a per-cell material map;
+- the outer boundary kinds `soft | rigid | absorb | mur | sponge | cpml`, set for all faces or per face;
+- a `c(x)` speed map.
+
+The CPML (`simulation/cpml.py`) is the only boundary below −40 dB at every angle. Its layer update masks faces that touch rigid or impedance cells, the same way the kernel's Laplacian does. The browser engine mirrors all of this (`web/src/engine/`), and the parity fixtures come from `scripts/make_web_fixtures.py`. Verification: `scripts/verify_physics.py`, reported in `docs/physics.md`.
 
 ### Web app (`web/`)
 

@@ -212,7 +212,8 @@ function ScenePanel() {
           <option value="rigid">Rigid (∂p/∂n = 0)</option>
           <option value="absorb">Impedance (partially absorbing)</option>
           <option value="mur">Absorbing edge (Mur, 1st order)</option>
-          <option value="sponge">Anechoic (absorbing layer)</option>
+          <option value="sponge">Absorbing layer (sponge)</option>
+          <option value="cpml">Anechoic (PML, best)</option>
         </select>
       </div>
       <label className="row tight" style={{ marginBottom: 8 }}>
@@ -240,6 +241,7 @@ function ScenePanel() {
                 <option value="absorb">Impedance</option>
                 <option value="mur">Mur edge</option>
                 <option value="sponge">Absorbing layer</option>
+                <option value="cpml">PML</option>
               </select>
             </div>
           ))}
@@ -257,6 +259,18 @@ function ScenePanel() {
       )}
       {facesOf(p).includes('sponge') && (
         <NumberField label="Layer thickness (cells)" value={p.spongeCells} integer min={4} max={80} onChange={(v) => setParams({ spongeCells: v })} />
+      )}
+      {facesOf(p).includes('cpml') && (
+        <NumberField
+          label="PML thickness (cells)"
+          value={p.cpmlCells ?? 16}
+          integer
+          min={4}
+          max={64}
+          hint="Reflects < −45 dB up to 60° incidence at 16 cells"
+          onChange={(v) => setParams({ cpmlCells: v })}
+          testId="cpml-cells"
+        />
       )}
 
       <h3>Wall material (brush)</h3>

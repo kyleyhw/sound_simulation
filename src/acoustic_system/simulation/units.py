@@ -126,4 +126,77 @@ def plausibility(
     return AcquisitionReport(dx, room, base, band, lam_min, dur, tuple(notes))
 
 
-__all__ = ["SPEED_OF_SOUND_AIR", "PhysicalScale", "AcquisitionReport", "plausibility"]
+@dataclass(frozen=True)
+class LaptopRoomScale:
+    """The physical scale for Phase 6+ datasets (plan 5.2.2).
+
+    The target scenario is a laptop (two speakers and two to four mics,
+    about 20 cm apart) sensing a 3-6 m room. The choices:
+
+    * **Cell size 2.5 cm.** At 8 cells per wavelength the second-order
+      scheme resolves up to 343 / (8 * 0.025) = 1.7 kHz with about a 2.5 %
+      phase-speed error (``docs/physics.md`` section 4). ``scheme="compact"``
+      roughly halves that. 1.7 kHz is well inside what laptop speakers
+      reproduce.
+    * **Band 300-1700 Hz.** It sits above most laptop speakers' low-frequency
+      roll-off and below the grid's resolved limit. The shortest wavelength
+      (20 cm) is comparable to furniture, so the band carries geometric
+      information.
+    * **Rooms 3-6 m**: 120-240 cells per side in 2D (fast), and
+      about 1.4 M cells for a 3 x 3 x 2.5 m box in 3D (about 2 ms per step).
+    * **Recording 60 ms**, which covers the far-wall round trip of a 6 m room
+      (12 m / 343 m/s = 35 ms) plus the chirp.
+    * **Mic baseline 20 cm** (8 cells), a typical laptop lid.
+    """
+
+    dx: float = 0.025
+    c: float = SPEED_OF_SOUND_AIR
+    room_m: tuple[float, float] = (3.0, 6.0)
+    mic_baseline_m: float = 0.20
+    band_hz: tuple[float, float] = (300.0, 1700.0)
+    record_s: float = 0.060
+    courant: float = 0.5
+
+    @property
+    def scale(self) -> PhysicalScale:
+        return PhysicalScale(dx=self.dx, c=self.c)
+
+    def grid_protocol(self, room_m: float | None = None) -> dict:
+        """Grid-unit acquisition parameters for one square 2D room."""
+        sc = self.scale
+        room = self.room_m[1] if room_m is None else room_m
+        dt = self.courant * self.dx / self.c
+        return {
+            "grid": int(round(sc.cells(room))),
+            "mic_spacing_cells": sc.cells(self.mic_baseline_m),
+            "f_start_grid": sc.grid_frequency(self.band_hz[0]),
+            "f_end_grid": sc.grid_frequency(self.band_hz[1]),
+            "steps": int(round(self.record_s / dt)),
+            "courant": self.courant,
+        }
+
+    def check(self, room_m: float | None = None) -> AcquisitionReport:
+        g = self.grid_protocol(room_m)
+        return plausibility(
+            g["grid"],
+            g["mic_spacing_cells"],
+            g["f_start_grid"],
+            g["f_end_grid"],
+            g["steps"],
+            self.courant,
+            dx=self.dx,
+            c=self.c,
+        )
+
+
+LAPTOP_ROOM = LaptopRoomScale()
+
+
+__all__ = [
+    "SPEED_OF_SOUND_AIR",
+    "PhysicalScale",
+    "AcquisitionReport",
+    "LaptopRoomScale",
+    "LAPTOP_ROOM",
+    "plausibility",
+]

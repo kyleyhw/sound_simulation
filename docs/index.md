@@ -20,6 +20,7 @@ This index provides an overview and links to the detailed documentation for each
 ## Simulation engine
 
 - [**`main.py`**](./main.md): The standalone batch-mode example (`--save` for headless runs).
+- [**`physics.md`**](./physics.md): Physics model (walls, materials, absorbing boundaries including the CPML, c(x), units, sources), and the verification report: modes, convergence, energy, dispersion, Green's functions, edge reflection, T60.
 - [**`simulate.py`**](./simulate.md): The step-at-a-time FDTD engine (`Simulate` class).
 - [**`calculate.py`**](./calculate.md): The discrete Laplacian kernel.
 - [**`calculate_gpu.py`**](./gpu.md): The CUDA (CuPy) backend — GPU twins of the fused kernels, transfer strategy, gates and benchmarks.

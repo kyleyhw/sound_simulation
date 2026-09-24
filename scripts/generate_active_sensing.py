@@ -178,6 +178,50 @@ def build_source(
     return wf, samples, float(args.synth_sample_rate), "synthetic"
 
 
+def simulate_room(job: dict) -> tuple[list[np.ndarray], float]:
+    """Run every pose of one room. Deterministic given ``job`` (no RNG).
+
+    One Simulate per room, reset between poses. ``reset()`` zeroes the
+    fields and the clock but keeps the geometry, so each pose gets a
+    numerically fresh run in the same room without re-uploading the
+    obstacles.
+    """
+    sim = Simulate(
+        grid_shape=job["grid_shape"],
+        drivers=[],
+        wavespeed=job["wavespeed"],
+        gridstep=job["gridstep"],
+        courant=job["courant"],
+    )
+    # Push obstacles in one batch: set_obstacle takes an iterable of (i, j)
+    # tuples and updates the hot-loop guard once.
+    mask_idx = np.argwhere(job["obstacle_mask"])
+    if mask_idx.size:
+        sim.set_obstacle([tuple(int(c) for c in row) for row in mask_idx])
+    recordings = []
+    for drv, mics in zip(job["driver_positions"], job["mic_positions"]):
+        sim.reset()
+        sim.set_drivers([Driver(position=drv, waveform=job["waveform"])])
+        recordings.append(
+            run_with_sensors(
+                sim=sim,
+                duration=job["duration"],
+                sensors=[Sensor(position=p) for p in mics],
+                record_step=job["record_step"],
+            )
+        )
+    return recordings, float(sim.timestep)
+
+
+def _worker_init() -> None:
+    # One numba thread per process: rooms run in parallel across processes,
+    # which scales far better than prange inside small grids (see
+    # tests/perf/bench_batched.py).
+    import numba
+
+    numba.set_num_threads(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -303,6 +347,14 @@ def main() -> None:
         ),
     )
     parser.add_argument("--seed", type=int, default=0, help="RNG seed.")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Simulate rooms in this many processes (plan 5.7.3). All random draws "
+        "stay in the main process in the original order, so a seeded archive is "
+        "identical for any worker count.",
+    )
     parser.add_argument("--verbose", action="store_true", help="Print per-sample status to stderr.")
     args = parser.parse_args()
 
@@ -362,6 +414,77 @@ def main() -> None:
         hf.attrs["room_style"] = str(args.room_style)
         hf.attrs["protocol"] = str(args.protocol)
 
+        def write_room(hf, job: dict, recordings_per_pose: list, timestep: float) -> None:
+            s = job["index"]
+            n_poses = len(job["driver_positions"])
+            driver_positions = job["driver_positions"]
+            mic_positions_per_pose = job["mic_positions"]
+            obstacle_mask = job["obstacle_mask"]
+            grp = hf.create_group(f"sample_{s:04d}")
+            grp.attrs["grid_shape"] = (args.grid, args.grid)
+            grp.attrs["wavespeed"] = float(args.wavespeed)
+            grp.attrs["gridstep"] = float(args.gridstep)
+            grp.attrs["timestep"] = float(timestep)
+            grp.attrs["courant"] = float(args.courant)
+            if n_poses == 1:
+                # Original single-pose layout, byte-for-byte.
+                grp.attrs["driver_position"] = list(driver_positions[0])
+                # Sensor positions: one row per mic, columns are spatial dims.
+                grp.attrs["sensor_positions"] = np.asarray(
+                    mic_positions_per_pose[0], dtype=np.int32
+                )
+            else:
+                grp.attrs["poses_per_room"] = n_poses
+                grp.attrs["driver_positions"] = np.asarray(driver_positions, dtype=np.int32)
+                # (K, n_mics, dims): pose-major stack of the per-pose mic rows.
+                grp.attrs["sensor_positions"] = np.asarray(mic_positions_per_pose, dtype=np.int32)
+            grp.attrs["n_mics"] = int(args.n_mics)
+            grp.attrs["mic_spacing"] = float(args.mic_spacing)
+            grp.attrs["audio_path"] = job["source_label"]
+            grp.attrs["audio_native_fs"] = float(job["source_fs"])
+            grp.attrs["sim_time_per_second"] = float(args.sim_time_per_second)
+            grp.attrs["audio_amplitude"] = float(args.audio_amplitude)
+            grp.attrs["sim_duration_steps"] = int(args.duration)
+            grp.attrs["record_step"] = int(args.record_step)
+            # Channel-last: sensor[..., t, m] = pressure at mic m, step t;
+            # multi-pose archives carry a leading pose axis.
+            sensor_out = (
+                recordings_per_pose[0] if n_poses == 1 else np.stack(recordings_per_pose, axis=0)
+            )
+            grp.create_dataset("sensor", data=sensor_out, compression="gzip")
+            grp.create_dataset("source", data=job["source_samples"], compression="gzip")
+            grp.create_dataset(
+                "obstacles",
+                data=obstacle_mask.astype(np.uint8),
+                compression="gzip",
+            )
+            if args.verbose:
+                elapsed = time.perf_counter() - t0
+                mic_str = ", ".join(str(tuple(p)) for p in mic_positions_per_pose[0])
+                print(
+                    f"[active-sensing] sample {s + 1:4d}/{args.num_samples} "
+                    f"poses={n_poses} driver0={driver_positions[0]} mics0=[{mic_str}] "
+                    f"obstacles={int(obstacle_mask.sum())} "
+                    f"peak_rec={float(np.max(np.abs(sensor_out))):.3e} "
+                    f"elapsed={elapsed:.1f}s",
+                    file=sys.stderr,
+                )
+
+        # Rooms are drawn in the main process (fixed RNG order), simulated
+        # in windows (optionally across worker processes) and written in
+        # index order.
+        pool = None
+        if args.workers > 1:
+            import multiprocessing as mp
+            from concurrent.futures import ProcessPoolExecutor
+
+            pool = ProcessPoolExecutor(
+                max_workers=args.workers,
+                mp_context=mp.get_context("spawn"),
+                initializer=_worker_init,
+            )
+        window = max(1, 4 * args.workers)
+        jobs: list[dict] = []
         occupancy_sum = 0.0
         for s in range(int(args.num_samples)):
             if args.room_style == "mixed":
@@ -415,87 +538,34 @@ def main() -> None:
                 sim_duration_steps=args.duration,
                 args=args,
             )
-            # One Simulate per room, reset between poses. reset() zeroes
-            # the fields and the clock but keeps geometry, so each pose
-            # sees a numerically fresh run in the same room without paying
-            # obstacle re-upload.
-            sim = Simulate(
-                grid_shape=(args.grid, args.grid),
-                drivers=[],
-                wavespeed=args.wavespeed,
-                gridstep=args.gridstep,
-                courant=args.courant,
+            jobs.append(
+                {
+                    "index": s,
+                    "grid_shape": (args.grid, args.grid),
+                    "wavespeed": args.wavespeed,
+                    "gridstep": args.gridstep,
+                    "courant": args.courant,
+                    "obstacle_mask": obstacle_mask,
+                    "driver_positions": driver_positions,
+                    "mic_positions": mic_positions_per_pose,
+                    "waveform": wf,
+                    "duration": args.duration,
+                    "record_step": args.record_step,
+                    "source_samples": source_samples,
+                    "source_fs": source_fs,
+                    "source_label": source_label,
+                }
             )
-            # Push obstacles in batch — the engine's set_obstacle accepts
-            # an iterable of (i, j) tuples and updates the hot-loop guard
-            # once.
-            mask_idx = np.argwhere(obstacle_mask)
-            if mask_idx.size:
-                sim.set_obstacle([tuple(int(c) for c in row) for row in mask_idx])
+            if len(jobs) >= window or s == int(args.num_samples) - 1:
+                results = (
+                    pool.map(simulate_room, jobs) if pool is not None else map(simulate_room, jobs)
+                )
+                for job, (recordings_per_pose, timestep) in zip(jobs, results):
+                    write_room(hf, job, recordings_per_pose, timestep)
+                jobs = []
 
-            recordings_per_pose = []
-            for k in range(n_poses):
-                sim.reset()
-                sim.set_drivers([Driver(position=driver_positions[k], waveform=wf)])
-                sensors = [Sensor(position=p) for p in mic_positions_per_pose[k]]
-                recordings_per_pose.append(
-                    run_with_sensors(
-                        sim=sim,
-                        duration=args.duration,
-                        sensors=sensors,
-                        record_step=args.record_step,
-                    )
-                )
-
-            grp = hf.create_group(f"sample_{s:04d}")
-            grp.attrs["grid_shape"] = (args.grid, args.grid)
-            grp.attrs["wavespeed"] = float(args.wavespeed)
-            grp.attrs["gridstep"] = float(args.gridstep)
-            grp.attrs["timestep"] = float(sim.timestep)
-            grp.attrs["courant"] = float(args.courant)
-            if n_poses == 1:
-                # Original single-pose layout, byte-for-byte.
-                grp.attrs["driver_position"] = list(driver_positions[0])
-                # Sensor positions: one row per mic, columns are spatial dims.
-                grp.attrs["sensor_positions"] = np.asarray(
-                    mic_positions_per_pose[0], dtype=np.int32
-                )
-            else:
-                grp.attrs["poses_per_room"] = n_poses
-                grp.attrs["driver_positions"] = np.asarray(driver_positions, dtype=np.int32)
-                # (K, n_mics, dims): pose-major stack of the per-pose mic rows.
-                grp.attrs["sensor_positions"] = np.asarray(mic_positions_per_pose, dtype=np.int32)
-            grp.attrs["n_mics"] = int(args.n_mics)
-            grp.attrs["mic_spacing"] = float(args.mic_spacing)
-            grp.attrs["audio_path"] = source_label
-            grp.attrs["audio_native_fs"] = float(source_fs)
-            grp.attrs["sim_time_per_second"] = float(args.sim_time_per_second)
-            grp.attrs["audio_amplitude"] = float(args.audio_amplitude)
-            grp.attrs["sim_duration_steps"] = int(args.duration)
-            grp.attrs["record_step"] = int(args.record_step)
-            # Channel-last: sensor[..., t, m] = pressure at mic m, step t;
-            # multi-pose archives carry a leading pose axis.
-            sensor_out = (
-                recordings_per_pose[0] if n_poses == 1 else np.stack(recordings_per_pose, axis=0)
-            )
-            grp.create_dataset("sensor", data=sensor_out, compression="gzip")
-            grp.create_dataset("source", data=source_samples, compression="gzip")
-            grp.create_dataset(
-                "obstacles",
-                data=obstacle_mask.astype(np.uint8),
-                compression="gzip",
-            )
-            if args.verbose:
-                elapsed = time.perf_counter() - t0
-                mic_str = ", ".join(str(tuple(p)) for p in mic_positions_per_pose[0])
-                print(
-                    f"[active-sensing] sample {s + 1:4d}/{args.num_samples} "
-                    f"poses={n_poses} driver0={driver_positions[0]} mics0=[{mic_str}] "
-                    f"obstacles={int(obstacle_mask.sum())} "
-                    f"peak_rec={float(np.max(np.abs(sensor_out))):.3e} "
-                    f"elapsed={elapsed:.1f}s",
-                    file=sys.stderr,
-                )
+        if pool is not None:
+            pool.shutdown()
 
         # Realised marginal obstacle prior of THIS archive — the pi-hat
         # the Bayes fusion rule needs. Written after the loop so it is

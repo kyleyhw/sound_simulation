@@ -22,14 +22,15 @@
  *  - 'absorb': locally reacting impedance wall, spring-damper branch
  *              R v + K_s x = p (frequency-independent when K_s = 0).
  * Outer boundary: 'soft' | 'rigid' | 'absorb' | 'mur' (1st-order absorbing
- * edge) | 'sponge' (graded damping layer).
+ * edge) | 'sponge' (graded damping layer) | 'cpml' (convolutional PML, cpml.ts).
  */
 
+import { Cpml } from './cpml';
 import { evalWaveform, type WaveformSpec } from './waveforms';
 
 export type Dims = 2 | 3;
 export type WallKind = 'soft' | 'rigid' | 'absorb';
-export type OuterKind = WallKind | 'mur' | 'sponge';
+export type OuterKind = WallKind | 'mur' | 'sponge' | 'cpml';
 
 export interface Material {
   kind: WallKind;
@@ -68,6 +69,8 @@ export interface SimParams {
   outerBeta: number;
   /** Damping-layer thickness in cells when outer === 'sponge'. */
   spongeCells: number;
+  /** CPML thickness in cells (faces of kind 'cpml'); default 16. */
+  cpmlCells?: number;
   /**
    * Optional per-face kinds overriding `outer`, ordered
    * [axis0 low (top), axis0 high (bottom), axis1 low (left), axis1 high (right), axis2 low, axis2 high].
@@ -339,6 +342,7 @@ export class Simulation {
     for (const d of this.probeData.values()) d.count = 0;
     this.wallV?.fill(0);
     this.wallX?.fill(0);
+    this.cpml?.reset();
     this.resetAccumulators();
   }
 
@@ -494,6 +498,7 @@ export class Simulation {
   private gActive: Uint8Array | null = null; // 0 = held at p = 0 (or Mur edge)
   private wallV: Float32Array | null = null; // branch velocity v^{n-1/2}
   private wallX: Float32Array | null = null; // branch displacement x^n
+  private cpml: Cpml | null = null; // survives geometry edits; rebuilt if faces/grid change
 
   /**
    * Coefficients for
@@ -507,7 +512,7 @@ export class Simulation {
   private buildGeneral(): void {
     const { nx, ny, nz, dims, material, n } = this;
     const faces = facesOf(this.params);
-    const held = faces.map((f) => f === 'soft' || f === 'sponge' || f === 'mur');
+    const held = faces.map((f) => f === 'soft' || f === 'sponge' || f === 'mur' || f === 'cpml');
     const faceBeta = faces.map((f) => (f === 'absorb' ? this.params.outerBeta : 0));
     const lam = Math.sqrt(this.coeff);
     const c = this.params.c;
@@ -610,6 +615,23 @@ export class Simulation {
     const act = this.gActive!;
     const V = this.wallV!;
     const X = this.wallX!;
+    let ext: Float32Array | null = null;
+    const faces = facesOf(this.params);
+    if (faces.includes('cpml')) {
+      const cf = faces.map((f) => f === 'cpml');
+      const key = `${this.params.shape.join('x')}|${cf.join(',')}|${Math.max(2, Math.round(this.params.cpmlCells ?? 16))}|${this.params.c}|${this.params.dx}|${dt}`;
+      if (!this.cpml || this.cpml.key !== key) this.cpml = new Cpml(this.params.shape, cf, this.params.cpmlCells ?? 16, this.params.c, this.params.dx, dt);
+      if (this.cpml.wallsFor !== K) {
+        const wall = new Uint8Array(this.n);
+        for (let q = 0; q < this.n; q++) {
+          const m = this.material[q];
+          if (m !== 0) wall[q] = (MATERIALS[m] ?? MATERIALS[1]).kind === 'soft' ? 0 : 1;
+        }
+        this.cpml.setWalls(wall);
+        this.cpml.wallsFor = K;
+      }
+      ext = this.cpml.update(p);
+    }
     const sx = ny * nz;
     const sy = nz;
     const zs = dims === 3 ? nz : 1;
@@ -639,7 +661,7 @@ export class Simulation {
               if (z < nz - 1) acc += p[idx + 1];
             }
           }
-          const lap = acc - K[idx] * pc;
+          const lap = ext ? acc - K[idx] * pc + ext[idx] : acc - K[idx] * pc;
           const sd = S[idx];
           let rhs = 2 * pc - pPrev[idx] + C[idx] * lap + sd * pPrev[idx];
           const q = Qa[idx];
@@ -656,7 +678,7 @@ export class Simulation {
         }
       }
     }
-    if (facesOf(this.params).includes('mur')) this.murEdges();
+    if (faces.includes('mur')) this.murEdges();
   }
 
   /** First-order Engquist-Majda (Mur) edges, same as physics.mur_edges. */

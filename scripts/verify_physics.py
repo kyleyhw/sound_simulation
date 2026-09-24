@@ -11,7 +11,7 @@ snapshot, and writes figures + a JSON summary for the report:
    von Neumann predictions, along an axis and the diagonal.
 5. Point-source response vs the analytic 2D and 3D Green's functions.
 6. Reverberation time of absorbing rooms vs Sabine and Eyring.
-7. Reflection of the absorbing edges (Mur, sponge) vs angle and frequency.
+7. Reflection of the absorbing edges (Mur, sponge, CPML) vs angle and frequency.
 
     uv run python scripts/verify_physics.py --out tests/reports/physics_artifacts
 """
@@ -53,6 +53,43 @@ def peak_freq(x: np.ndarray, dt: float, f_lo: float, f_hi: float) -> float:
     return float(f[k] + off * (f[1] - f[0]))
 
 
+def mode_shapes(n: int, ms: list[int], boundary: str) -> np.ndarray:
+    """Exact 1D discrete eigenvectors of the engine's Laplacian, one row per m.
+
+    Pressure-release (Dirichlet nodes 0 and n-1 held at 0): sin(pi m i/(n-1)).
+    Rigid (cell-centred Neumann, ghost = mirror): cos(pi m (i + 1/2)/n).
+    """
+    i = np.arange(n)
+    if boundary == "soft":
+        return np.array([np.sin(np.pi * m * i / (n - 1)) for m in ms])
+    return np.array([np.cos(np.pi * m * (i + 0.5) / n) for m in ms])
+
+
+def modal_series(
+    sim: Simulate, modes: list[tuple[int, int]], boundary: str, steps: int
+) -> np.ndarray:
+    """Run ``steps`` and return each mode's amplitude over time, (steps, len(modes)).
+
+    Projecting the whole field onto an exact eigenvector isolates that mode,
+    so near-degenerate modes (e.g. (3,1) and (2,2) in a 41x31 box) can no
+    longer be confused by a spectral peak search, and every trace is a
+    single sinusoid whose frequency is measured to ~1e-6.
+    """
+    nx, ny = sim.grid_shape
+    mx = sorted({m for m, _ in modes})
+    my = sorted({k for _, k in modes})
+    bx = mode_shapes(nx, mx, boundary)
+    by = mode_shapes(ny, my, boundary)
+    ix = [mx.index(m) for m, _ in modes]
+    iy = [my.index(k) for _, k in modes]
+    out = np.empty((steps, len(modes)))
+    for t in range(steps):
+        sim.step()
+        a = bx @ sim.p.astype(np.float64) @ by.T
+        out[t] = a[ix, iy]
+    return out
+
+
 def discrete_freq(k: list[float], sigma: float, dt: float, dx: float) -> float:
     """von Neumann: sin^2(w dt/2) = sigma^2 sum sin^2(k_a dx/2)."""
     s = sigma**2 * sum(np.sin(ka * dx / 2) ** 2 for ka in k)
@@ -70,11 +107,6 @@ def cavity_modes() -> dict:
     for boundary in ("soft", "rigid"):
         sim = Simulate((nx, ny), boundary=boundary)
         sim.set_drivers([Driver((7, 5), RickerWavelet(1.0, 0.25, 6.0))])
-        tr = []
-        for _ in range(40000):
-            sim.step()
-            tr.append(float(sim.p[nx - 9, ny - 6]))
-        x = np.array(tr)
         # Effective lengths: Dirichlet nodes 0..N-1 held at 0 -> L=(N-1)dx;
         # rigid cell-centred Neumann (ghost = mirror) -> L = N dx.
         lx, ly = (nx - 1, ny - 1) if boundary == "soft" else (nx, ny)
@@ -83,12 +115,13 @@ def cavity_modes() -> dict:
             if boundary == "rigid"
             else [(1, 1), (2, 1), (1, 2), (2, 2), (3, 1)]
         )
+        series = modal_series(sim, modes, boundary, 40000)
         rows = []
-        for m, n in modes:
+        for q, (m, n) in enumerate(modes):
             kx, ky = np.pi * m / lx, np.pi * n / ly
             f_cont = 0.5 * np.hypot(m / lx, n / ly)
             f_disc = discrete_freq([kx, ky], np.sqrt(sim._coeff), sim.timestep, 1.0)
-            f_meas = peak_freq(x, sim.timestep, f_cont * 0.97, f_cont * 1.03)
+            f_meas = peak_freq(series[:, q], sim.timestep, f_cont * 0.9, f_cont * 1.1)
             rows.append(
                 {
                     "mode": [m, n],
@@ -137,11 +170,26 @@ def convergence() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def energy(sim: Simulate) -> float:
+def energy(sim: Simulate, solid: np.ndarray | None = None) -> float:
+    """Discrete leap-frog energy (conserved exactly by the lossless scheme).
+
+    E = 1/2 sum ((p - p_prev)/dt)^2 + 1/2 sum_faces (D p)(D p_prev),
+    over fluid cells and fluid-fluid faces. Rigid cells are outside the
+    domain (their faces carry no flux), so pairs touching ``solid`` are
+    dropped; pressure-release cells are part of the domain (p = 0 there),
+    so their faces stay in.
+    """
     p = sim.p.astype(np.float64)
     pp = sim.p_prev.astype(np.float64)
-    kin = (((p - pp) / sim.timestep) ** 2).sum()
-    pot = sum((np.diff(p, axis=a) * np.diff(pp, axis=a)).sum() for a in range(p.ndim))
+    fluid = np.ones(p.shape, bool) if solid is None else ~solid
+    kin = ((((p - pp) / sim.timestep) ** 2) * fluid).sum()
+    pot = 0.0
+    for a in range(p.ndim):
+        both = np.logical_and(
+            np.take(fluid, range(1, p.shape[a]), axis=a),
+            np.take(fluid, range(0, p.shape[a] - 1), axis=a),
+        )
+        pot += (np.diff(p, axis=a) * np.diff(pp, axis=a) * both).sum()
     return 0.5 * kin + 0.5 * pot
 
 
@@ -155,11 +203,12 @@ def energy_conservation() -> dict:
         sim.set_drivers([Driver((64, 30), RickerWavelet(1.0, 0.1, 15.0))])
         for _ in range(100):
             sim.step()
-        e = [energy(sim)]
+        solid = m == 2
+        e = [energy(sim, solid)]
         for _ in range(20):
             for _ in range(500):
                 sim.step()
-            e.append(energy(sim))
+            e.append(energy(sim, solid))
         e = np.array(e)
         out[boundary] = {"steps": 10000, "max_rel_drift": float(np.abs(e / e[0] - 1).max())}
     return out
@@ -174,23 +223,22 @@ def dispersion() -> dict:
     n = 64
     sim = Simulate((n, n), boundary="rigid")
     sim.set_drivers([Driver((3, 2), RickerWavelet(1.0, 0.45, 3.0))])
-    tr = []
-    for _ in range(60000):
-        sim.step()
-        tr.append(float(sim.p[n - 4, n - 3]))
-    x = np.array(tr)
-    sig = np.sqrt(sim._coeff)
-    rows = []
-    for axis_name, modes in (
+    groups = (
         ("axis", [(m, 0) for m in range(2, 50, 4)]),
         ("diagonal", [(m, m) for m in range(2, 36, 3)]),
-    ):
+    )
+    all_modes = [md for _, g in groups for md in g]
+    series = modal_series(sim, all_modes, "rigid", 30000)
+    sig = np.sqrt(sim._coeff)
+    rows = []
+    for axis_name, modes in groups:
         for m, k2 in modes:
+            x = series[:, all_modes.index((m, k2))]
             kx, ky = np.pi * m / n, np.pi * k2 / n
             f_cont = 0.5 * np.hypot(m / n, k2 / n)
             f_disc = discrete_freq([kx, ky], sig, sim.timestep, 1.0)
             f_meas = peak_freq(
-                x, sim.timestep, min(f_cont, f_disc) * 0.97, max(f_cont, f_disc) * 1.03
+                x, sim.timestep, min(f_cont, f_disc) * 0.9, max(f_cont, f_disc) * 1.1
             )
             lam = 1.0 / f_cont  # cells per wavelength (c = dx = 1)
             rows.append(
@@ -256,6 +304,10 @@ def greens() -> tuple[dict, plt.Figure]:
     dt3 = sim3.timestep
     t3 = (np.arange(len(num3)) + 1) * dt3
     ana3 = np.array([wf(v - dt3 - r3) for v in t3]) / (4 * np.pi * r3) / dt3**2
+    # Compare before the first wall reflection (path 2 * (n3 - c3) - r3 = 72
+    # cells, peak at t = 40 + 72) reaches the probe.
+    keep = t3 < 92
+    num3, ana3, t3 = num3[keep], ana3[keep], t3[keep]
     corr3 = float(np.corrcoef(num3, ana3)[0, 1])
     amp3 = float(np.abs(num3).max() / np.abs(ana3).max())
     out["3d"] = {"r_cells": r3, "correlation": corr3, "amplitude_ratio": amp3}
@@ -286,7 +338,9 @@ def alpha_diffuse_2d(beta: float) -> float:
 
 def t60_from_decay(x: np.ndarray, dt: float) -> float:
     """T60 from a Schroeder backward integral, fitted on -5..-25 dB (T20 x 3)."""
-    e = np.cumsum((x**2)[::-1])[::-1]
+    e = np.cumsum((x.astype(np.float64) ** 2)[::-1])[::-1]
+    if not e[0] > 0:
+        raise ValueError("silent trace (probe inside a wall?)")
     db = 10 * np.log10(e / e[0] + 1e-30)
     i0 = int(np.argmax(db <= -5))
     i1 = int(np.argmax(db <= -25))
@@ -306,9 +360,11 @@ def reverberation() -> dict:
         for _ in range(14):
             ci, cj = rng.integers(15, nx - 15), rng.integers(15, ny - 15)
             m[ci - 2 : ci + 3, cj - 2 : cj + 3] = 2
+        probes = [(120, 80), (60, 85), (130, 25), (90, 55)]
+        for q in probes + [(40, 30)]:  # keep scatterers off the source and mics
+            m[q[0] - 3 : q[0] + 4, q[1] - 3 : q[1] + 4] = 0
         sim.set_material_map(m)
         sim.set_drivers([Driver((40, 30), RickerWavelet(5.0, 0.12, 10.0))])
-        probes = [(120, 80), (60, 85), (130, 25), (90, 55)]
         rec = []
         for _ in range(int(9000 / sim.timestep)):
             sim.step()
@@ -360,7 +416,7 @@ def edge_reflection() -> dict:
     c = n_ref // 2
 
     def run(shape, boundary, s, ps):
-        sim = Simulate(shape, boundary=boundary, sponge_cells=24)
+        sim = Simulate(shape, boundary=boundary, sponge_cells=24, cpml_cells=24)
         sim.set_drivers([Driver(s, wf)])
         out = []
         for _ in range(steps):
@@ -377,7 +433,7 @@ def edge_reflection() -> dict:
         "angles_deg": [float(np.degrees(np.arctan2(x, 2 * d))) for x in offsets],
         "freqs": freqs[band].tolist(),
     }
-    for boundary in ("soft", "mur", "sponge"):
+    for boundary in ("soft", "mur", "sponge", "cpml"):
         tr = run((rows, cols), boundary, src, probes)
         refl = tr - ref
         rdb = []
@@ -450,15 +506,15 @@ def main() -> None:
     r = run("edges", edge_reflection)
     if r:
         results["edges"] = r
-        fig, axs = plt.subplots(1, 2, figsize=(10, 3.4), sharey=True)
-        for ax, name in zip(axs, ("mur", "sponge")):  # soft ~ 0 dB is the sanity check
+        fig, axs = plt.subplots(1, 3, figsize=(14, 3.4), sharey=True)
+        for ax, name in zip(axs, ("mur", "sponge", "cpml")):  # soft ~ 0 dB is the sanity check
             for k, ang in enumerate(r["angles_deg"]):
                 ax.plot(r["freqs"], r[name][k], label=f"{ang:.0f}°")
             ax.set_title(f"{name}: reflection vs frequency")
             ax.set_xlabel("frequency (cycles per time unit)")
             ax.axhline(-40, color="k", lw=0.6, ls=":")
         axs[0].set_ylabel("reflection (dB)")
-        axs[1].legend(title="incidence", fontsize=8)
+        axs[2].legend(title="incidence", fontsize=8)
         fig.tight_layout()
         fig.savefig(out / "edges.png", dpi=130)
     results["timings_s"] = timings

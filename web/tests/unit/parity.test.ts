@@ -4,14 +4,15 @@
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { type DriverSpec, Simulation } from '../../src/engine/simulation';
+import { type DriverSpec, type OuterKind, Simulation } from '../../src/engine/simulation';
 import type { WaveformSpec } from '../../src/engine/waveforms';
 
 interface Fixture {
-  boundary?: 'soft' | 'rigid' | 'absorb' | 'mur' | 'sponge';
-  faces?: ('soft' | 'rigid' | 'absorb' | 'mur' | 'sponge')[] | null;
+  boundary?: OuterKind;
+  faces?: OuterKind[] | null;
   outer_beta?: number;
   sponge_cells?: number;
+  cpml_cells?: number;
   materials?: number[][];
   speed?: number[] | null;
   shape: number[];
@@ -27,7 +28,7 @@ function load(name: string): Fixture {
   return JSON.parse(readFileSync(new URL(`../fixtures/${name}.json`, import.meta.url), 'utf8'));
 }
 
-for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', 'general_mur', 'general_sponge', 'general_speed', 'general_faces']) {
+for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', 'general_mur', 'general_sponge', 'general_speed', 'general_faces', 'general_cpml', 'cpml3d']) {
   describe(name, () => {
     it('matches the Python engine', () => {
       const fx = load(name);
@@ -38,6 +39,7 @@ for (const name of ['parity2d', 'parity3d', 'general_rigid', 'general_absorb', '
         outer: fx.boundary ?? 'soft',
         outerBeta: fx.outer_beta ?? 1,
         spongeCells: fx.sponge_cells ?? 24,
+        cpmlCells: fx.cpml_cells,
         faces: fx.faces ?? undefined,
       });
       expect(sim.dt).toBeCloseTo(fx.timestep, 12);

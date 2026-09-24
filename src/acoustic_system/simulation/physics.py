@@ -17,9 +17,10 @@ wave speed. Everything else runs through the general kernel here:
   :math:`\\tau = R/K_s`, is high-pass: reflective below
   :math:`f_c = 1/(2\\pi\\tau)`, absorbing above (a porous absorber or
   curtain).
-* **Absorbing outer boundaries**: Engquist-Majda/Mur first order, or a
+* **Absorbing outer boundaries**: Engquist-Majda/Mur first order, a
   graded damping layer :math:`p_{tt} + 2\\sigma p_t = c^2 \\nabla^2 p`
-  with a cubic profile.
+  with a cubic profile ("sponge"), or a convolutional PML ("cpml", see
+  ``cpml.py``), which adds :math:`C\\,\\text{ext}` to the right-hand side.
 * **Heterogeneous media**: a relative wave-speed map :math:`c(x)/c_0`.
 
 Discretisation (one cell, air, with :math:`M` faces touching
@@ -86,7 +87,7 @@ def absorption_from_beta(beta: float) -> float:
     return 1.0 - r * r
 
 
-OUTER_KINDS = ("soft", "rigid", "absorb", "mur", "sponge")
+OUTER_KINDS = ("soft", "rigid", "absorb", "mur", "sponge", "cpml")
 
 
 def normalize_faces(outer: "str | Sequence[str]", dims: int) -> tuple[str, ...]:
@@ -142,6 +143,7 @@ class GeneralCoefficients:
     ks: np.ndarray  # float32 spring constant K_s
     mur_edges: bool
     mur_faces: tuple[int, ...] = ()
+    cpml_faces: tuple[bool, ...] = ()
 
 
 def build_coefficients(
@@ -161,7 +163,7 @@ def build_coefficients(
     (axis 0 low, axis 0 high, axis 1 low, ...).
     """
     faces = normalize_faces(outer, material.ndim)
-    held_kinds = ("soft", "sponge", "mur")
+    held_kinds = ("soft", "sponge", "mur", "cpml")
     shape = material.shape
     dims = material.ndim
     lam = float(np.sqrt(coeff))
@@ -247,12 +249,13 @@ def build_coefficients(
         ks=ks.astype(np.float32),
         mur_edges=bool(mur_faces),
         mur_faces=mur_faces,
+        cpml_faces=tuple(f == "cpml" for f in faces),
     )
 
 
 @njit(parallel=True, fastmath=False, cache=True)
 def general_step_2d(
-    p, pp, pn, active, k_air, c2, s, qq, qa, inv_a, ks, v, x, dt
+    p, pp, pn, active, k_air, c2, s, qq, qa, inv_a, ks, v, x, dt, ext, use_ext
 ):  # pragma: no cover - numba
     ni, nj = p.shape
     for i in prange(ni):  # ty: ignore[not-iterable]
@@ -271,6 +274,8 @@ def general_step_2d(
             if j < nj - 1:
                 acc += p[i, j + 1]
             lap = acc - k_air[i, j] * pc
+            if use_ext:
+                lap += ext[i, j]
             sd = s[i, j]
             rhs = 2.0 * pc - pp[i, j] + c2[i, j] * lap + sd * pp[i, j]
             q = qa[i, j]
@@ -287,7 +292,7 @@ def general_step_2d(
 
 @njit(parallel=True, fastmath=False, cache=True)
 def general_step_3d(
-    p, pp, pn, active, k_air, c2, s, qq, qa, inv_a, ks, v, x, dt
+    p, pp, pn, active, k_air, c2, s, qq, qa, inv_a, ks, v, x, dt, ext, use_ext
 ):  # pragma: no cover - numba
     ni, nj, nk = p.shape
     for i in prange(ni):  # ty: ignore[not-iterable]
@@ -311,6 +316,8 @@ def general_step_3d(
                 if k < nk - 1:
                     acc += p[i, j, k + 1]
                 lap = acc - k_air[i, j, k] * pc
+                if use_ext:
+                    lap += ext[i, j, k]
                 sd = s[i, j, k]
                 rhs = 2.0 * pc - pp[i, j, k] + c2[i, j, k] * lap + sd * pp[i, j, k]
                 q = qa[i, j, k]

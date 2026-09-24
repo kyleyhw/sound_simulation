@@ -152,6 +152,14 @@ test.describe('sandbox', () => {
     await page.getByTestId('run').click();
     await page.getByLabel('Outer boundary').selectOption('sponge');
     expect(await app<string>(page, '(s) => s.runtime.sim.params.outer')).toBe('sponge');
+    await page.getByLabel('Outer boundary').selectOption('cpml');
+    expect(await app<string>(page, '(s) => s.runtime.sim.params.outer')).toBe('cpml');
+    await page.getByTestId('cpml-cells').fill('12');
+    await page.getByTestId('cpml-cells').press('Enter');
+    expect(await app<number>(page, '(s) => s.runtime.sim.params.cpmlCells')).toBe(12);
+    const before = await app<number>(page, '(s) => s.runtime.sim.step_count');
+    await page.getByTestId('step').click();
+    expect(await app<number>(page, '(s) => s.runtime.sim.step_count')).toBe(before + 1);
     // Invalid input is rejected, not applied.
     await page.getByTestId('grid-1').fill('-5');
     await page.getByTestId('grid-1').press('Enter');

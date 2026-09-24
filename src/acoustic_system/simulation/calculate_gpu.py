@@ -229,7 +229,8 @@ void general_step(const float* __restrict__ p,
                   float* __restrict__ v,
                   float* __restrict__ x,
                   const float dt,
-                  const int ni, const int nj, const int nk, const int dims)
+                  const int ni, const int nj, const int nk, const int dims,
+                  const float* __restrict__ ext, const int use_ext)
 {
     const int k = blockIdx.x * blockDim.x + threadIdx.x;
     const int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -249,7 +250,8 @@ void general_step(const float* __restrict__ p,
         if (k > 0)      acc += p[idx - 1];
         if (k < nk - 1) acc += p[idx + 1];
     }
-    const float lap = acc - (float)k_air[idx] * pc;
+    float lap = acc - (float)k_air[idx] * pc;
+    if (use_ext) lap += ext[idx];
     const float sd = s[idx];
     float rhs = 2.0f * pc - pp[idx] + c2[idx] * lap + sd * pp[idx];
     const float q = qa[idx];
@@ -267,7 +269,9 @@ void general_step(const float* __restrict__ p,
 """
 
 
-def general_step_gpu(p: Any, pp: Any, pn: Any, g: Any, v: Any, x: Any, dt: float) -> None:
+def general_step_gpu(
+    p: Any, pp: Any, pn: Any, g: Any, v: Any, x: Any, dt: float, ext: Any = None
+) -> None:
     """GPU twin of ``physics.general_step_2d/_3d``.
 
     ``g`` holds the device-resident coefficient arrays (``GeneralCoefficients``
@@ -284,5 +288,6 @@ def general_step_gpu(p: Any, pp: Any, pn: Any, g: Any, v: Any, x: Any, dt: float
         (
             p, pp, pn, g.active, g.k_air, g.c2, g.s, g.qq, g.qa, g.inv_a, g.ks, v, x,
             np.float32(dt), np.int32(ni), np.int32(nj), np.int32(nk), np.int32(dims),
+            ext if ext is not None else p, np.int32(ext is not None),
         ),
     )  # fmt: skip

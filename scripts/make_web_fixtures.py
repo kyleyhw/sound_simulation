@@ -31,7 +31,12 @@ def run(
     shape, obstacles, drivers, steps, boundary="soft", outer_beta=1.0, materials=None, speed=None
 ):
     sim = Simulate(
-        grid_shape=shape, courant=0.5, boundary=boundary, boundary_beta=outer_beta, sponge_cells=12
+        grid_shape=shape,
+        courant=0.5,
+        boundary=boundary,
+        boundary_beta=outer_beta,
+        sponge_cells=12,
+        cpml_cells=10,
     )
     if obstacles:
         sim.set_obstacle(obstacles)
@@ -88,6 +93,7 @@ def main() -> None:
         "general_sponge": ("sponge", 1.0, None),
         "general_speed": ("rigid", 1.0, speed),
         "general_faces": (("mur", "rigid", "sponge", "absorb"), 0.4, None),
+        "general_cpml": (("cpml", "cpml", "rigid", "cpml"), 1.0, None),
     }
     for name, (boundary, beta, spd) in general.items():
         drv = [((30, 22), RickerWavelet(5.0, 0.1, 15.0)), ((12, 40), Cosine(0.03, 0.4))]
@@ -99,6 +105,7 @@ def main() -> None:
             "faces": list(boundary) if not isinstance(boundary, str) else None,
             "outer_beta": beta,
             "sponge_cells": 12,
+            "cpml_cells": 10,
             "obstacles": [list(o) for o in soft],
             "materials": [[*pos, mid] for pos, mid in mats],
             "speed": None if spd is None else [float(v) for v in spd.ravel()],
@@ -109,6 +116,24 @@ def main() -> None:
         }
         (OUT / f"{name}.json").write_text(json.dumps(data))
         print(f"wrote {name}.json  |p|max={float(np.abs(sim.p).max()):.4g}")
+
+    # 3D CPML on every face.
+    shape3 = (26, 22, 20)
+    drv3 = [((13, 11, 10), RickerWavelet(5.0, 0.12, 12.0))]
+    sim = run(shape3, [], drv3, 90, "cpml")
+    data = {
+        "shape": list(shape3),
+        "courant": 0.5,
+        "boundary": "cpml",
+        "cpml_cells": 10,
+        "obstacles": [],
+        "drivers": [{"pos": list(p), "waveform": wf_json(w)} for p, w in drv3],
+        "steps": 90,
+        "timestep": sim.timestep,
+        "p": [float(f"{v:.8g}") for v in np.asarray(sim.p, dtype=np.float64).ravel()],
+    }
+    (OUT / "cpml3d.json").write_text(json.dumps(data))
+    print(f"wrote cpml3d.json  |p|max={float(np.abs(sim.p).max()):.4g}")
 
     for name, (shape, obst, drivers, steps) in cases.items():
         sim = run(shape, obst, drivers, steps)

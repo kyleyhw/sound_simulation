@@ -103,6 +103,7 @@ class Simulate:
         boundary_beta: float = 1.0,
         sponge_cells: int = 24,
         scheme: str = "standard",
+        cpml_cells: int = 16,
     ) -> None:
         self.grid_shape: Tuple[int, ...] = tuple(int(n) for n in grid_shape)
         self.wavespeed: float = float(wavespeed)
@@ -220,6 +221,8 @@ class Simulate:
         self.boundary: "str | tuple[str, ...]" = faces[0] if len(set(faces)) == 1 else faces
         self.boundary_beta: float = float(boundary_beta)
         self.sponge_cells: int = int(sponge_cells)
+        self.cpml_cells: int = int(cpml_cells)
+        self._cpml = None
         self.material: np.ndarray = np.zeros(self.grid_shape, dtype=np.uint8)
         self.speed_map: Optional[np.ndarray] = None
         self._wall_v = np.zeros(self.grid_shape, dtype=np.float32)
@@ -421,7 +424,7 @@ class Simulate:
                 "rigid/impedance walls, absorbing boundaries and c(x) need a 2D or 3D grid"
             )
         self._general = general
-        self._gcoef = None  # rebuilt lazily
+        self._gcoef = None  # rebuilt lazily (the CPML state survives geometry edits)
 
     def set_material(self, positions: Iterable[Tuple[int, ...]], material_id: int) -> None:
         """Assign a material (``physics.MATERIALS`` id; 0 = air) to cells.
@@ -500,6 +503,28 @@ class Simulate:
                 self.timestep,
             )
         g = self._gcoef
+        ext = None
+        if any(g.cpml_faces):
+            if self._cpml is None or self._cpml.faces != g.cpml_faces:
+                from .cpml import CPML
+
+                self._cpml = CPML(
+                    self.grid_shape,
+                    g.cpml_faces,
+                    self.cpml_cells,
+                    self.wavespeed,
+                    self.gridstep,
+                    self.timestep,
+                    xp=self._xp,
+                )
+            if getattr(self._cpml, "_walls_for", None) is not g:
+                from .physics import MATERIALS
+
+                eff = self._effective_material()
+                no_flux = np.array([m.kind in ("rigid", "absorb") for m in MATERIALS])
+                self._cpml.set_walls(no_flux[np.clip(eff, 0, len(MATERIALS) - 1)])
+                self._cpml._walls_for = g
+            ext = self._cpml.update(p)
         if self.backend == "gpu":
             # Device path (plan 5.1.2): coefficients uploaded once per
             # geometry change; branch state lives on the device.
@@ -522,7 +547,14 @@ class Simulate:
                     self._wall_v = cp.zeros(self.grid_shape, dtype=np.float32)
                     self._wall_x = cp.zeros(self.grid_shape, dtype=np.float32)
             calculate_gpu.general_step_gpu(
-                p, p_prev, p_next, self._gcoef_dev[1], self._wall_v, self._wall_x, self.timestep
+                p,
+                p_prev,
+                p_next,
+                self._gcoef_dev[1],
+                self._wall_v,
+                self._wall_x,
+                self.timestep,
+                ext,
             )
             if g.mur_edges:
                 mur_edges(p, p_next, float(np.sqrt(self._coeff)), g.mur_faces)
@@ -531,6 +563,7 @@ class Simulate:
         step(
             p, p_prev, p_next, g.active, g.k_air, g.c2, g.s, g.qq, g.qa, g.inv_a, g.ks,
             self._wall_v, self._wall_x, np.float32(self.timestep),
+            ext if ext is not None else p, ext is not None,
         )  # fmt: skip
         if g.mur_edges:
             mur_edges(p, p_next, float(np.sqrt(self._coeff)), g.mur_faces)
@@ -566,6 +599,8 @@ class Simulate:
         self._p_next.fill(0.0)
         self._wall_v.fill(0.0)
         self._wall_x.fill(0.0)
+        if self._cpml is not None:
+            self._cpml.reset()
         self.time = 0.0
         self.step_count = 0
 
