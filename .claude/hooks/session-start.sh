@@ -23,7 +23,7 @@ uv run pre-commit install >/dev/null
 # Frontend: npm ci, not install. `npm install` rewrites package-lock.json
 # (npm-version metadata churn), which would dirty the tree every session.
 # ~6 s for this small dependency set.
-(cd frontend && npm ci --no-audit --no-fund)
+(cd web && npm ci --no-audit --no-fund)
 
 # Make `python`, `ruff`, `ty` resolve to the project venv for the session.
 echo "export PATH=\"$CLAUDE_PROJECT_DIR/.venv/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"

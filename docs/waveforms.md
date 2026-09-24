@@ -108,6 +108,7 @@ selected a file yet.
   callable interface lets `Driver.get_value(time)` be agnostic to the
   source family.
 - `waveform_registry` maps string names to classes for reconstruction
-  from JSON configuration sent by the frontend.
+  from JSON scene files (the browser app's `web/src/engine/waveforms.ts`
+  mirrors these formulas).
 - Adding a new family is a one-class change: subclass `Waveform`,
   implement `__call__`, and register the name.

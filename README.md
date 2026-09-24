@@ -15,7 +15,7 @@ sound field in it (directed audio, local quiet). The roadmap is in
 | Component | Location | Summary |
 | --- | --- | --- |
 | FDTD engine | `src/acoustic_system/simulation/` | Step-at-a-time leap-frog solver (`Simulate`). Fused numba kernels for 2D and 3D, an optional CUDA backend (`backend="gpu"`, CuPy), obstacles, drivers, and waveforms (Ricker, Gaussian, cosine, WAV file). |
-| Web UI | `src/acoustic_system/app/` + `frontend/` | FastAPI/Socket.IO server and a React front end. Draw obstacles, place sources, and watch waves propagate live in 2D and 3D. |
+| Web app | `web/` | The Acoustic Sandbox: the FDTD engine ported to TypeScript and run in the browser (no server), hosted on GitHub Pages. Draw rooms, place sources and microphones, listen, and share scenes. |
 | Sensing (ML) | `src/acoustic_system/learning/` + `scripts/` | Dataset generation, CNN models that predict an obstacle map from stereo recordings, multi-pose Bayes fusion, and calibration. |
 | Checks and benchmarks | `tests/` | Kernel regression checks, learning checks, and benchmarks (`uv run pytest`). |
 | Docs | `docs/` | One page per module; index at [`docs/index.md`](docs/index.md). |
@@ -34,11 +34,10 @@ uv sync --extra dev --extra ml # + PyTorch for the sensing models
 uv run pytest                  # all checks
 ```
 
-Run the web UI (two terminals):
+Run the web app locally (it is also hosted on GitHub Pages):
 
 ```bash
-uv run python scripts/run_ui_server.py      # backend on 127.0.0.1:8001
-cd frontend && npm install && npm run dev   # UI on http://127.0.0.1:3000
+cd web && npm install && npm run dev        # http://127.0.0.1:3000
 ```
 
 Run a standalone batch simulation (plots the field and the sensor

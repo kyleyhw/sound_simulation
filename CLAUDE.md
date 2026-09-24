@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-N-dimensional FDTD simulation of acoustic wave propagation, written to generate acoustic datasets for ML echolocation / room-mapping models. The longer-term goal is a closed-loop acoustic control system (sense → infer → beamform); see `PROJECT_PLAN.md`. Current focus is Phase 1: the interactive browser-based simulation UI.
+N-dimensional FDTD simulation of acoustic wave propagation, written to generate acoustic datasets for ML echolocation / room-mapping models. The longer-term goal is a closed-loop acoustic control system (sense → infer → beamform); see `PROJECT_PLAN.md` (ten sequential phases; §4 lists the execution rules).
 
 `CURRENT_STATE.md` is the live status note — read it for the latest "what works, what's blocked" picture before diagnosing anything.
 
@@ -13,23 +13,22 @@ N-dimensional FDTD simulation of acoustic wave propagation, written to generate 
 The Python package is installed under `src/acoustic_system/`:
 
 - `simulation/` — the standalone FDTD engine (`Simulate`, kernel, waveforms, I/O, plotting). Dimension-agnostic, but the 2D path is hot.
-- `app/main.py` — FastAPI + Socket.IO server hosting an interactive `SimulationManager` over the engine.
-- `control/`, `learning/`, `utils/` — placeholders for later phases (Phase 3 beamformer, Phase 2 inference).
+- `learning/` — sensing datasets, models, training, calibration, metrics.
+- `control/` — sound-field control (beamforming, crosstalk cancellation, ANC).
 
-`frontend/` is a Vite + React + TypeScript dev server that talks to the backend over `/socket.io`. `tests/perf/` contains the correctness gate and benchmark used by the evolve harness.
-
-Note: older docs (and the top-level `README.md` "Code Structure" block) refer to a flat `simulation/` and `app/` layout at the repo root. The code has been moved under `src/acoustic_system/`; trust the actual tree, not the legacy references.
+`web/` is the browser app (Vite + React + TypeScript): the FDTD engine ported to TypeScript and run client-side, deployed to GitHub Pages. It replaced the former `frontend/` + FastAPI/Socket.IO server (removed in plan 4.5.4). See `docs/web_app.md`. `tests/perf/` contains the correctness gate and benchmark used by the evolve harness.
 
 ## Commands
 
-### Web UI (two terminals, from project root)
+### Web app
 
 ```
-python scripts/run_ui_server.py             # uvicorn on 127.0.0.1:8001
-cd frontend && npm install && npm run dev   # vite on 127.0.0.1:3000
+cd web && npm install && npm run dev   # vite on 127.0.0.1:3000
+npm test                               # Vitest unit tests (incl. Python-parity fixtures)
+npm run e2e                            # Playwright end-to-end (PW_CHROMIUM=/opt/pw-browsers/chromium in the cloud container)
 ```
 
-Open `http://127.0.0.1:3000`. Vite proxies `/socket.io` (HTTP + WS) to 8001. The backend host/port can be overridden with `ACOUSTIC_HOST` / `ACOUSTIC_PORT`.
+The TypeScript engine's fast path must keep matching the Python engine: regenerate fixtures with `uv run python scripts/make_web_fixtures.py` whenever the Python kernel's numerics change.
 
 ### Standalone batch simulation
 
@@ -37,7 +36,7 @@ Open `http://127.0.0.1:3000`. Vite proxies `/socket.io` (HTTP + WS) to 8001. The
 cd src && python -m acoustic_system.simulation.main
 ```
 
-Renders a 256×256 / 500-step run with two cosine drivers and three sensors, then pops up matplotlib windows for the field, sensor timeseries, and sensor FFT.
+Renders a 256×256 / 500-step run with a Ricker pulse and a tone plus three sensors, then shows the sensor timeseries, FFT and field animation (`--save` writes PNGs headlessly).
 
 ### Performance / correctness gates on the FDTD kernel
 
@@ -63,7 +62,7 @@ Optional extras: `--extra ml` (torch/torchaudio for Phase 2 training), `--extra 
 
 This creates `.venv/` and installs the project editable, so `import acoustic_system` works from anywhere. Run commands inside the env with `uv run <cmd>` (e.g. `uv run python tests/perf/check_simulate.py`).
 
-Python `>=3.10`. Runtime deps: numpy, scipy, numba (required by the 2D FDTD kernel), h5py, matplotlib, tqdm, fastapi, uvicorn, python-socketio. Dev toolchain (via `--extra dev`): ruff, ty, detect-secrets, pre-commit. Exact versions are pinned in `uv.lock`.
+Python `>=3.10`. Runtime deps: numpy, scipy, numba (required by the 2D FDTD kernel), h5py, matplotlib, tqdm. Dev toolchain (via `--extra dev`): ruff, ty, detect-secrets, pre-commit. Exact versions are pinned in `uv.lock`.
 
 The legacy `environment.yml` is gone — do not re-introduce a conda workflow. If you're tempted to `pip install` something, add it to `pyproject.toml` and run `uv sync` instead.
 
@@ -115,26 +114,14 @@ Watch out for sampling errors on `Cosine`: the source must satisfy $f \cdot \Del
 
 Dirichlet $p = 0$ (pressure-release) only, so far; rigid, absorbing and impedance boundaries are Phase 5 of `PROJECT_PLAN.md`. The wall enforcement lives in the fused 2D/3D kernels and in `set_edge_values` (1D/N-D fallback).
 
-### Web UI (`app/main.py` + `frontend/`)
+### Web app (`web/`)
 
-Architecture, wire protocol, and the bugs that previously blocked it are written up in `docs/web_ui.md`. Read it before modifying the manager or the socket handlers.
+Architecture, UX spec and tests: `docs/web_app.md`. Invariants:
 
-Invariants that previously broke and must not regress:
-
-- `SimulationManager` holds an `asyncio.Lock` and sets `is_running = True` **synchronously inside the lock** before scheduling the background coroutine. This eliminates a double-start race that previously spawned two parallel step loops on the same field.
-- Every emit is `await`ed. No `asyncio.create_task(sio.emit(...))` fire-and-forget — that swallows exceptions and drops back-pressure.
-- NumPy scalars are cast to native Python types before emission; socket.io's JSON encoder rejects `numpy.float32`.
-- The `connect` handler must NOT auto-start (the combination of auto-start + manual *Start* click was one of the original duplicate-loop bugs).
-- Grids are downsampled by `downsample` (default 2) before emission to keep the wire cheap.
-- The frontend renders via an `ImageData` buffer at native grid resolution blitted through an offscreen canvas with `imageSmoothingEnabled = false`. The render loop is a `requestAnimationFrame` tick decoupled from wire cadence and reads the latest frame from a ref — so fast clients render at refresh rate even when the backend ticks slower.
-
-Wire protocol (full table in `docs/web_ui.md`):
-
-- Client → server lifecycle: `start_simulation`, `stop_simulation`, `reset_simulation`, `update_config`, `request_status`.
-- Client → server geometry: `set_obstacle` (batched cells), `clear_obstacles`, `add_driver`, `remove_driver`, `clear_drivers`.
-- Server → client: `simulation_update` (downsampled grid + `step`, `time`, `max_val`), `status` (`is_running`, `engine`, `config`, `obstacles`, `drivers`).
-
-Geometry (`obstacles`, `drivers`) is broadcast on the `status` channel, not the per-frame `simulation_update`, because it changes at human pace. Obstacle brush strokes are batched on the frontend (~33 ms flush window) so one stroke arrives as O(strokes) socket events rather than O(cells).
+- The zustand store's `scene` is the single source of truth for geometry and sources; the `Runtime` mirrors it into the live `Simulation`. Mutations go through store actions (they snapshot for undo/redo).
+- The engine's fast path (p = 0 walls, uniform c) is the exact Python-parity path, gated by `web/tests/unit/parity.test.ts`. The general path (rigid, impedance, absorbing layer, c(x)) uses precomputed per-cell coefficients; keep the step loop allocation-free.
+- Driver injection happens after wall zeroing (soft source, `+=`), exactly as in Python.
+- Every feature has a Playwright test in `web/tests/e2e/`; tests read engine state via `window.__app`.
 
 ### Data I/O
 

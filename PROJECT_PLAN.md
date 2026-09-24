@@ -100,17 +100,21 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[completed]` 3.2.8: Correct the boundary wording everywhere: p = 0
         is a pressure-release wall, not a rigid one. This covers code
         comments, `docs/simulate.md`, and `CLAUDE.md`.
-*   `[pending]` **Task 3.3: Backend (`app/main.py`)**
-    *   `[pending]` 3.3.1: Check that every state-changing handler holds
-        the lock, and look for start/stop/reset races.
-    *   `[pending]` 3.3.2: Validate inputs on every socket event
-        (types, bounds, malformed payloads).
-    *   `[pending]` 3.3.3: Multiple clients share one simulation;
-        decide whether that is intended and handle it.
-    *   `[pending]` 3.3.4: Error handling: exceptions in the step loop,
-        failed emits, and a client disconnecting mid-sense.
-    *   `[pending]` 3.3.5: Add a test for every socket event (extend
-        `tests/app/`).
+*   `[completed]` **Task 3.3: Backend (`app/main.py`)**. The audit
+    found 12 bugs, 3 of them critical (see the Phase 3 report). The
+    server was then retired in 4.5.4: the new web app runs the engine in
+    the browser, so the class of bugs went with it.
+    *   `[completed]` 3.3.1: Lock coverage and races (audited; the
+        add_driver race and the stuck `is_running` are recorded).
+    *   `[completed]` 3.3.2: Input validation (audited; unvalidated
+        config, NaN/Infinity and arbitrary file paths are recorded).
+    *   `[completed]` 3.3.3: Multi-client behaviour (audited: one shared
+        session, broadcast to all).
+    *   `[completed]` 3.3.4: Error handling (audited: failures before the
+        `try`, and sense errors never reaching the client).
+    *   `[completed]` 3.3.5: Tests. The server was removed, so its test
+        went with it. The web app has one end-to-end test per feature
+        instead (4.5.1).
 *   `[pending]` **Task 3.4: Learning code and results (`learning/`,
     `scripts/`)**
     *   `[completed]` 3.4.1: Dataset loader: normalisation, pose
@@ -198,7 +202,7 @@ features below, passes end-to-end tests, and the old UI is deleted.
     *   `[completed]` 4.5.2: Performance: 60 fps rendering at 512²,
         measured.
     *   `[completed]` 4.5.3: Responsive layout and accessibility pass.
-    *   `[pending]` 4.5.4: Delete the old UI and rewrite
+    *   `[completed]` 4.5.4: Delete the old UI and rewrite
         `docs/web_ui.md`.
 
 ### Phase 5: Physics Correctness and Realism — `[pending]`

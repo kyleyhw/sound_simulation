@@ -19,7 +19,8 @@ This module packages the **recommended Phase 2 sensing recipe**
    this recipe: 0.0924 at K=8 vs 0.037 single-pose.
 
 Consumers: ``scripts/demo_room_mapping.py`` (standalone demo) and the
-web UI's ``sense_room`` socket event (``app/main.py``).
+browser app's sensing panel, via the ONNX export in
+``scripts/export_web_models.py``.
 
 Simulation parameters are read from the checkpoint's stored
 acquisition protocol (the training archive's file attrs): grid, steps,
@@ -110,7 +111,7 @@ _model_cache: dict[str, tuple[Any, SensingConfig]] = {}
 def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, SensingConfig]:
     """Load (and cache) a sensing checkpoint; returns ``(model, config)``.
 
-    The cache avoids re-deserialising the state dict on every socket
+    The cache avoids re-deserialising the state dict on every repeated
     event. Keyed by resolved path.
     """
     key = str(Path(checkpoint_path).resolve())

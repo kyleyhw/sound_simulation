@@ -10,12 +10,11 @@ This index provides an overview and links to the detailed documentation for each
 
 - [**`web_app.md`**](./web_app.md): The browser-native Acoustic Sandbox (`web/`), hosted on GitHub Pages. It covers the UX spec, visual design, architecture, engine paths and tests.
 
-- [**`web_ui.md`**](./web_ui.md): Architecture, wire protocol, and operation of the interactive browser-based simulation UI (the FastAPI/Socket.IO backend in `src/acoustic_system/app/` and the React frontend in `frontend/`).
 
 ## Machine learning (Phase 2)
 
 - [**`learning.md`**](./learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss, training/eval loops, and the results to date.
-- [**`demos.md`**](./demos.md): Phase 1+2 demonstrations — the standalone room-mapping figure (`scripts/demo_room_mapping.py`) and the web UI's "Acoustic sensing" panel (`sense_room` event), both built on `learning/sensing.py`.
+- [**`demos.md`**](./demos.md): Phase 1+2 demonstrations — the standalone room-mapping figure (`scripts/demo_room_mapping.py`) built on `learning/sensing.py`.
 
 ## Simulation engine
 
