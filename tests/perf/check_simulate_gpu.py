@@ -122,6 +122,34 @@ def run_pair(name: str, grid_shape: Tuple[int, ...], steps: int) -> None:
     compare(f"{name}_RESET", gpu.p_host(), cpu.p)
 
 
+def run_general_pair(name: str, grid_shape: Tuple[int, ...], steps: int, boundary: str) -> None:
+    """Phase 5 general path (materials, rigid/impedance walls, absorbing
+    boundaries) on both backends: the GPU general kernel must match numba."""
+    mats = np.zeros(grid_shape, dtype=np.uint8)
+    sl = tuple(slice(s // 4, s // 4 + 3) for s in grid_shape)
+    mats[sl] = 2
+    sl2 = tuple(slice(s // 2, s // 2 + 2) for s in grid_shape)
+    mats[sl2] = 6
+    sims = []
+    for backend in ("cpu", "gpu"):
+        sim = make_sim(backend, grid_shape)
+        sim = Simulate(
+            grid_shape=grid_shape,
+            drivers=list(sim.drivers),
+            backend=backend,
+            boundary=boundary,
+            boundary_beta=0.4,
+            sponge_cells=8,
+        )
+        sim.set_material_map(mats)
+        sims.append(sim)
+    cpu, gpu = sims
+    for _ in range(steps):
+        cpu.step()
+        gpu.step()
+    compare(name, gpu.p_host(), cpu.p)
+
+
 def main() -> None:
     if not calculate_gpu.gpu_available():
         fail("ENV", "no usable CUDA device (install --extra gpu, check nvidia-smi)")
@@ -141,6 +169,9 @@ def main() -> None:
 
     run_pair("2D", (128, 128), steps=300)
     run_pair("3D", (40, 40, 40), steps=100)
+    for boundary in ("rigid", "absorb", "mur", "sponge"):
+        run_general_pair(f"2D_{boundary}", (96, 96), 200, boundary)
+    run_general_pair("3D_absorb", (32, 32, 32), 80, "absorb")
 
 
 def test_gate() -> None:

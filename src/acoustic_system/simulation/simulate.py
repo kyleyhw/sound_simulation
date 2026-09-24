@@ -102,6 +102,7 @@ class Simulate:
         boundary: str = "soft",
         boundary_beta: float = 1.0,
         sponge_cells: int = 24,
+        scheme: str = "standard",
     ) -> None:
         self.grid_shape: Tuple[int, ...] = tuple(int(n) for n in grid_shape)
         self.wavespeed: float = float(wavespeed)
@@ -144,11 +145,21 @@ class Simulate:
             self._xp = np
         xp = self._xp
 
+        # Spatial scheme: "standard" (2d+1-point) or "compact" (2D 9-point,
+        # a = 1/4, stable to Courant 1; see calculate.fused_compact_step_2d).
+        if scheme not in ("standard", "compact"):
+            raise ValueError(f"scheme must be 'standard' or 'compact', got {scheme!r}")
+        if scheme == "compact" and (self.dims != 2 or self.backend != "cpu"):
+            raise ValueError("scheme='compact' is implemented for 2D CPU grids")
+        self.scheme: str = scheme
+
         # If no timestep provided, derive one from the requested Courant number.
-        # The CFL limit in d dimensions is C_max = 1/sqrt(d); we stay strictly under it.
-        cfl_limit = 1.0 / np.sqrt(self.dims)
+        # The CFL limit in d dimensions is C_max = 1/sqrt(d) (1 for the 2D
+        # compact scheme); we stay under it (the compact scheme may sit on it).
+        cfl_limit = 1.0 if scheme == "compact" else 1.0 / np.sqrt(self.dims)
         if timestep is None:
-            chosen_courant = min(float(courant), 0.95 * float(cfl_limit))
+            margin = 1.0 if scheme == "compact" else 0.95
+            chosen_courant = min(float(courant), margin * float(cfl_limit))
             # Plain Python float: a numpy float64 here would silently promote
             # the float32 field buffers on the non-fused (1D / N-D) path.
             self.timestep = float(chosen_courant * self.gridstep / self.wavespeed)
@@ -242,6 +253,15 @@ class Simulate:
                 self._kernel = calculate_gpu.fused_leapfrog_step_2d_gpu
             else:
                 self._kernel = calculate_gpu.fused_leapfrog_step_3d_gpu
+        elif self.dims == 2 and scheme == "compact":
+            from .calculate import fused_compact_step_2d
+
+            lam2 = np.float32(self._coeff)
+
+            def _compact(p, pp, pn, _coeff, _k=fused_compact_step_2d, _l=lam2):
+                _k(p, pp, pn, _l, np.float32(0.25))
+
+            self._kernel = _compact
         elif self.dims == 2:
             self._kernel = fused_leapfrog_step_2d
         elif self.dims == 3:
@@ -395,9 +415,11 @@ class Simulate:
         general = (
             self.boundary != "soft" or bool((self.material > 1).any()) or self.speed_map is not None
         )
-        if general and (self.dims not in (2, 3) or self.backend != "cpu"):
+        if general and getattr(self, "scheme", "standard") == "compact":
+            raise NotImplementedError("scheme='compact' supports p = 0 walls only")
+        if general and self.dims not in (2, 3):
             raise NotImplementedError(
-                "rigid/impedance walls, absorbing boundaries and c(x) need a 2D/3D CPU Simulate"
+                "rigid/impedance walls, absorbing boundaries and c(x) need a 2D or 3D grid"
             )
         self._general = general
         self._gcoef = None  # rebuilt lazily
@@ -429,7 +451,7 @@ class Simulate:
         if m.shape != self.grid_shape:
             raise ValueError(f"material shape {m.shape} != grid shape {self.grid_shape}")
         self.material = m
-        walls = m != 0
+        walls = self._xp.asarray(m != 0)
         self.p[walls] = 0.0
         self.p_prev[walls] = 0.0
         self._p_next[walls] = 0.0
@@ -455,7 +477,12 @@ class Simulate:
     def _effective_material(self) -> np.ndarray:
         m = self.material
         if self._has_obstacles:
-            m = np.where((m == 0) & self.obstacle_mask, np.uint8(1), m)
+            mask = self.obstacle_mask
+            if self.backend == "gpu":
+                from . import calculate_gpu
+
+                mask = calculate_gpu.cp.asnumpy(mask)
+            m = np.where((m == 0) & mask, np.uint8(1), m)
         return m
 
     def _run_general(self, p: np.ndarray, p_prev: np.ndarray, p_next: np.ndarray) -> None:
@@ -474,6 +501,33 @@ class Simulate:
                 self.timestep,
             )
         g = self._gcoef
+        if self.backend == "gpu":
+            # Device path (plan 5.1.2): coefficients uploaded once per
+            # geometry change; branch state lives on the device.
+            from dataclasses import fields as _fields
+            from types import SimpleNamespace
+
+            from . import calculate_gpu
+
+            cp = calculate_gpu.cp
+            if getattr(self, "_gcoef_dev", None) is None or self._gcoef_dev[0] is not g:
+                dev = SimpleNamespace(
+                    **{
+                        f.name: cp.asarray(getattr(g, f.name))
+                        for f in _fields(g)
+                        if f.name != "mur_edges"
+                    }
+                )
+                self._gcoef_dev = (g, dev)
+                if not isinstance(self._wall_v, cp.ndarray):
+                    self._wall_v = cp.zeros(self.grid_shape, dtype=np.float32)
+                    self._wall_x = cp.zeros(self.grid_shape, dtype=np.float32)
+            calculate_gpu.general_step_gpu(
+                p, p_prev, p_next, self._gcoef_dev[1], self._wall_v, self._wall_x, self.timestep
+            )
+            if g.mur_edges:
+                mur_edges(p, p_next, float(np.sqrt(self._coeff)))
+            return
         step = general_step_2d if self.dims == 2 else general_step_3d
         step(
             p, p_prev, p_next, g.active, g.k_air, g.c2, g.s, g.qq, g.qa, g.inv_a, g.ks,

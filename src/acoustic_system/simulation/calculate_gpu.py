@@ -201,3 +201,88 @@ def fused_leapfrog_step_3d_gpu(
         _BLOCK_3D,
         (p, p_prev, p_next, np.float32(coeff), np.int32(ni), np.int32(nj), np.int32(nk)),
     )
+
+
+# ---------------------------------------------------------------------------
+# General-path twin (plan Task 5.1.2) of physics.general_step_2d/_3d.
+# One kernel covers 2D (nk = 1, dims = 2) and 3D. Same update, same order:
+#   (1 + q/2 + s) p^{n+1} = 2p - p^{n-1} + C L + s p^{n-1}
+#                           - q (p/2 - K_s x) + Q v,   L = sum nbrs - K p
+# followed by the branch update of v, x. Written to mirror the numba
+# kernel line by line; parity is gated by tests/perf/check_simulate_gpu.py
+# on a CUDA machine (not available in the development container).
+# ---------------------------------------------------------------------------
+
+_KERNEL_GENERAL_SRC = r"""
+extern "C" __global__
+void general_step(const float* __restrict__ p,
+                  const float* __restrict__ pp,
+                  float* __restrict__ pn,
+                  const unsigned char* __restrict__ active,
+                  const unsigned char* __restrict__ k_air,
+                  const float* __restrict__ c2,
+                  const float* __restrict__ s,
+                  const float* __restrict__ qq,
+                  const float* __restrict__ qa,
+                  const float* __restrict__ inv_a,
+                  const float* __restrict__ ks,
+                  float* __restrict__ v,
+                  float* __restrict__ x,
+                  const float dt,
+                  const int ni, const int nj, const int nk, const int dims)
+{
+    const int k = blockIdx.x * blockDim.x + threadIdx.x;
+    const int j = blockIdx.y * blockDim.y + threadIdx.y;
+    const int i = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= ni || j >= nj || k >= nk) return;
+    const long long sj = nk;
+    const long long si = (long long)nj * nk;
+    const long long idx = (long long)i * si + (long long)j * sj + k;
+    if (active[idx] == 0) { pn[idx] = 0.0f; return; }
+    const float pc = p[idx];
+    float acc = 0.0f;
+    if (i > 0)      acc += p[idx - si];
+    if (i < ni - 1) acc += p[idx + si];
+    if (j > 0)      acc += p[idx - sj];
+    if (j < nj - 1) acc += p[idx + sj];
+    if (dims == 3) {
+        if (k > 0)      acc += p[idx - 1];
+        if (k < nk - 1) acc += p[idx + 1];
+    }
+    const float lap = acc - (float)k_air[idx] * pc;
+    const float sd = s[idx];
+    float rhs = 2.0f * pc - pp[idx] + c2[idx] * lap + sd * pp[idx];
+    const float q = qa[idx];
+    if (q != 0.0f) {
+        rhs += -q * (0.5f * pc - ks[idx] * x[idx]) + qq[idx] * v[idx];
+        const float nxt = rhs / (1.0f + 0.5f * q + sd);
+        const float vn = (0.5f * (nxt + pc) - ks[idx] * x[idx]) * inv_a[idx];
+        x[idx] += dt * vn;
+        v[idx] = vn;
+        pn[idx] = nxt;
+    } else {
+        pn[idx] = rhs / (1.0f + sd);
+    }
+}
+"""
+
+
+def general_step_gpu(p: Any, pp: Any, pn: Any, g: Any, v: Any, x: Any, dt: float) -> None:
+    """GPU twin of ``physics.general_step_2d/_3d``.
+
+    ``g`` holds the device-resident coefficient arrays (``GeneralCoefficients``
+    fields uploaded with ``cp.asarray``).
+    """
+    dims = p.ndim
+    ni, nj = p.shape[0], p.shape[1]
+    nk = p.shape[2] if dims == 3 else 1
+    bx, by, bz = (32, 8, 4) if dims == 3 else (1, 32, 8)
+    grid = ((nk + bx - 1) // bx, (nj + by - 1) // by, (ni + bz - 1) // bz)
+    _kernel("general_step", _KERNEL_GENERAL_SRC)(
+        grid,
+        (bx, by, bz),
+        (
+            p, pp, pn, g.active, g.k_air, g.c2, g.s, g.qq, g.qa, g.inv_a, g.ks, v, x,
+            np.float32(dt), np.int32(ni), np.int32(nj), np.int32(nk), np.int32(dims),
+        ),
+    )  # fmt: skip

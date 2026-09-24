@@ -275,3 +275,34 @@ try:
     numba.set_num_threads(_FDTD_THREAD_CAP)
 except Exception:
     pass
+
+
+@njit(parallel=True, fastmath=True, cache=True)
+def fused_compact_step_2d(p, p_prev, p_next, lam2, a):  # pragma: no cover - numba
+    """Compact explicit 9-point scheme (plan Task 5.7.1), p = 0 edges.
+
+    The family  delta_tt p = lam^2 [(delta_xx + delta_yy) + a delta_xx delta_yy] p
+    expands to
+        p^{n+1} = 2p - p^{n-1}
+                  + lam^2 [(1 - 2a) sum_axial + a sum_diagonal - 4(1 - a) p].
+    Von Neumann: sin^2(w dt/2) = lam^2 (X + Y - 4aXY), X, Y = sin^2(k dx/2).
+    It is stable iff lam^2 (2 - 4a) <= 1. The optimum, subject to
+    stability, of the worst-case phase-speed error for wavelengths >= 6
+    cells is a = 1/4, lam = 1: max error 1.2 %, against 3.5 % for the
+    5-point scheme at lam = 0.5, and it takes twice the timestep.
+    """
+    ni, nj = p.shape
+    c_ax = lam2 * (1.0 - 2.0 * a)
+    c_dg = lam2 * a
+    c_0 = 2.0 - 4.0 * lam2 * (1.0 - a)
+    for i in prange(1, ni - 1):  # ty: ignore[not-iterable]
+        for j in range(1, nj - 1):
+            ax = p[i + 1, j] + p[i - 1, j] + p[i, j + 1] + p[i, j - 1]
+            dg = p[i + 1, j + 1] + p[i + 1, j - 1] + p[i - 1, j + 1] + p[i - 1, j - 1]
+            p_next[i, j] = c_0 * p[i, j] - p_prev[i, j] + c_ax * ax + c_dg * dg
+    for j in range(nj):
+        p_next[0, j] = 0.0
+        p_next[ni - 1, j] = 0.0
+    for i in range(ni):
+        p_next[i, 0] = 0.0
+        p_next[i, nj - 1] = 0.0
