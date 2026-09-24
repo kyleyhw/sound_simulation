@@ -151,23 +151,30 @@ the slowest axis.
 ## 5. Interior obstacles
 
 A boolean `obstacle_mask` attribute of shape `grid_shape` marks
-interior cells that should behave as rigid Dirichlet walls. Conceptually
+interior cells that behave as Dirichlet ($p = 0$) walls. They are
 identical to the outer hard-wall boundary, just at arbitrary interior
-positions specified by the user.
+positions chosen by the user.
 
 ### Physical interpretation
 
-Setting $p = 0$ at an obstacle cell every step is the simplest model of
-an acoustically rigid scatterer: the pressure pinned at the wall cannot
-do work on adjacent cells, so any incident wave is reflected with a
-sign flip (closed-end reflection, $\Gamma = -1$). This is exactly the
-behaviour the outer kernel already enforces on the four edge rows of
-the 2D grid. Real materials have a finite specific acoustic impedance
-$Z = \rho c$ that would produce partial reflection
-($\Gamma = (Z_2 - Z_1)/(Z_2 + Z_1)$); modelling those would require
-either a one-sided wave-equation update at the boundary cell or an
-explicit impedance boundary condition, neither of which is currently
-implemented.
+Holding $p = 0$ at a cell is a **pressure-release** (acoustically
+*soft*) boundary. It is **not** a rigid wall. Two boundary conditions
+need to be kept apart:
+
+| boundary | condition | pressure reflection coefficient | example |
+| --- | --- | --- | --- |
+| pressure-release (this engine today) | $p = 0$ (Dirichlet) | $\Gamma = -1$ | water–air interface seen from the water side |
+| rigid | $\partial p / \partial n = 0$ (Neumann), since normal particle velocity vanishes | $\Gamma = +1$ | concrete wall, furniture (to first order) |
+
+Both reflect all incident energy, so the echo *arrival times* are the
+same. The echo *polarity* is opposite, however. The cavity eigenmodes
+also differ: a Dirichlet box has $\sin$ modes and no $k = 0$ mode; a
+Neumann box has $\cos$ modes, including a uniform $k = 0$ mode. Real
+walls are close to rigid, with partial, frequency-dependent absorption,
+i.e. a finite specific acoustic impedance $Z$ and
+$\Gamma = (Z - \rho c)/(Z + \rho c)$. Rigid and impedance boundaries
+are tracked as Phase 5 of `PROJECT_PLAN.md`. The Dirichlet path stays
+available and bit-identical, so `reference.npz` remains valid.
 
 ### Ordering inside `step()`
 

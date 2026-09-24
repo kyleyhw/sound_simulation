@@ -81,7 +81,7 @@ $$ p^{n+1} = 2 p^n - p^{n-1} + (c \Delta t)^2 \, \nabla^2 p^n $$
 
 with the standard central second-order stencil. `Simulate` owns `p`, `p_prev`, time, step counter, the driver list, and an interior `obstacle_mask`. Mutating methods: `step()`, `reset()`, `add_driver/remove_driver/set_drivers`, `set_obstacle/clear_obstacles`. The step-at-a-time design is what makes the interactive UI possible — the loop can pause, resume, mutate geometry, and reconfigure between steps.
 
-Interior obstacles are a boolean mask of the same shape as the field. Between the stencil pass and driver injection, `step()` zeroes `p_next` at the masked cells (rigid Dirichlet wall, $\Gamma = -1$). The hot path is guarded by `_has_obstacles`, so a `Simulate` with no obstacles is bit-identical to the pre-feature numerics and `check_simulate.py` keeps matching `reference.npz`.
+Interior obstacles are a boolean mask of the same shape as the field. Between the stencil pass and driver injection, `step()` zeroes `p_next` at the masked cells (Dirichlet $p = 0$: a pressure-release, i.e. acoustically *soft*, wall with $\Gamma = -1$ — not a rigid wall, which is Neumann $\partial p/\partial n = 0$ with $\Gamma = +1$). The hot path is guarded by `_has_obstacles`, so a `Simulate` with no obstacles is bit-identical to the pre-feature numerics and `check_simulate.py` keeps matching `reference.npz`.
 
 Two code paths, dispatched once at construction by `self.dims`:
 

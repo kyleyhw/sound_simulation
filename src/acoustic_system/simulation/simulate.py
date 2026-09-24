@@ -71,7 +71,7 @@ class Simulate:
     Interior obstacles
     ------------------
     A boolean ``obstacle_mask`` of the same shape as the field marks cells
-    that act as rigid Dirichlet walls inside the domain. After the stencil
+    that act as pressure-release (Dirichlet, p = 0) walls inside the domain. After the stencil
     pass and before driver injection, ``step()`` zeroes ``p_next`` at the
     masked cells; the cached ``_has_obstacles`` flag lets the hot loop
     skip this work entirely when the mask is empty, preserving bit-identical
@@ -150,7 +150,7 @@ class Simulate:
 
         # Interior Dirichlet obstacles: a boolean mask the same shape as the
         # field. Cells flagged True are forced to p=0 each step before driver
-        # injection, which gives them the same rigid-wall semantics as the
+        # injection, which gives them the same pressure-release (p = 0) semantics as the
         # outer boundary. The mask defaults to all-False so behaviour is
         # bit-identical to the no-obstacle case (and check_simulate.py keeps
         # passing without regenerating the reference). The ``_has_obstacles``

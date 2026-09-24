@@ -97,7 +97,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[pending]` 3.2.7: Legacy modules (`data_io`, `visualize`,
         `reconstruct`, `interactive_setup`, `boundary`, `generate`,
         `utils`): fix, or delete if dead.
-    *   `[pending]` 3.2.8: Correct the boundary wording everywhere: p = 0
+    *   `[completed]` 3.2.8: Correct the boundary wording everywhere: p = 0
         is a pressure-release wall, not a rigid one. This covers code
         comments, `docs/simulate.md`, and `CLAUDE.md`.
 *   `[pending]` **Task 3.3: Backend (`app/main.py`)**
@@ -131,8 +131,8 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[pending]` 3.4.7: Re-score every checkpoint and update the
         Phase 2 conclusions in the docs and reports.
 *   `[pending]` **Task 3.5: Repo hygiene**
-    *   `[pending]` 3.5.1: Stop tracking `.DS_Store` and `.idea/`.
-    *   `[pending]` 3.5.2: Fix `README.md`: broken image paths, stale
+    *   `[completed]` 3.5.1: Stop tracking `.DS_Store` and `.idea/`.
+    *   `[completed]` 3.5.2: Fix `README.md`: broken image paths, stale
         feature list, and the out-of-date layout.
     *   `[pending]` 3.5.3: Store datasets and checkpoints remotely,
         with checksums and seed manifests.

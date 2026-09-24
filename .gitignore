@@ -222,3 +222,5 @@ node_modules/
 
 # detect-secrets baseline log noise (the file itself is tracked)
 .secrets.baseline.new
+# macOS Finder metadata
+.DS_Store
