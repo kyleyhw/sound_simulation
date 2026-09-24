@@ -47,16 +47,20 @@ transfer for the whole mask.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
 import numpy as np
 
+# cupy is an optional extra (`--extra gpu`). It is imported dynamically and
+# typed as Any so the type checker does not require it to be installed; the
+# module stays importable on GPU-less machines (cp is None there).
+cp: Any
 try:
-    import cupy as cp
-
+    cp = importlib.import_module("cupy")
     HAS_CUPY = True
 except ImportError:  # pragma: no cover - exercised only on GPU-less installs
-    cp = None  # ty: ignore[invalid-assignment]
+    cp = None
     HAS_CUPY = False
 
 

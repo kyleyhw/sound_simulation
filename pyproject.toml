@@ -28,6 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 # `uv sync --extra dev` installs the toolchain.
 dev = [
+    "pytest>=8",
     "ruff>=0.4",
     "detect-secrets>=1.5",
     "ty>=0.0.34",
@@ -53,6 +54,18 @@ ml = [
 gpu = [
     "cupy-cuda12x>=13",
 ]
+
+# CPU-only torch wheels on Linux (CI runners, cloud containers): the PyPI
+# Linux wheel bundles ~3 GB of CUDA libraries that CPU training never uses.
+# Windows/macOS PyPI wheels are already CPU-only, so they are unaffected.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchaudio = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.urls]
 Repository = "https://github.com/kyleyhw/sound_simulation"
@@ -93,6 +106,17 @@ ignore = ["E501"]
 # (entry: uv run ty check). Strictness is left at defaults until the
 # typing pass is run; tightening can be added incrementally.
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# pytest. The gate scripts stay runnable as plain scripts (`python <file>`);
+# each also exposes a `test_gate` entry point collected here. check_*.py are
+# included so the kernel gates run under pytest too; bench_*.py and
+# make_reference.py are deliberately not collected.
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "check_*.py"]
+addopts = "-ra"
+
 [tool.ty.src]
 include = ["src", "scripts", "tests"]
 

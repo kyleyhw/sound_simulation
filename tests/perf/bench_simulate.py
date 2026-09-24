@@ -60,8 +60,7 @@ def main() -> None:
     times_ms = [round(t * 1000, 3) for t in times_s]
     median_ms = round(statistics.median(times_ms), 3)
     print(
-        f"BENCH median_ms={median_ms}  trials_ms={times_ms}  "
-        f"steps={args.steps}  grid={args.grid}"
+        f"BENCH median_ms={median_ms}  trials_ms={times_ms}  steps={args.steps}  grid={args.grid}"
     )
 
 

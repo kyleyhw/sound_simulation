@@ -80,5 +80,10 @@ def main() -> None:
     print("all calibration checks passed")
 
 
+def test_gate() -> None:
+    """pytest entry point (calibration maths gates); main() exits non-zero on failure."""
+    main()
+
+
 if __name__ == "__main__":
     main()

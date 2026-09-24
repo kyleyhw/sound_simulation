@@ -128,5 +128,10 @@ def main() -> None:
     print(f"CHECK pass=true   max_abs={max_abs:.3e}  l2_rel={l2_rel:.3e}  failure=-")
 
 
+def test_gate() -> None:
+    """pytest entry point (2D kernel regression gate vs reference.npz, reset() and CFL warning); main() exits non-zero on failure."""
+    main()
+
+
 if __name__ == "__main__":
     main()

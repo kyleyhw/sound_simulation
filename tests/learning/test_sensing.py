@@ -91,5 +91,14 @@ def main() -> None:
     print("all sensing-pipeline checks passed")
 
 
+def test_gate() -> None:
+    """pytest entry point (sensing pipeline end to end); skipped when no checkpoint is present."""
+    import pytest
+
+    if not CHECKPOINT.exists():
+        pytest.skip(f"no checkpoint at {CHECKPOINT}")
+    main()
+
+
 if __name__ == "__main__":
     main()

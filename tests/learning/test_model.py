@@ -194,5 +194,10 @@ def main() -> None:
     print("all CNN shape-correctness checks passed")
 
 
+def test_gate() -> None:
+    """pytest entry point (CNN shape-correctness gates); main() exits non-zero on failure."""
+    main()
+
+
 if __name__ == "__main__":
     main()

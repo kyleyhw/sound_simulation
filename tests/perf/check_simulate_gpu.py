@@ -143,5 +143,14 @@ def main() -> None:
     run_pair("3D", (40, 40, 40), steps=100)
 
 
+def test_gate() -> None:
+    """pytest entry point (GPU vs CPU end-state equality); skipped without CUDA."""
+    import pytest
+
+    if not calculate_gpu.gpu_available():
+        pytest.skip("no CUDA device / cupy not installed")
+    main()
+
+
 if __name__ == "__main__":
     main()

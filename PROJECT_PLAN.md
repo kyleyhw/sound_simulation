@@ -63,21 +63,21 @@ fast, verified, browser-based acoustic sandbox.
     same rooms, so none of these results beats that baseline yet. Task
     3.4 re-checks all of them.
 
-### Phase 3: Full Codebase Debug Audit — `[pending]`, next
+### Phase 3: Full Codebase Debug Audit — `[in-progress]`
 **Objective:** Find and fix bugs across the whole codebase before any
 new work builds on it.
 **Done when:** Every module is reviewed, found bugs are fixed or
 logged, all tests run in CI, and the Phase 2 results are re-scored.
 
-*   `[pending]` **Task 3.1: Test infrastructure**
-    *   `[pending]` 3.1.1: Build a clean environment from `uv.lock`
+*   `[completed]` **Task 3.1: Test infrastructure**
+    *   `[completed]` 3.1.1: Build a clean environment from `uv.lock`
         (dev + ml extras) and record which existing gates pass.
-    *   `[pending]` 3.1.2: Add pytest and convert the script-style
+    *   `[completed]` 3.1.2: Add pytest and convert the script-style
         checks in `tests/` into pytest tests, keeping the scripts
         runnable.
-    *   `[pending]` 3.1.3: Add `build` and `typecheck` scripts to
+    *   `[completed]` 3.1.3: Add `build` and `typecheck` scripts to
         `frontend/package.json`.
-    *   `[pending]` 3.1.4: Set up GitHub Actions CI: ruff, ty, pytest,
+    *   `[completed]` 3.1.4: Set up GitHub Actions CI: ruff, ty, pytest,
         the CPU kernel checks, and the frontend typecheck and build.
 *   `[pending]` **Task 3.2: Simulation engine (`simulation/`)**
     *   `[pending]` 3.2.1: `simulate.py`: step ordering, buffer
