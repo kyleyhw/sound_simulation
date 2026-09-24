@@ -87,8 +87,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint", required=True)
     p.add_argument("--dataset", required=True, help="Multi-pose HDF5 archive (K > 1).")
     p.add_argument("--poses", type=int, nargs="+", default=[1, 2, 4, 8])
-    p.add_argument("--threshold", type=float, default=0.5)
-    p.add_argument("--target-size", type=int, default=None, help="Defaults to checkpoint's.")
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help=(
+            "Decision threshold. Default: the calibration sidecar's stored, "
+            "validation-selected operating point when one is loaded, else 0.5."
+        ),
+    )
     p.add_argument("--output-dir", required=True)
     p.add_argument("--n-plot", type=int, default=6, help="Rooms in the qualitative grid.")
     p.add_argument("--device", default=None)
@@ -140,7 +147,7 @@ def main() -> None:
 
     ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
     n_mics = int(ckpt.get("n_mics", 2))
-    target_size = int(args.target_size or ckpt["args"].get("target_size", 64))
+    target_size = int(ckpt["args"].get("target_size", 64))
     model = build_model(str(ckpt.get("model_type", "dual")), n_mics=n_mics).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -153,6 +160,9 @@ def main() -> None:
     cal_t = float(calib["temperature"]) if calib else 1.0
     cal_b = float(calib["bias"]) if calib else 0.0
     calib_prior = float(calib["prior"]) if calib else None
+    if args.threshold is None:
+        args.threshold = float(calib.get("threshold", 0.5)) if calib else 0.5
+    print(f"[multipose] decision threshold: {args.threshold:.3f}")
     print(
         "[multipose] calibration: "
         + (f"T={cal_t:.4f} b={cal_b:.4f} (train prior {calib_prior:.4f})" if calib else "none")
@@ -165,16 +175,29 @@ def main() -> None:
             raise SystemExit("dataset is single-pose; regenerate with --poses-per-room K")
         ks = sorted({k for k in args.poses if 1 <= k <= k_avail})
 
-        # Scalar prior for the Bayes rule: mean obstacle fraction of the
-        # (resized) truth masks — the marginal the single-pose model
-        # empirically fits. Computed over the whole archive first.
-        fractions = []
-        for key in keys:
-            m = resize_mask(np.asarray(f[key]["obstacles"], dtype=np.float32), target_size)
-            fractions.append(float(m.mean()))
-        pi = float(
-            np.clip(calib_prior if calib_prior is not None else np.mean(fractions), 1e-4, 1 - 1e-4)
-        )
+        # Scalar prior for the Bayes rule: the TRAINING rooms' mean obstacle
+        # fraction (calibration sidecar, else the checkpoint's train_prior).
+        # Pre-audit this fell back to the evaluated archive's own occupancy,
+        # a test statistic inside the predictor (plan 3.4.3); that fallback
+        # remains only for legacy checkpoints that carry no training prior.
+        if calib_prior is not None:
+            pi_raw = calib_prior
+        elif "train_prior" in ckpt:
+            pi_raw = float(ckpt["train_prior"])
+        else:
+            print(
+                "[multipose] WARNING: legacy checkpoint without train_prior; using archive occupancy"
+            )
+            fractions = [
+                float(
+                    resize_mask(
+                        np.asarray(f[key]["obstacles"], dtype=np.float32), target_size
+                    ).mean()
+                )
+                for key in keys
+            ]
+            pi_raw = float(np.mean(fractions))
+        pi = float(np.clip(pi_raw, 1e-4, 1 - 1e-4))
         prior_logit = float(np.log(pi / (1.0 - pi)))
         print(f"[multipose] prior pi={pi:.4f} (logit {prior_logit:.3f}), K available={k_avail}")
 

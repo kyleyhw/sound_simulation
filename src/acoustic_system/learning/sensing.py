@@ -21,11 +21,14 @@ This module packages the **recommended Phase 2 sensing recipe**
 Consumers: ``scripts/demo_room_mapping.py`` (standalone demo) and the
 web UI's ``sense_room`` socket event (``app/main.py``).
 
-Simulation parameters deliberately mirror the training-dataset
-defaults recorded in ``docs/learning.md`` (64-cell grid, 200 steps,
-courant 0.5, stereo pair at spacing 12, synthetic chirp 0.02 -> 0.4 at
-fs = 200): the model has only ever seen this acquisition protocol, so
-the demo must reproduce it. Rooms whose masks come from another grid
+Simulation parameters are read from the checkpoint's stored
+acquisition protocol (the training archive's file attrs): grid, steps,
+courant, mic spacing, chirp band and rate, amplitude and generator
+protocol. v1 checkpoints without those attrs fall back to the v1
+defaults below (64-cell grid, 200 steps, chirp 0.02 -> 0.4). Protocol
+features this live path cannot reproduce (record_step != 1,
+non-unit wavespeed or gridstep, other than 2 mics, randomised sources)
+raise instead of silently changing the model's input (plan 3.4.4). Rooms whose masks come from another grid
 size are resampled to 64x64 nearest-neighbour, exactly as the training
 pipeline resizes masks.
 """
@@ -52,11 +55,11 @@ from acoustic_system.simulation.setup import Driver, Sensor
 from acoustic_system.simulation.simulate import Simulate
 from acoustic_system.simulation.waveforms import AudioFileWaveform
 
-# Marginal obstacle prior of the training distribution: mean obstacle
-# fraction of the 64x64 masks produced by the canonical generator
-# settings (3 rectangles, sides 4-14). Measured as 0.0582 over the
-# 500-room held-out archive (tests/reports/multipose_2026_07_10.md).
-# Used by the Bayes product rule; correct value matters more as K grows.
+# Legacy fallback prior for v1 checkpoints that carry neither a
+# calibration sidecar nor a train_prior. It was measured on the v1
+# held-out archive (tests/reports/multipose_2026_07_10.md), i.e. it is a
+# test statistic; post-audit checkpoints store the TRAINING rooms'
+# occupancy (``train_prior``), which is what the Bayes rule should use.
 TRAINING_OBSTACLE_PRIOR: float = 0.0582
 
 # Canonical acquisition protocol (must match the training dataset).
@@ -96,6 +99,9 @@ class SensingConfig:
     # Decision threshold for IoU scoring — the val-selected operating
     # point from calibration.json when present, else the historical 0.5.
     threshold: float = 0.5
+    # Generator protocol of the training archive (v2 archives predate the
+    # attr); v3 never places a mic on the source cell.
+    protocol: str = "v2"
 
 
 _model_cache: dict[str, tuple[Any, SensingConfig]] = {}
@@ -114,6 +120,20 @@ def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, SensingConfig]
         model.load_state_dict(ckpt["model"])
         model.eval()
         acq = ckpt.get("acquisition", {}) or {}
+        unsupported = []
+        if int(acq.get("record_step", 1)) != 1:
+            unsupported.append(f"record_step={acq.get('record_step')}")
+        if float(acq.get("wavespeed", 1.0)) != 1.0 or float(acq.get("gridstep", 1.0)) != 1.0:
+            unsupported.append("non-unit wavespeed/gridstep")
+        if int(acq.get("n_mics", 2)) != 2:
+            unsupported.append(f"n_mics={acq.get('n_mics')}")
+        if bool(acq.get("randomize_source", False)):
+            unsupported.append("randomize_source")
+        if unsupported:
+            raise ValueError(
+                "live sensing cannot reproduce this checkpoint's acquisition protocol: "
+                + ", ".join(unsupported)
+            )
         cfg = SensingConfig(
             grid=int(acq.get("grid", GRID)),
             duration=int(acq.get("duration", DURATION_STEPS)),
@@ -124,7 +144,10 @@ def load_sensing_model(checkpoint_path: str | Path) -> tuple[Any, SensingConfig]
             sample_rate=float(acq.get("synth_sample_rate", CHIRP_SAMPLE_RATE)),
             amplitude=float(acq.get("audio_amplitude", AUDIO_AMPLITUDE)),
             target_size=int(ckpt["args"].get("target_size", 64)),
-            prior=float(acq.get("mean_obstacle_fraction", TRAINING_OBSTACLE_PRIOR)),
+            prior=float(
+                ckpt.get("train_prior", acq.get("mean_obstacle_fraction", TRAINING_OBSTACLE_PRIOR))
+            ),
+            protocol=str(acq.get("protocol", "v2")),
         )
         calib = load_calibration(key)
         if calib is not None:
@@ -247,7 +270,12 @@ def sense_room(
         for _ in range(int(n_poses)):
             driver_pos = random_free_position((grid, grid), mask_bool, rng=rng)
             mic_pos = pick_mic_positions(
-                (grid, grid), mask_bool, n_mics=2, spacing=cfg.mic_spacing, rng=rng
+                (grid, grid),
+                mask_bool,
+                n_mics=2,
+                spacing=cfg.mic_spacing,
+                rng=rng,
+                exclude=[driver_pos] if cfg.protocol == "v3" else None,
             )
             wf = AudioFileWaveform.from_samples(
                 samples=chirp,

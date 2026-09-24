@@ -31,6 +31,7 @@ import argparse
 import pathlib
 import sys
 import time
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -46,6 +47,7 @@ from acoustic_system.learning.calibration import (  # noqa: E402
     save_calibration,
 )
 from acoustic_system.learning.model import build_model  # noqa: E402
+from acoustic_system.learning.train import room_level_split  # noqa: E402
 
 
 def resize_mask(mask: np.ndarray, size: int) -> np.ndarray:
@@ -68,21 +70,50 @@ def main() -> None:
     target_size = int(ckpt["args"].get("target_size", 64))
     split_seed = int(ckpt["args"].get("seed", 0))
     val_frac = float(ckpt["args"].get("val_frac", 0.1))
-    prior = float(ckpt.get("acquisition", {}).get("mean_obstacle_fraction", 0.0582))
+
+    # The archive must be the one the checkpoint was trained on, otherwise
+    # "the validation split" is meaningless (audit 3.4.2).
+    trained_on = Path(str(ckpt["args"].get("dataset", ""))).name
+    if trained_on and Path(args.dataset).name != trained_on:
+        raise SystemExit(
+            f"--dataset {Path(args.dataset).name} is not the checkpoint's training "
+            f"archive ({trained_on}); calibration must be fitted on its val split"
+        )
 
     with h5py.File(args.dataset, "r") as f:
         keys = sorted(k for k in f.keys() if k.startswith("sample_"))
         n_total = len(keys)
-        n_val = max(1, int(val_frac * n_total))
-        # Identical permutation to train.py's split: room-level datasets
-        # (joint/skip) index rooms directly, so these indices ARE rooms.
-        indices = torch.randperm(
-            n_total, generator=torch.Generator().manual_seed(split_seed)
-        ).tolist()
-        val_rooms = indices[n_total - n_val :][: args.max_rooms]
+        if "val_rooms" in ckpt:
+            # Post-audit checkpoints record their room-level val split.
+            all_val = [int(r) for r in ckpt["val_rooms"]]
+        else:
+            # Legacy checkpoints: the same room-level permutation train.py
+            # used. Exact for room-level models (joint/skip) and single-pose
+            # archives; flattened multi-pose checkpoints trained before the
+            # audit split by pose, so no leak-free val set exists for them.
+            if str(ckpt.get("model_type")) not in ("joint", "skip"):
+                with h5py.File(args.dataset, "r") as g:
+                    if int(g.attrs.get("poses_per_room", 1)) > 1:
+                        raise SystemExit(
+                            "legacy flattened multi-pose checkpoint: its val split mixed "
+                            "poses of training rooms; retrain with the fixed train.py"
+                        )
+            _, all_val = room_level_split(n_total, val_frac, split_seed)
+        val_rooms = all_val[: args.max_rooms]
+        # Prior from training rooms only (never the held-out archive).
+        if "train_prior" in ckpt:
+            prior = float(ckpt["train_prior"])
+        else:
+            val_set = set(all_val)
+            occ = [
+                float(np.asarray(f[keys[r]]["obstacles"]).mean())
+                for r in range(n_total)
+                if r not in val_set
+            ]
+            prior = float(np.mean(occ))
         print(
-            f"[calibrate] val split: {n_val}/{n_total} rooms (seed {split_seed}), "
-            f"fitting on {len(val_rooms)}; prior={prior:.4f}"
+            f"[calibrate] val split: {len(all_val)}/{n_total} rooms (seed {split_seed}), "
+            f"fitting on {len(val_rooms)}; train prior={prior:.4f}"
         )
 
         logit_chunks: list[np.ndarray] = []

@@ -52,14 +52,19 @@ def main() -> None:
     model.load_state_dict(ckpt["model"])
     model.eval()
 
-    # Joint-pose checkpoints consume whole rooms; others per-pose samples.
+    # Room-level models (joint, skip) consume whole rooms, as in training;
+    # the others consume per-pose samples. Pre-audit, skip checkpoints were
+    # scored per pose here but per room in train.py (plan 3.4.2).
     dataset = ActiveSensingDataset(
-        args.dataset, target_mask_size=target_size, flatten_poses=model_type != "joint"
+        args.dataset,
+        target_mask_size=target_size,
+        flatten_poses=model_type not in ("joint", "skip"),
     )
     loader = DataLoader(dataset, batch_size=8, shuffle=False)
 
     # ---- whole-dataset IoU --------------------------------------------
     ious: list[float] = []
+    weights: list[int] = []
     with torch.no_grad():
         for sensor, source, mask in loader:
             sensor = sensor.to(device)
@@ -67,7 +72,10 @@ def main() -> None:
             mask = mask.to(device)
             logits = model(sensor, source)
             ious.append(iou_score(logits, mask, threshold=args.threshold).item())
-    mean_iou = float(np.mean(ious))
+            weights.append(int(mask.shape[0]))
+    # Per-sample mean (batch means weighted by batch size), not a mean of
+    # per-batch means, which over-weights the final partial batch.
+    mean_iou = float(np.average(ious, weights=weights))
     print(
         f"[eval] mean IoU @ threshold={args.threshold}: {mean_iou:.4f} over {len(dataset)} samples"
     )

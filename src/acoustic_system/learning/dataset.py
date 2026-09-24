@@ -106,6 +106,22 @@ class ActiveSensingDataset(Dataset):
             self.t_audio: int = int(np.asarray(grp["source"]).shape[0])
             self.native_mask_shape: Tuple[int, int] = tuple(np.asarray(grp["obstacles"]).shape)  # type: ignore[assignment]
 
+    def mean_occupancy(self, rooms: "list[int] | None" = None) -> float:
+        """Mean obstacle fraction over ``rooms`` (room indices; all if None).
+
+        Used as the Bayes-fusion prior. It must come from the training rooms,
+        never from the evaluated archive (plan 3.4.3).
+        """
+        idx = range(len(self.sample_keys)) if rooms is None else rooms
+        total = 0.0
+        count = 0
+        with h5py.File(self.hdf5_path, "r") as f:
+            for r in idx:
+                m = np.asarray(f[self.sample_keys[int(r)]]["obstacles"])
+                total += float(m.mean())
+                count += 1
+        return total / max(count, 1)
+
     def __len__(self) -> int:
         if not self.flatten_poses:
             return len(self.sample_keys)

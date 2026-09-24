@@ -86,7 +86,7 @@ def save_calibration(
     prior: float,
     threshold: float = 0.5,
 ) -> Path:
-    """Write ``calibration.json`` next to the checkpoint; returns its path.
+    """Write ``<ckpt_stem>.calibration.json`` next to the checkpoint.
 
     ``threshold`` is the model's operating point: the IoU-optimal
     decision threshold selected on the *validation* split (never
@@ -94,23 +94,54 @@ def save_calibration(
     fused logit, so it cannot change ranking metrics — choosing the
     operating point is the part of Task 2.3e that actually moves IoU,
     and it must travel with the calibration that defines its scale.
+
+    The sidecar is per checkpoint file (audit 3.4.3). A single
+    ``calibration.json`` per directory used to be applied to best.pt,
+    best_iou.pt and final.pt alike, although it was fitted on one of
+    them. The file also records the checkpoint's name and byte size so
+    that a mismatch can be detected on load.
     """
-    out = Path(ckpt_path).resolve().parent / "calibration.json"
+    ck = Path(ckpt_path).resolve()
+    out = sidecar_path(ck)
     out.write_text(
         json.dumps(
-            {"temperature": temperature, "bias": bias, "prior": prior, "threshold": threshold},
+            {
+                "temperature": temperature,
+                "bias": bias,
+                "prior": prior,
+                "threshold": threshold,
+                "checkpoint": ck.name,
+                "checkpoint_bytes": ck.stat().st_size if ck.exists() else None,
+            },
             indent=2,
         )
     )
     return out
 
 
+def sidecar_path(ckpt_path: str | Path) -> Path:
+    ck = Path(ckpt_path).resolve()
+    return ck.with_name(f"{ck.stem}.calibration.json")
+
+
 def load_calibration(ckpt_path: str | Path) -> Optional[dict[str, Any]]:
-    """Return {"temperature", "bias", "prior"} if a sidecar exists, else None."""
-    p = Path(ckpt_path).resolve().parent / "calibration.json"
-    if not p.exists():
-        return None
-    return json.loads(p.read_text())
+    """Return the checkpoint's calibration dict, or None.
+
+    Looks for ``<stem>.calibration.json``. The pre-audit per-directory
+    ``calibration.json`` is accepted only when the file itself names this
+    checkpoint, or when the checkpoint is ``best_iou.pt`` (the only file
+    the legacy sidecars were ever fitted on).
+    """
+    ck = Path(ckpt_path).resolve()
+    p = sidecar_path(ck)
+    if p.exists():
+        return json.loads(p.read_text())
+    legacy = ck.parent / "calibration.json"
+    if legacy.exists():
+        data = json.loads(legacy.read_text())
+        if data.get("checkpoint", "best_iou.pt") == ck.name:
+            return data
+    return None
 
 
 def calibrated_bayes_fuse(

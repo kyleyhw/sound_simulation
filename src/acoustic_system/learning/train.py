@@ -48,6 +48,13 @@ if isinstance(sys.stdout, _io.TextIOWrapper):
     sys.stdout.reconfigure(line_buffering=True)
 
 
+def room_level_split(n_rooms: int, val_frac: float, seed: int) -> tuple[list[int], list[int]]:
+    """Seeded room-level train/val split (the last val_frac of a permutation)."""
+    n_val = max(1, int(val_frac * n_rooms))
+    perm = torch.randperm(n_rooms, generator=torch.Generator().manual_seed(seed)).tolist()
+    return perm[: n_rooms - n_val], perm[n_rooms - n_val :]
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--dataset", required=True, help="HDF5 archive from generate_active_sensing.py")
@@ -151,12 +158,21 @@ def main() -> None:
         augment=False,
         flatten_poses=flatten,
     )
-    n_total = len(train_dataset)
-    n_val = max(1, int(args.val_frac * n_total))
-    n_train = n_total - n_val
-    indices = torch.randperm(n_total, generator=torch.Generator().manual_seed(args.seed)).tolist()
-    train_indices = indices[:n_train]
-    val_indices = indices[n_train:]
+    # Split by ROOM, then expand rooms to their poses for flattened views.
+    # Splitting the flattened (room, pose) index put sibling poses of one
+    # room on both sides of the split (audit 3.4.1: P(leak) ~ 0.999 at
+    # K=4), so val metrics, best_iou selection and calibration were scored
+    # on rooms the model trained on. For room-level models (joint/skip) and
+    # single-pose archives this is identical to the previous permutation.
+    n_rooms = len(train_dataset.sample_keys)
+    k_poses = train_dataset.poses_per_room if flatten else 1
+    train_rooms, val_rooms = room_level_split(n_rooms, args.val_frac, args.seed)
+    train_indices = [r * k_poses + k for r in train_rooms for k in range(k_poses)]
+    val_indices = [r * k_poses + k for r in val_rooms for k in range(k_poses)]
+    n_total, n_train, n_val = len(train_dataset), len(train_indices), len(val_indices)
+    # Bayes-fusion prior from TRAINING rooms only (audit 3.4.3: the old
+    # fallbacks used the held-out archive's occupancy).
+    train_prior = train_dataset.mean_occupancy(train_rooms)
     train_ds = torch.utils.data.Subset(train_dataset, train_indices)
     val_ds = torch.utils.data.Subset(val_dataset, val_indices)
     train_loader = DataLoader(
@@ -187,7 +203,7 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs)
     elif args.scheduler == "step":
         scheduler = torch.optim.lr_scheduler.StepLR(
-            opt, step_size=int(args.epochs * 0.6), gamma=0.1
+            opt, step_size=max(1, int(args.epochs * 0.6)), gamma=0.1
         )
     else:
         scheduler = None
@@ -202,12 +218,28 @@ def main() -> None:
     best_val = float("inf")
     best_iou = 0.0
 
+    def payload(epoch: int) -> dict:
+        return {
+            "model": model.state_dict(),
+            "model_type": args.model,
+            "acquisition": train_dataset.file_attrs,
+            "args": vars(args),
+            "epoch": epoch,
+            "history": history,
+            "n_mics": train_dataset.n_mics,
+            # Split provenance, so calibration/eval can reproduce it exactly
+            # and never fit on training rooms (audit 3.4.1/3.4.2).
+            "val_rooms": [int(r) for r in val_rooms],
+            "train_prior": float(train_prior),
+        }
+
     t0 = time.perf_counter()
     for epoch in range(1, args.epochs + 1):
         # ---- train ------------------------------------------------------
         model.train()
         train_losses: list[float] = []
         train_ious: list[float] = []
+        train_w: list[int] = []
         for sensor, source, mask in train_loader:
             sensor = sensor.to(device)
             source = source.to(device)
@@ -218,6 +250,7 @@ def main() -> None:
             loss.backward()
             opt.step()
             train_losses.append(loss.item())
+            train_w.append(int(mask.shape[0]))
             with torch.no_grad():
                 train_ious.append(iou_score(logits, mask).item())
 
@@ -225,6 +258,7 @@ def main() -> None:
         model.eval()
         val_losses: list[float] = []
         val_ious: list[float] = []
+        val_w: list[int] = []
         with torch.no_grad():
             for sensor, source, mask in val_loader:
                 sensor = sensor.to(device)
@@ -233,11 +267,14 @@ def main() -> None:
                 logits = model(sensor, source)
                 val_losses.append(bce_dice_loss(logits, mask).item())
                 val_ious.append(iou_score(logits, mask).item())
+                val_w.append(int(mask.shape[0]))
 
-        train_l = float(np.mean(train_losses))
-        train_iou = float(np.mean(train_ious))
-        val_l = float(np.mean(val_losses))
-        val_iou = float(np.mean(val_ious))
+        # Sample-weighted means: an unweighted mean of per-batch means
+        # over-weights the final partial batch (audit 3.4.2).
+        train_l = float(np.average(train_losses, weights=train_w))
+        train_iou = float(np.average(train_ious, weights=train_w))
+        val_l = float(np.average(val_losses, weights=val_w))
+        val_iou = float(np.average(val_ious, weights=val_w))
         current_lr = opt.param_groups[0]["lr"]
         history["train_loss"].append(train_l)
         history["train_iou"].append(train_iou)
@@ -262,15 +299,7 @@ def main() -> None:
         if val_l < best_val:
             best_val = val_l
             torch.save(
-                {
-                    "model": model.state_dict(),
-                    "model_type": args.model,
-                    "acquisition": train_dataset.file_attrs,
-                    "args": vars(args),
-                    "epoch": epoch,
-                    "history": history,
-                    "n_mics": train_dataset.n_mics,
-                },
+                payload(epoch),
                 ckpt_dir / "best.pt",
             )
         if val_iou > best_iou:
@@ -278,29 +307,13 @@ def main() -> None:
             # eval that scores by mask overlap. Save both.
             best_iou = val_iou
             torch.save(
-                {
-                    "model": model.state_dict(),
-                    "model_type": args.model,
-                    "acquisition": train_dataset.file_attrs,
-                    "args": vars(args),
-                    "epoch": epoch,
-                    "history": history,
-                    "n_mics": train_dataset.n_mics,
-                },
+                payload(epoch),
                 ckpt_dir / "best_iou.pt",
             )
 
     # Always save the final checkpoint too, even if val_loss has plateaued.
     torch.save(
-        {
-            "model": model.state_dict(),
-            "model_type": args.model,
-            "acquisition": train_dataset.file_attrs,
-            "args": vars(args),
-            "epoch": args.epochs,
-            "history": history,
-            "n_mics": train_dataset.n_mics,
-        },
+        payload(args.epochs),
         ckpt_dir / "final.pt",
     )
     (ckpt_dir / "history.json").write_text(json.dumps(history, indent=2))

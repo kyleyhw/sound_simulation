@@ -74,6 +74,10 @@ def main() -> None:
         got = load_calibration(fake_ckpt)
         assert got is not None and abs(got["temperature"] - 1.7) < 1e-9
         assert abs(got["bias"] + 0.2) < 1e-9 and abs(got["prior"] - 0.061) < 1e-9
+        # Sidecars are per checkpoint: a sibling file must not inherit it.
+        sibling = Path(td) / "final.pt"
+        sibling.write_bytes(b"")
+        assert load_calibration(sibling) is None
     print("OK: calibration.json save/load roundtrip; absent sidecar -> None")
 
     print()

@@ -113,15 +113,15 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
         `tests/app/`).
 *   `[pending]` **Task 3.4: Learning code and results (`learning/`,
     `scripts/`)**
-    *   `[pending]` 3.4.1: Dataset loader: normalisation, pose
+    *   `[completed]` 3.4.1: Dataset loader: normalisation, pose
         flattening, and leakage between the train and validation
         splits.
-    *   `[pending]` 3.4.2: `model.py` and `train.py`: shapes, pooling,
+    *   `[completed]` 3.4.2: `model.py` and `train.py`: shapes, pooling,
         seeding, and checkpoint selection (validation set only).
-    *   `[pending]` 3.4.3: `eval.py`, `eval_multipose.py`, and
+    *   `[completed]` 3.4.3: `eval.py`, `eval_multipose.py`, and
         `calibration.py`: metric correctness, prior computation, and
         threshold-selection leakage.
-    *   `[pending]` 3.4.4: `sensing.py`: live inference must preprocess
+    *   `[completed]` 3.4.4: `sensing.py`: live inference must preprocess
         exactly like the offline evaluation.
     *   `[pending]` 3.4.5: Run `eval_no_audio_baseline.py` on the exact
         training and held-out archives.
