@@ -104,6 +104,10 @@ export function validateScene(x: unknown): Scene {
     if (!(Number.isFinite(s.params[k]) && s.params[k] > 0)) throw new Error(`bad ${k}`);
   }
   decodeRle(s.materials, cellCount(s.params)); // throws if inconsistent
+  // Legacy name: the graded damping layer was called 'pml' before Phase 5.
+  const legacy = s.params as unknown as { outer: string; pmlCells?: number; spongeCells?: number };
+  if (legacy.outer === 'pml') legacy.outer = 'sponge';
+  if (legacy.spongeCells === undefined && legacy.pmlCells !== undefined) legacy.spongeCells = legacy.pmlCells;
   if (!Array.isArray(s.drivers) || !Array.isArray(s.probes)) throw new Error('bad drivers/probes');
   return {
     ...s,

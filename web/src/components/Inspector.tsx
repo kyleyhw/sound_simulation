@@ -211,7 +211,8 @@ function ScenePanel() {
           <option value="soft">Pressure-release (p = 0)</option>
           <option value="rigid">Rigid (∂p/∂n = 0)</option>
           <option value="absorb">Impedance (partially absorbing)</option>
-          <option value="pml">Anechoic (absorbing layer)</option>
+          <option value="mur">Absorbing edge (Mur, 1st order)</option>
+          <option value="sponge">Anechoic (absorbing layer)</option>
         </select>
       </div>
       {p.outer === 'absorb' && (
@@ -224,8 +225,8 @@ function ScenePanel() {
           onChange={(v) => setParams({ outerBeta: v })}
         />
       )}
-      {p.outer === 'pml' && (
-        <NumberField label="Layer thickness (cells)" value={p.pmlCells} integer min={4} max={80} onChange={(v) => setParams({ pmlCells: v })} />
+      {p.outer === 'sponge' && (
+        <NumberField label="Layer thickness (cells)" value={p.spongeCells} integer min={4} max={80} onChange={(v) => setParams({ spongeCells: v })} />
       )}
 
       <h3>Wall material (brush)</h3>

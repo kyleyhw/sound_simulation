@@ -14,26 +14,29 @@
  * Layout: C order, index = (i * ny + j) (2D) or ((i * ny + j) * nz + k) (3D);
  * i is the row (screen y), j the column (screen x).
  *
- * Wall models (Phase 5; the default reproduces the Python engine):
+ * Wall models (Phase 5; the default reproduces the Python engine). The
+ * general path is the same formulation as src/acoustic_system/simulation/
+ * physics.py (see its docstring and docs/physics.md), parity-tested:
  *  - 'soft'  : Dirichlet p = 0 (pressure-release, reflection -1). Default.
- *  - 'rigid' : Neumann dp/dn = 0 (reflection +1), staircase: an air cell's
- *              Laplacian only sums its air neighbours.
- *  - 'absorb': locally reacting impedance wall with normalised admittance
- *              beta (0 = rigid, 1 = matched at normal incidence).
- * Outer boundary: 'soft' | 'rigid' | 'absorb' (impedance) | 'pml' (graded
- * absorbing layer).
+ *  - 'rigid' : Neumann dp/dn = 0 (reflection +1), staircase.
+ *  - 'absorb': locally reacting impedance wall, spring-damper branch
+ *              R v + K_s x = p (frequency-independent when K_s = 0).
+ * Outer boundary: 'soft' | 'rigid' | 'absorb' | 'mur' (1st-order absorbing
+ * edge) | 'sponge' (graded damping layer).
  */
 
 import { evalWaveform, type WaveformSpec } from './waveforms';
 
 export type Dims = 2 | 3;
 export type WallKind = 'soft' | 'rigid' | 'absorb';
-export type OuterKind = WallKind | 'pml';
+export type OuterKind = WallKind | 'mur' | 'sponge';
 
 export interface Material {
   kind: WallKind;
-  /** Normalised specific admittance beta = rho c / Z (only for 'absorb'). */
+  /** High-frequency normalised admittance beta = rho c / R ('absorb'). */
   beta: number;
+  /** High-pass corner f_c * dx / c (0 = frequency-independent). */
+  fcRel: number;
 }
 
 export interface DriverSpec {
@@ -63,8 +66,8 @@ export interface SimParams {
   outer: OuterKind;
   /** Admittance of the outer walls when outer === 'absorb'. */
   outerBeta: number;
-  /** PML thickness in cells when outer === 'pml'. */
-  pmlCells: number;
+  /** Damping-layer thickness in cells when outer === 'sponge'. */
+  spongeCells: number;
 }
 
 export const DEFAULT_PARAMS: SimParams = {
@@ -75,22 +78,23 @@ export const DEFAULT_PARAMS: SimParams = {
   courant: 0.5,
   outer: 'soft',
   outerBeta: 1,
-  pmlCells: 24,
+  spongeCells: 24,
 };
 
 export const PROBE_CAPACITY = 16384;
 
 /** Pre-built materials indexed by material id stored per cell (0 = air). */
 export const MATERIALS: Material[] = [
-  { kind: 'soft', beta: 0 }, // 0 is unused for obstacle cells (air)
-  { kind: 'soft', beta: 0 }, // 1: pressure-release (legacy default)
-  { kind: 'rigid', beta: 0 }, // 2: rigid (concrete)
-  { kind: 'absorb', beta: 0.1 }, // 3: hard plaster  (alpha ~ 0.33)
-  { kind: 'absorb', beta: 0.3 }, // 4: wood panel    (alpha ~ 0.71)
-  { kind: 'absorb', beta: 1.0 }, // 5: absorber      (alpha ~ 1 at normal incidence)
+  { kind: 'soft', beta: 0, fcRel: 0 }, // 0: air (unused for walls)
+  { kind: 'soft', beta: 0, fcRel: 0 }, // 1: pressure-release (legacy default)
+  { kind: 'rigid', beta: 0, fcRel: 0 }, // 2: rigid (concrete)
+  { kind: 'absorb', beta: 0.1, fcRel: 0 }, // 3: plaster  (alpha ~ 0.33)
+  { kind: 'absorb', beta: 0.3, fcRel: 0 }, // 4: wood     (alpha ~ 0.71)
+  { kind: 'absorb', beta: 1.0, fcRel: 0 }, // 5: absorber (alpha ~ 1 at normal incidence)
+  { kind: 'absorb', beta: 1.0, fcRel: 0.03 }, // 6: curtain: absorbs above f_c, reflects below
 ];
 
-export const MATERIAL_NAMES = ['Air', 'Soft (p = 0)', 'Rigid', 'Plaster', 'Wood', 'Absorber'];
+export const MATERIAL_NAMES = ['Air', 'Soft (p = 0)', 'Rigid', 'Plaster', 'Wood', 'Absorber', 'Curtain'];
 
 /** Normal-incidence absorption coefficient for admittance beta. */
 export function absorptionFromBeta(beta: number): number {
@@ -132,7 +136,7 @@ export class Simulation {
 
   private obstacleCount = 0;
   private generalPath = false;
-  private pmlSigma: Float32Array | null = null;
+  private spongeSigma: Float32Array | null = null;
 
   constructor(params: Partial<SimParams> = {}) {
     this.params = { ...DEFAULT_PARAMS, ...params, shape: [...(params.shape ?? DEFAULT_PARAMS.shape)] };
@@ -247,7 +251,7 @@ export class Simulation {
     // soft (p = 0) obstacles only, uniform c. Anything else uses the
     // general kernel.
     this.generalPath = special || speedVaries || this.params.outer !== 'soft';
-    if (this.params.outer === 'pml') this.buildPml();
+    if (this.params.outer === 'sponge') this.buildSponge();
     this.gK = null; // rebuilt lazily on the next general step
   }
 
@@ -320,6 +324,8 @@ export class Simulation {
     this.time = 0;
     this.step_count = 0;
     for (const d of this.probeData.values()) d.count = 0;
+    this.wallV?.fill(0);
+    this.wallX?.fill(0);
     this.resetAccumulators();
   }
 
@@ -438,8 +444,8 @@ export class Simulation {
   // General kernel: materials, rigid/absorbing walls, c(x), PML
   // ------------------------------------------------------------------ //
 
-  private buildPml(): void {
-    const L = Math.max(1, Math.round(this.params.pmlCells));
+  private buildSponge(): void {
+    const L = Math.max(1, Math.round(this.params.spongeCells));
     const sigma = new Float32Array(this.n);
     // Graded damping sigma(d) = sigma_max ((L - d)/L)^3 inside the layer;
     // sigma_max chosen for a theoretical normal-incidence reflection of
@@ -459,38 +465,47 @@ export class Simulation {
             sigma[(i * ny + j) * nz + z] = sigmaMax * f * f * f;
           }
         }
-    this.pmlSigma = sigma;
+    this.spongeSigma = sigma;
   }
 
-  // Precomputed per-cell coefficients for the general kernel.
+  // Precomputed per-cell coefficients for the general kernel (see physics.py).
   private gK: Uint8Array | null = null; // neighbours contributing -p_c (air, soft wall)
-  private gD: Float32Array | null = null; // impedance + absorbing-layer damping
   private gC: Float32Array | null = null; // (c(x) dt / dx)^2
-  private gActive: Uint8Array | null = null; // 0 = held at p = 0
+  private gS: Float32Array | null = null; // sigma dt (damping layer)
+  private gQ: Float32Array | null = null; // rho c lambda M (impedance branch)
+  private gQa: Float32Array | null = null; // Q / a
+  private gInvA: Float32Array | null = null; // 1 / a, a = R + K_s dt / 2
+  private gKs: Float32Array | null = null; // spring constant K_s
+  private gActive: Uint8Array | null = null; // 0 = held at p = 0 (or Mur edge)
+  private wallV: Float32Array | null = null; // branch velocity v^{n-1/2}
+  private wallX: Float32Array | null = null; // branch displacement x^n
 
   /**
-   * Build the general kernel's coefficient arrays.
-   *
-   * Wall cells always store p = 0, so for an air cell the staircase
-   * Laplacian  sum_{air n}(p_n - p_c) + sum_{soft n}(0 - p_c)  equals
-   *   sum_{all n} p_n  -  K p_c,   K = #(air or soft neighbours).
-   * Rigid / impedance neighbours are excluded from K (zero normal
-   * gradient: their ghost equals p_c). Each impedance face adds
-   * lam*beta/2 to the damping factor D of the centred update
-   *   (1 + D) p^{n+1} = 2 p^n + C * lap - (1 - D) p^{n-1},
-   * and the absorbing layer adds sigma*dt (see docs/physics.md).
+   * Coefficients for
+   *   (1 + q/2 + s) p^{n+1} = 2p^n - p^{n-1} + C L + s p^{n-1}
+   *                           - q (p^n / 2 - K_s x^n) + Q v^{n-1/2},
+   *   L = sum_nbrs p_n - K p_c   (wall cells store p = 0).
+   * Rigid faces drop out of K and add no damping; impedance faces combine
+   * through the admittance sum; the branch uses the most absorbing face's
+   * material with an effective face count M = sum(beta) / beta_rep.
    */
   private buildGeneral(): void {
     const { nx, ny, nz, dims, material, n } = this;
     const outer = this.params.outer;
-    const softOuter = outer === 'soft' || outer === 'pml';
+    const heldEdges = outer === 'soft' || outer === 'sponge' || outer === 'mur';
     const outerBeta = outer === 'absorb' ? this.params.outerBeta : 0;
     const lam = Math.sqrt(this.coeff);
+    const c = this.params.c;
+    const rho = 1;
     const K = new Uint8Array(n);
-    const D = new Float32Array(n);
     const C = new Float32Array(n);
+    const S = new Float32Array(n);
+    const Q = new Float32Array(n);
+    const Qa = new Float32Array(n);
+    const InvA = new Float32Array(n);
+    const Ks = new Float32Array(n);
     const active = new Uint8Array(n);
-    const sigma = this.pmlSigma;
+    const sigma = this.spongeSigma;
     const sx = ny * nz;
     const sy = nz;
     for (let i = 0; i < nx; i++)
@@ -498,112 +513,159 @@ export class Simulation {
         for (let z = 0; z < nz; z++) {
           const idx = i * sx + j * sy + z;
           const onEdge = i === 0 || i === nx - 1 || j === 0 || j === ny - 1 || (dims === 3 && (z === 0 || z === nz - 1));
-          if (material[idx] !== 0 || (softOuter && onEdge)) continue;
+          if (material[idx] !== 0 || (heldEdges && onEdge)) continue;
           active[idx] = 1;
           const r = this.hasSpeed ? this.speed[idx] : 1;
           let k = 0;
-          let beta = 0;
+          let betaSum = 0;
+          let betaRep = 0;
+          let fcRep = 0;
           for (let a = 0; a < dims; a++) {
             const stride = a === 0 ? sx : a === 1 ? sy : 1;
             const coord = a === 0 ? i : a === 1 ? j : z;
             const size = a === 0 ? nx : a === 1 ? ny : nz;
             for (let s2 = -1; s2 <= 1; s2 += 2) {
               const c2 = coord + s2;
+              let beta = 0;
+              let fc = 0;
               if (c2 < 0 || c2 >= size) {
-                beta += outerBeta; // rigid/absorbing outer wall (soft edges are inactive)
-                continue;
+                beta = outerBeta; // rigid/impedance outer wall (held edges never get here)
+              } else {
+                const mat = MATERIALS[material[idx + s2 * stride]] ?? MATERIALS[1];
+                if (material[idx + s2 * stride] === 0 || mat.kind === 'soft') {
+                  k++;
+                  continue;
+                }
+                if (mat.kind === 'absorb') {
+                  beta = mat.beta;
+                  fc = mat.fcRel;
+                }
               }
-              const m = material[idx + s2 * stride];
-              if (m === 0) k++;
-              else {
-                const mat = MATERIALS[m] ?? MATERIALS[1];
-                if (mat.kind === 'soft') k++;
-                else if (mat.kind === 'absorb') beta += mat.beta;
+              betaSum += beta;
+              if (beta > betaRep) {
+                betaRep = beta;
+                fcRep = fc;
               }
             }
           }
           K[idx] = k;
           C[idx] = this.coeff * r * r;
-          D[idx] = 0.5 * lam * r * beta + (sigma ? sigma[idx] * this.dt : 0);
+          S[idx] = sigma ? sigma[idx] * this.dt : 0;
+          if (betaSum > 0) {
+            const cl = c * r;
+            const R = (rho * cl) / betaRep;
+            const ks = R * 2 * Math.PI * ((fcRep * c) / this.params.dx);
+            const aCoef = R + (ks * this.dt) / 2;
+            const q = rho * cl * lam * r * (betaSum / betaRep);
+            Q[idx] = q;
+            Qa[idx] = q / aCoef;
+            InvA[idx] = 1 / aCoef;
+            Ks[idx] = ks;
+          }
         }
     this.gK = K;
-    this.gD = D;
     this.gC = C;
+    this.gS = S;
+    this.gQ = Q;
+    this.gQa = Qa;
+    this.gInvA = InvA;
+    this.gKs = Ks;
     this.gActive = active;
+    if (!this.wallV || this.wallV.length !== n) {
+      this.wallV = new Float32Array(n);
+      this.wallX = new Float32Array(n);
+    }
   }
 
   private stepGeneral(): void {
     if (!this.gK) this.buildGeneral();
-    const { p, pPrev, pNext, nx, ny, nz, dims } = this;
+    const { p, pPrev, pNext, nx, ny, nz, dims, dt } = this;
     const K = this.gK!;
-    const D = this.gD!;
     const C = this.gC!;
+    const S = this.gS!;
+    const Q = this.gQ!;
+    const Qa = this.gQa!;
+    const InvA = this.gInvA!;
+    const Ks = this.gKs!;
     const act = this.gActive!;
+    const V = this.wallV!;
+    const X = this.wallX!;
     const sx = ny * nz;
     const sy = nz;
-    if (dims === 2) {
-      for (let i = 1; i < nx - 1; i++) {
-        const row = i * ny;
-        for (let j = 1; j < ny - 1; j++) {
-          const idx = row + j;
+    const zs = dims === 3 ? nz : 1;
+    for (let i = 0; i < nx; i++) {
+      const iIn = i > 0 && i < nx - 1;
+      for (let j = 0; j < ny; j++) {
+        const jIn = j > 0 && j < ny - 1;
+        for (let z = 0; z < zs; z++) {
+          const idx = i * sx + j * sy + z;
           if (act[idx] === 0) {
             pNext[idx] = 0;
             continue;
           }
           const pc = p[idx];
-          const lap = p[idx + ny] + p[idx - ny] + p[idx + 1] + p[idx - 1] - K[idx] * pc;
-          const d = D[idx];
-          pNext[idx] = (2 * pc + C[idx] * lap - (1 - d) * pPrev[idx]) / (1 + d);
-        }
-      }
-    } else {
-      for (let i = 1; i < nx - 1; i++)
-        for (let j = 1; j < ny - 1; j++) {
-          const base = i * sx + j * sy;
-          for (let z = 1; z < nz - 1; z++) {
-            const idx = base + z;
-            if (act[idx] === 0) {
-              pNext[idx] = 0;
-              continue;
+          let acc: number;
+          if (iIn && jIn && (dims === 2 || (z > 0 && z < nz - 1))) {
+            acc = p[idx + sx] + p[idx - sx] + p[idx + sy] + p[idx - sy];
+            if (dims === 3) acc += p[idx + 1] + p[idx - 1];
+          } else {
+            acc = 0;
+            if (i > 0) acc += p[idx - sx];
+            if (i < nx - 1) acc += p[idx + sx];
+            if (j > 0) acc += p[idx - sy];
+            if (j < ny - 1) acc += p[idx + sy];
+            if (dims === 3) {
+              if (z > 0) acc += p[idx - 1];
+              if (z < nz - 1) acc += p[idx + 1];
             }
-            const pc = p[idx];
-            const lap = p[idx + sx] + p[idx - sx] + p[idx + sy] + p[idx - sy] + p[idx + 1] + p[idx - 1] - K[idx] * pc;
-            const d = D[idx];
-            pNext[idx] = (2 * pc + C[idx] * lap - (1 - d) * pPrev[idx]) / (1 + d);
+          }
+          const lap = acc - K[idx] * pc;
+          const sd = S[idx];
+          let rhs = 2 * pc - pPrev[idx] + C[idx] * lap + sd * pPrev[idx];
+          const q = Qa[idx];
+          if (q !== 0) {
+            rhs += -q * (0.5 * pc - Ks[idx] * X[idx]) + Q[idx] * V[idx];
+            const nxt = rhs / (1 + 0.5 * q + sd);
+            const vn = (0.5 * (nxt + pc) - Ks[idx] * X[idx]) * InvA[idx];
+            X[idx] += dt * vn;
+            V[idx] = vn;
+            pNext[idx] = nxt;
+          } else {
+            pNext[idx] = rhs / (1 + sd);
           }
         }
+      }
     }
-    // Domain-edge cells: same update with bounds-checked neighbours.
-    const edge = (i: number, j: number, z: number) => {
-      const idx = i * sx + j * sy + z;
-      if (act[idx] === 0) {
-        pNext[idx] = 0;
-        return;
+    if (this.params.outer === 'mur') this.murEdges();
+  }
+
+  /** First-order Engquist-Majda (Mur) edges, same as physics.mur_edges. */
+  private murEdges(): void {
+    const { p, pNext, nx, ny, nz, dims } = this;
+    const lam = Math.sqrt(this.coeff);
+    const k = (lam - 1) / (lam + 1);
+    const sh = [nx, ny, nz];
+    const strides = [ny * nz, nz, 1];
+    for (let a = 0; a < dims; a++) {
+      const n = sh[a];
+      for (const [face, inner] of [
+        [0, 1],
+        [n - 1, n - 2],
+      ]) {
+        // iterate over the face
+        const b1 = (a + 1) % 3;
+        const b2 = (a + 2) % 3;
+        const n1 = dims === 2 && b1 === 2 ? 1 : sh[b1];
+        const n2 = dims === 2 && b2 === 2 ? 1 : sh[b2];
+        for (let u = 0; u < n1; u++)
+          for (let w = 0; w < n2; w++) {
+            const base = u * strides[b1] + w * strides[b2];
+            const f = base + face * strides[a];
+            const g = base + inner * strides[a];
+            pNext[f] = p[g] + k * (pNext[g] - p[f]);
+          }
       }
-      const pc = p[idx];
-      let sum = 0;
-      if (i > 0) sum += p[idx - sx];
-      if (i < nx - 1) sum += p[idx + sx];
-      if (j > 0) sum += p[idx - sy];
-      if (j < ny - 1) sum += p[idx + sy];
-      if (dims === 3) {
-        if (z > 0) sum += p[idx - 1];
-        if (z < nz - 1) sum += p[idx + 1];
-      }
-      const lap = sum - K[idx] * pc;
-      const d = D[idx];
-      pNext[idx] = (2 * pc + C[idx] * lap - (1 - d) * pPrev[idx]) / (1 + d);
-    };
-    const zs = dims === 3 ? nz : 1;
-    for (let i = 0; i < nx; i++)
-      for (let j = 0; j < ny; j++) {
-        const iEdge = i === 0 || i === nx - 1 || j === 0 || j === ny - 1;
-        if (iEdge) for (let z = 0; z < zs; z++) edge(i, j, z);
-        else if (dims === 3) {
-          edge(i, j, 0);
-          edge(i, j, nz - 1);
-        }
-      }
+    }
   }
 }
 

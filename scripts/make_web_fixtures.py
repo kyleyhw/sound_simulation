@@ -27,10 +27,18 @@ from acoustic_system.simulation.waveforms import Cosine, RickerWavelet  # noqa: 
 OUT = _ROOT / "web" / "tests" / "fixtures"
 
 
-def run(shape, obstacles, drivers, steps):
-    sim = Simulate(grid_shape=shape, courant=0.5)
+def run(
+    shape, obstacles, drivers, steps, boundary="soft", outer_beta=1.0, materials=None, speed=None
+):
+    sim = Simulate(
+        grid_shape=shape, courant=0.5, boundary=boundary, boundary_beta=outer_beta, sponge_cells=12
+    )
     if obstacles:
         sim.set_obstacle(obstacles)
+    for pos, mid in materials or []:
+        sim.set_material([tuple(pos)], mid)
+    if speed is not None:
+        sim.set_speed_map(speed)
     sim.set_drivers([Driver(position=tuple(p), waveform=w) for p, w in drivers])
     for _ in range(steps):
         sim.step()
@@ -65,6 +73,41 @@ def main() -> None:
             60,
         ),
     }
+    # General path (Phase 5): every material, outer boundary kind and c(x).
+    shape = (60, 50)
+    mats = [((i, 10), 2) for i in range(10, 50)]
+    mats += [((i, 30), 3) for i in range(5, 25)] + [((i, 31), 4) for i in range(25, 45)]
+    mats += [((50, j), 5) for j in range(5, 25)] + [((52, j), 6) for j in range(25, 45)]
+    soft = [(20, j) for j in range(35, 45)]
+    speed = np.ones(shape, dtype=np.float32)
+    speed[30:45, 15:28] = 0.6
+    general = {
+        "general_rigid": ("rigid", 1.0, None),
+        "general_absorb": ("absorb", 0.4, None),
+        "general_mur": ("mur", 1.0, None),
+        "general_sponge": ("sponge", 1.0, None),
+        "general_speed": ("rigid", 1.0, speed),
+    }
+    for name, (boundary, beta, spd) in general.items():
+        drv = [((30, 22), RickerWavelet(5.0, 0.1, 15.0)), ((12, 40), Cosine(0.03, 0.4))]
+        sim = run(shape, soft, drv, 220, boundary, beta, mats, spd)
+        data = {
+            "shape": list(shape),
+            "courant": 0.5,
+            "boundary": boundary,
+            "outer_beta": beta,
+            "sponge_cells": 12,
+            "obstacles": [list(o) for o in soft],
+            "materials": [[*pos, mid] for pos, mid in mats],
+            "speed": None if spd is None else [float(v) for v in spd.ravel()],
+            "drivers": [{"pos": list(p), "waveform": wf_json(w)} for p, w in drv],
+            "steps": 220,
+            "timestep": sim.timestep,
+            "p": [float(f"{v:.8g}") for v in np.asarray(sim.p, dtype=np.float64).ravel()],
+        }
+        (OUT / f"{name}.json").write_text(json.dumps(data))
+        print(f"wrote {name}.json  |p|max={float(np.abs(sim.p).max()):.4g}")
+
     for name, (shape, obst, drivers, steps) in cases.items():
         sim = run(shape, obst, drivers, steps)
         data = {

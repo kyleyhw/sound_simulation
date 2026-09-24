@@ -105,7 +105,7 @@ export const PRESETS: Preset[] = [
       c.rect(70, 116, 4, 8, 0);
       const drivers: DriverSpec[] = [];
       for (let j = 4; j < 216; j += 2) drivers.push(drv(`s${j}`, 30, j, tone(0.06, 0.4)));
-      return scene('Double slit', { outer: 'pml', pmlCells: 20 }, c, drivers, [probe('p1', 180, 110, 'Screen centre')], 'Line source of phased tones, rigid barrier, absorbing edges.');
+      return scene('Double slit', { outer: 'sponge', spongeCells: 20 }, c, drivers, [probe('p1', 180, 110, 'Screen centre')], 'Line source of phased tones, rigid barrier, absorbing edges.');
     },
   },
   {
@@ -154,7 +154,7 @@ export const PRESETS: Preset[] = [
       for (let i = 20; i < 200; i += 2) drivers.push(drv(`s${i}`, i, 25, ricker(0.08, 1, 15)));
       return scene(
         'Parabolic dish',
-        { outer: 'pml', pmlCells: 20 },
+        { outer: 'sponge', spongeCells: 20 },
         c,
         drivers,
         [probe('p1', 110, vertexJ - fdist, 'Focus')],
@@ -196,7 +196,7 @@ export const PRESETS: Preset[] = [
       c.rect(10, 250, 180, 6, ABSORBER);
       return scene(
         'Anechoic vs reverberant',
-        { outer: 'pml', pmlCells: 24 },
+        { outer: 'sponge', spongeCells: 24 },
         c,
         [drv('d1', 100, 64, ricker()), drv('d2', 100, 194, ricker())],
         [probe('p1', 60, 64, 'Open side'), probe('p2', 60, 194, 'Room side')],
@@ -216,7 +216,7 @@ export const PRESETS: Preset[] = [
       for (let i = 20; i < 190; i += a) for (let j = 100; j < 184; j += a) c.disc(i, j, 3.5, RIGID);
       return scene(
         'Sonic crystal',
-        { outer: 'pml', pmlCells: 20 },
+        { outer: 'sponge', spongeCells: 20 },
         c,
         [drv('d1', 100, 40, tone(1 / (2 * a), 0.5))],
         [probe('p1', 100, 80, 'Before'), probe('p2', 100, 210, 'After')],
@@ -237,7 +237,7 @@ export const PRESETS: Preset[] = [
       c.rect(100, 96, 4, 8, 0);
       return scene(
         'Helmholtz resonator',
-        { outer: 'pml', pmlCells: 20 },
+        { outer: 'sponge', spongeCells: 20 },
         c,
         [drv('d1', 50, 100, ricker(0.05, 6, 30))],
         [probe('p1', 140, 100, 'Inside cavity'), probe('p2', 60, 60, 'Outside')],
@@ -257,7 +257,7 @@ export const PRESETS: Preset[] = [
       c.disc(160, 150, 12, RIGID);
       return scene(
         'Echolocation',
-        { outer: 'pml', pmlCells: 20 },
+        { outer: 'sponge', spongeCells: 20 },
         c,
         [drv('d1', 110, 40, { type: 'burst', amplitude: 3, frequency: 0.1, cycles: 3, delay: 5 })],
         [probe('p1', 110, 44, 'Microphone')],
@@ -277,7 +277,7 @@ export const PRESETS: Preset[] = [
       c.rect(77, 0, 3, 300, RIGID);
       return scene(
         'Waveguide',
-        { outer: 'pml', pmlCells: 20 },
+        { outer: 'sponge', spongeCells: 20 },
         c,
         [drv('d1', 60, 30, ricker(0.03, 5, 40))],
         [probe('p1', 60, 150, 'Middle'), probe('p2', 60, 260, 'Far end')],

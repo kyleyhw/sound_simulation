@@ -150,8 +150,8 @@ test.describe('sandbox', () => {
     await page.getByTestId('run').click();
     await expect(page.getByTestId('hud')).toContainText(/(µs|ms)/);
     await page.getByTestId('run').click();
-    await page.getByLabel('Outer boundary').selectOption('pml');
-    expect(await app<string>(page, '(s) => s.runtime.sim.params.outer')).toBe('pml');
+    await page.getByLabel('Outer boundary').selectOption('sponge');
+    expect(await app<string>(page, '(s) => s.runtime.sim.params.outer')).toBe('sponge');
     // Invalid input is rejected, not applied.
     await page.getByTestId('grid-1').fill('-5');
     await page.getByTestId('grid-1').press('Enter');

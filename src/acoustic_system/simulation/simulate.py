@@ -99,6 +99,9 @@ class Simulate:
         gridstep: float = 1.0,
         courant: float = 0.5,
         backend: str = "cpu",
+        boundary: str = "soft",
+        boundary_beta: float = 1.0,
+        sponge_cells: int = 24,
     ) -> None:
         self.grid_shape: Tuple[int, ...] = tuple(int(n) for n in grid_shape)
         self.wavespeed: float = float(wavespeed)
@@ -192,6 +195,28 @@ class Simulate:
         # allocated each step, eliminating per-step heap traffic. Kept private
         # to avoid expanding the public attribute surface tested by the gate.
         self._p_next: np.ndarray = xp.zeros(self.grid_shape, dtype=np.float32)
+
+        # General-path physics (Phase 5, see physics.py): rigid/impedance
+        # walls via a per-cell material map, absorbing outer boundaries,
+        # and a relative wave-speed map. Any non-default setting routes
+        # step() through the general kernel; the default leaves the fast
+        # path (and reference.npz) untouched.
+        from .physics import OUTER_KINDS
+
+        if boundary == "pml":  # accepted alias: the graded absorbing layer
+            boundary = "sponge"
+        if boundary not in OUTER_KINDS:
+            raise ValueError(f"boundary must be one of {OUTER_KINDS}, got {boundary!r}")
+        self.boundary: str = boundary
+        self.boundary_beta: float = float(boundary_beta)
+        self.sponge_cells: int = int(sponge_cells)
+        self.material: np.ndarray = np.zeros(self.grid_shape, dtype=np.uint8)
+        self.speed_map: Optional[np.ndarray] = None
+        self._wall_v = np.zeros(self.grid_shape, dtype=np.float32)
+        self._wall_x = np.zeros(self.grid_shape, dtype=np.float32)
+        self._gcoef = None
+        self._general: bool = False
+        self._refresh_general()
 
         # Cached scalar coefficient for the fused 2D kernel:
         #   coeff = (c * dt / dx) ** 2
@@ -337,6 +362,7 @@ class Simulate:
                 self.p_prev[tpos] = 0.0
                 self._p_next[tpos] = 0.0
         self._has_obstacles = bool(self.obstacle_mask.any())
+        self._gcoef = None
 
     def set_obstacle_mask(self, mask: np.ndarray) -> None:
         """Replace the whole obstacle mask in one operation.
@@ -361,11 +387,106 @@ class Simulate:
         self.p_prev[m] = zero
         self._p_next[m] = zero
         self._has_obstacles = bool(m.any())
+        self._gcoef = None
+
+    # ----- General-path geometry (Phase 5) ------------------------------ #
+
+    def _refresh_general(self) -> None:
+        general = (
+            self.boundary != "soft" or bool((self.material > 1).any()) or self.speed_map is not None
+        )
+        if general and (self.dims not in (2, 3) or self.backend != "cpu"):
+            raise NotImplementedError(
+                "rigid/impedance walls, absorbing boundaries and c(x) need a 2D/3D CPU Simulate"
+            )
+        self._general = general
+        self._gcoef = None  # rebuilt lazily
+
+    def set_material(self, positions: Iterable[Tuple[int, ...]], material_id: int) -> None:
+        """Assign a material (``physics.MATERIALS`` id; 0 = air) to cells.
+
+        Id 1 (pressure-release) is equivalent to ``set_obstacle``. Ids >= 2
+        (rigid, plaster, wood, absorber, curtain) enable the general path.
+        """
+        mid = int(material_id)
+        cells = [tuple(int(c) for c in pos) for pos in positions]
+        cells = [
+            c
+            for c in cells
+            if len(c) == self.dims and all(0 <= v < n for v, n in zip(c, self.grid_shape))
+        ]
+        for c in cells:
+            self.material[c] = mid
+            if mid != 0:
+                self.p[c] = 0.0
+                self.p_prev[c] = 0.0
+                self._p_next[c] = 0.0
+        self._refresh_general()
+
+    def set_material_map(self, material: np.ndarray) -> None:
+        """Replace the whole material map (uint8 ids, same shape as the grid)."""
+        m = np.array(material, dtype=np.uint8, copy=True)
+        if m.shape != self.grid_shape:
+            raise ValueError(f"material shape {m.shape} != grid shape {self.grid_shape}")
+        self.material = m
+        walls = m != 0
+        self.p[walls] = 0.0
+        self.p_prev[walls] = 0.0
+        self._p_next[walls] = 0.0
+        self._refresh_general()
+
+    def set_speed_map(self, speed: Optional[np.ndarray]) -> None:
+        """Relative wave speed c(x)/c (None = uniform). Checks the CFL bound."""
+        if speed is None:
+            self.speed_map = None
+        else:
+            r = np.array(speed, dtype=np.float32, copy=True)
+            if r.shape != self.grid_shape or not np.all(r > 0):
+                raise ValueError("speed map must match the grid and be positive")
+            sigma = float(r.max()) * self.wavespeed * self.timestep / self.gridstep
+            if sigma > 1.0 / np.sqrt(self.dims) * (1.0 + 1e-9):
+                warnings.warn(
+                    f"CFL violated by the speed map: max local Courant {sigma:.3f}",
+                    RuntimeWarning,
+                )
+            self.speed_map = r
+        self._refresh_general()
+
+    def _effective_material(self) -> np.ndarray:
+        m = self.material
+        if self._has_obstacles:
+            m = np.where((m == 0) & self.obstacle_mask, np.uint8(1), m)
+        return m
+
+    def _run_general(self, p: np.ndarray, p_prev: np.ndarray, p_next: np.ndarray) -> None:
+        from .physics import build_coefficients, general_step_2d, general_step_3d, mur_edges
+
+        if self._gcoef is None:
+            self._gcoef = build_coefficients(
+                self._effective_material(),
+                self.speed_map,
+                self.boundary,
+                self.boundary_beta,
+                self.sponge_cells,
+                float(self._coeff),
+                self.wavespeed,
+                self.gridstep,
+                self.timestep,
+            )
+        g = self._gcoef
+        step = general_step_2d if self.dims == 2 else general_step_3d
+        step(
+            p, p_prev, p_next, g.active, g.k_air, g.c2, g.s, g.qq, g.qa, g.inv_a, g.ks,
+            self._wall_v, self._wall_x, np.float32(self.timestep),
+        )  # fmt: skip
+        if g.mur_edges:
+            mur_edges(p, p_next, float(np.sqrt(self._coeff)))
 
     def clear_obstacles(self) -> None:
         """Remove every obstacle. Field is left untouched."""
         self.obstacle_mask.fill(False)
         self._has_obstacles = False
+        self._gcoef = None
 
     def p_host(self) -> np.ndarray:
         """Current pressure field as a NumPy array.
@@ -390,6 +511,8 @@ class Simulate:
         # Also zero the rotation buffer so a stale slot cannot leak into the
         # next call after the three-way pointer rotation in step().
         self._p_next.fill(0.0)
+        self._wall_v.fill(0.0)
+        self._wall_x.fill(0.0)
         self.time = 0.0
         self.step_count = 0
 
@@ -408,7 +531,14 @@ class Simulate:
         # fast path AND narrows self._kernel's type for ty (the 1D
         # fallback below leaves self._kernel = None).
         kernel = self._kernel
-        if kernel is not None:
+        if self._general:
+            # Phase 5 general path (physics.py): materials, rigid/impedance
+            # walls, absorbing boundaries, c(x). Handles obstacles itself.
+            p = self.p
+            p_prev = self.p_prev
+            p_next = self._p_next
+            self._run_general(p, p_prev, p_next)
+        elif kernel is not None:
             # 2D and 3D both go through a fused @njit kernel. Which one
             # was bound to self._kernel depends on dimensionality (set
             # once in __init__); the surrounding plumbing — buffer
@@ -441,7 +571,7 @@ class Simulate:
         # edge overwrites the wall). Guarded by the cached flag so the
         # no-obstacle path is bit-identical to the pre-obstacle code and
         # check_simulate.py keeps matching reference.npz.
-        if self._has_obstacles:
+        if self._has_obstacles and not self._general:
             p_next[self.obstacle_mask] = np.float32(0.0)
 
         # Driver injection happens after the boundary zeroing in BOTH paths
