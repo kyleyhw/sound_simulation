@@ -15,6 +15,8 @@ The Python package is installed under `src/acoustic_system/`:
 - `simulation/` — the standalone FDTD engine (`Simulate`, kernel, waveforms, I/O, plotting). Dimension-agnostic, but the 2D path is hot.
 - `learning/` — sensing datasets, models, training, calibration, metrics.
 - `control/` — sound-field control (beamforming, crosstalk cancellation, ANC).
+- `imaging/` — physics-based (no-ML) room imaging, the Phase 6 baselines: deconvolution, echo ellipses and carving, back-projection, time reversal, FWI, CRLB, room parameters.
+- `utils/` — shared helpers (`room_ir`: IR analysis for real captures).
 
 `web/` is the browser app (Vite + React + TypeScript): the FDTD engine ported to TypeScript and run client-side, deployed to GitHub Pages. It replaced the former `frontend/` + FastAPI/Socket.IO server (removed in plan 4.5.4). See `docs/web_app.md`. `tests/perf/` contains the correctness gate and benchmark used by the evolve harness.
 

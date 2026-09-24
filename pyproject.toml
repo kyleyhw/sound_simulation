@@ -13,12 +13,13 @@ authors = [{ name = "Kyle", email = "kyleyhw@gmail.com" }]
 dependencies = [
     # Numerics
     "numpy>=1.26",
-    "scipy>=1.11",                # ndimage.laplace, io.wavfile
-    "numba>=0.59",                # @njit kernel in calculate.py
+    "scipy>=1.11", # ndimage.laplace, io.wavfile
+    "numba>=0.59", # @njit kernel in calculate.py
     # I/O & UI batch tools
     "h5py>=3.10",
     "matplotlib>=3.7",
     "tqdm>=4.66",
+    "contourpy>=1.3.2",
 ]
 
 [project.optional-dependencies]

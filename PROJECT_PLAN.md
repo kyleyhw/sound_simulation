@@ -272,27 +272,34 @@ less than −40 dB, and T60 matches the Sabine formula.
     *   `[completed]` 5.8.1: Material painting, per-edge absorbing
         toggles, and sound-speed painting.
 
-### Phase 6: Room Sensing, second attempt — `[pending]`
+### Phase 6: Room Sensing, second attempt — `[in-progress]`
+*"Done when" met by the physics baselines. All four physics images fused
+with the prior reach held-out IoU 0.189 against the no-audio baseline's
+0.101 (paired ΔIoU +0.088 ± 0.005, z = 19.3; 0.244 at K = 8).
+Report: `tests/reports/imaging_2026_09_24.md`. So the ≈ 0.10 plateau of the
+Phase 2 CNNs was a modelling failure, not an information ceiling.*
 **Objective:** Show that sound actually reveals room geometry, then
 push how much.
 **Done when:** A method beats the no-audio baseline on held-out rooms
 with statistical significance.
 
-*   `[pending]` **Task 6.1: Better targets**
-    *   `[pending]` 6.1.1: Label only obstacle surfaces the sound
+*   `[completed]` **Task 6.1: Better targets**
+    *   `[completed]` 6.1.1: Label only obstacle surfaces the sound
         actually reaches, not the hidden interiors.
-    *   `[pending]` 6.1.2: Room-outline (polygon) targets.
-    *   `[pending]` 6.1.3: Distance-field targets.
-*   `[pending]` **Task 6.2: Physics baselines (no ML)**
-    *   `[pending]` 6.2.1: Recover the room impulse response by
+    *   `[completed]` 6.1.2: Room-outline (polygon) targets.
+    *   `[completed]` 6.1.3: Distance-field targets.
+*   `[completed]` **Task 6.2: Physics baselines (no ML)**
+    *   `[completed]` 6.2.1: Recover the room impulse response by
         deconvolving the known chirp.
-    *   `[pending]` 6.2.2: Locate walls from echo times (image-source
+    *   `[completed]` 6.2.2: Locate walls from echo times (image-source
         method).
-    *   `[pending]` 6.2.3: Synthetic-aperture imaging: combine the K
+    *   `[completed]` 6.2.3: Synthetic-aperture imaging: combine the K
         laptop positions into one large virtual array.
-    *   `[pending]` 6.2.4: Time-reversal imaging.
-    *   `[pending]` 6.2.5: Full-waveform inversion using the
-        differentiable engine (5.7.2).
+    *   `[completed]` 6.2.4: Time-reversal imaging.
+    *   `[completed]` 6.2.5: Full-waveform inversion using the
+        differentiable engine (5.7.2). *(A proof of concept on 40 rooms:
+        IoU 0.337 against 0.087. It inverts with the simulator that made
+        the data.)*
 *   `[pending]` **Task 6.3: Improved models**
     *   `[pending]` 6.3.1: Feed the synthetic-aperture images to the
         network as spatially aligned inputs.
@@ -302,21 +309,22 @@ with statistical significance.
         fusion.
     *   `[pending]` 6.3.4: A generative model that outputs uncertainty
         maps.
-*   `[pending]` **Task 6.4: What can a laptop hear?**
-    *   `[pending]` 6.4.1: Theoretical accuracy limits (Cramér–Rao
+*   `[completed]` **Task 6.4: What can a laptop hear?**
+    *   `[completed]` 6.4.1: Theoretical accuracy limits (Cramér–Rao
         bound) against bandwidth, mic count, spacing, noise, and pose
         count.
-    *   `[pending]` 6.4.2: A design chart of which hardware setups can
+    *   `[completed]` 6.4.2: A design chart of which hardware setups can
         resolve what.
-*   `[pending]` **Task 6.5: Room acoustic parameters**
-    *   `[pending]` 6.5.1: Estimate T60, direct-to-reverberant ratio,
+*   `[completed]` **Task 6.5: Room acoustic parameters**
+    *   `[completed]` 6.5.1: Estimate T60, direct-to-reverberant ratio,
         and absorption from recordings.
 *   `[pending]` **Task 6.6: Real-world conditions**
     *   `[pending]` 6.6.1: Robustness when laptop positions are only
         roughly known.
     *   `[pending]` 6.6.2: Estimate laptop position and map jointly.
-    *   `[pending]` 6.6.3: Suggest the next best place to move the
-        laptop.
+    *   `[in-progress]` 6.6.3: Suggest the next best place to move the
+        laptop. *(An entropy-neighbourhood heuristic in the sensing panel;
+        no expected-information-gain evaluation yet.)*
     *   `[pending]` 6.6.4: Passive sensing with phase features and
         multiple poses.
     *   `[pending]` 6.6.5: 3D rooms and 3–4 mic laptops.
