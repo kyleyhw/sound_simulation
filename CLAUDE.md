@@ -14,7 +14,7 @@ The Python package is installed under `src/acoustic_system/`:
 
 - `simulation/` — the standalone FDTD engine (`Simulate`, kernel, waveforms, I/O, plotting). Dimension-agnostic, but the 2D path is hot.
 - `learning/` — sensing datasets, models, training, calibration, metrics.
-- `control/` — sound-field control (beamforming, crosstalk cancellation, ANC).
+- `control/` — sound-field control (Phase 7): `transfer` (FDTD transfer functions), `beamforming` (DAS, pressure matching, ACC, time reversal, FIR), `ctc`, `anc` (FxLMS), `requirements` (control vs sensing error), `differentiable` (TorchFDTD optimisation).
 - `imaging/` — physics-based (no-ML) room imaging, the Phase 6 baselines: deconvolution, echo ellipses and carving, back-projection, time reversal, FWI, CRLB, room parameters.
 - `utils/` — shared helpers (`room_ir`: IR analysis for real captures).
 

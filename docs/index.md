@@ -17,6 +17,10 @@ This index provides an overview and links to the detailed documentation for each
 - [**`learning.md`**](./learning.md): The active-sensing pipeline — dataset generation (`scripts/generate_active_sensing.py`), the `DualInputCNN` obstacle-mask model, BCE+Dice loss, training/eval loops, and the results to date.
 - [**`demos.md`**](./demos.md): Phase 1+2 demonstrations — the standalone room-mapping figure (`scripts/demo_room_mapping.py`) built on `learning/sensing.py`.
 
+## Sound-field control (Phase 7)
+
+- [**`control.md`**](./control.md): Transfer functions from the engine, sound zones (delay-and-sum, pressure matching, ACC, time reversal, broadband FIR), crosstalk cancellation, FxLMS noise cancellation, sensing requirements, and differentiable control. Results are in `tests/reports/control_2026_09_24.md`.
+
 ## Physics imaging (Phase 6)
 
 - [**`imaging.md`**](./imaging.md): The no-ML imagers: deconvolution, echo ellipses and free-space carving, delay-and-sum back-projection, time reversal, and FWI. It also covers the observable targets, the Cramér–Rao design chart, and T60/DRR/absorption estimation. Results are in `tests/reports/imaging_2026_09_24.md`.

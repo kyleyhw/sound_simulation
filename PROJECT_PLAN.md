@@ -333,7 +333,13 @@ with statistical significance.
         hint in the sensing panel. *(Heuristic: the most uncertain
         neighbourhood.)*
 
-### Phase 7: Beamforming and Sound-Field Control — `[pending]`
+### Phase 7: Beamforming and Sound-Field Control — `[completed]`
+*Report: `tests/reports/control_2026_09_24.md`. Array target met: ACC
+gives 25.5 dB broadband in the absorbing room, measured in the time
+domain. Crosstalk target met broadband in the absorbing room (17.7 and
+20.5 dB), but only 84 % of the 300–1500 Hz band reaches 15 dB per
+frequency, and the live room gets 9.8 dB. Sensing requirement: walls
+known to about 1.5–4 cm for 15 dB.*
 **Objective:** Create localised sound and silence in simulated rooms
 with realistic walls.
 **Done when:** At least 10 dB contrast between the target zone and the
@@ -342,34 +348,34 @@ with 2 laptop speakers, in an absorbing room.
 
 *   `[completed]` 7.0: Multiple independently driven sources (the
     engine and UI already support this).
-*   `[pending]` **Task 7.1: Tooling**
-    *   `[pending]` 7.1.1: Compute speaker-to-point transfer functions
+*   `[completed]` **Task 7.1: Tooling**
+    *   `[completed]` 7.1.1: Compute speaker-to-point transfer functions
         from the simulator (batched, on GPU).
-    *   `[pending]` 7.1.2: Metrics: zone contrast (dB), reproduction
+    *   `[completed]` 7.1.2: Metrics: zone contrast (dB), reproduction
         error, and array effort.
-*   `[pending]` **Task 7.2: Classical controllers (`control/`)**
-    *   `[pending]` 7.2.1: Delay-and-sum beam steering.
-    *   `[pending]` 7.2.2: Pressure matching.
-    *   `[pending]` 7.2.3: Acoustic contrast control.
-    *   `[pending]` 7.2.4: Time-reversal focusing.
-    *   `[pending]` 7.2.5: Broadband FIR filter design.
-*   `[pending]` **Task 7.3: Laptop virtual headphones**
-    *   `[pending]` 7.3.1: Crosstalk cancellation with 2 speakers.
-    *   `[pending]` 7.3.2: Channel separation against head position and
+*   `[completed]` **Task 7.2: Classical controllers (`control/`)**
+    *   `[completed]` 7.2.1: Delay-and-sum beam steering.
+    *   `[completed]` 7.2.2: Pressure matching.
+    *   `[completed]` 7.2.3: Acoustic contrast control.
+    *   `[completed]` 7.2.4: Time-reversal focusing.
+    *   `[completed]` 7.2.5: Broadband FIR filter design.
+*   `[completed]` **Task 7.3: Laptop virtual headphones**
+    *   `[completed]` 7.3.1: Crosstalk cancellation with 2 speakers.
+    *   `[completed]` 7.3.2: Channel separation against head position and
         frequency.
-    *   `[pending]` 7.3.3: Filters that adapt to a tracked head
+    *   `[completed]` 7.3.3: Filters that adapt to a tracked head
         position.
-*   `[pending]` **Task 7.4: Noise cancellation**
-    *   `[pending]` 7.4.1: Adaptive (FxLMS) noise cancellation at a
+*   `[completed]` **Task 7.4: Noise cancellation**
+    *   `[completed]` 7.4.1: Adaptive (FxLMS) noise cancellation at a
         quiet zone.
-    *   `[pending]` 7.4.2: Measure the size limits of the quiet zone.
-*   `[pending]` **Task 7.5: Sensing requirements**
-    *   `[pending]` 7.5.1: Design control from the *estimated* room and
+    *   `[completed]` 7.4.2: Measure the size limits of the quiet zone.
+*   `[completed]` **Task 7.5: Sensing requirements**
+    *   `[completed]` 7.5.1: Design control from the *estimated* room and
         test it in the *true* room.
-    *   `[pending]` 7.5.2: A curve of control quality against sensing
+    *   `[completed]` 7.5.2: A curve of control quality against sensing
         error, which tells Phase 6 how accurate sensing must be.
-*   `[pending]` **Task 7.6: Differentiable control**
-    *   `[pending]` 7.6.1: Optimise speaker signals directly through the
+*   `[completed]` **Task 7.6: Differentiable control**
+    *   `[completed]` 7.6.1: Optimise speaker signals directly through the
         differentiable simulator.
 *   `[completed]` **Task 7.7: UI**
     *   `[completed]` 7.7.1: Speaker-array tool.
