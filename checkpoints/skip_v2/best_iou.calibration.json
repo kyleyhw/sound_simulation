@@ -1,0 +1,8 @@
+{
+  "temperature": 4.5023322105407715,
+  "bias": -1.7549755573272705,
+  "prior": 0.0696557345920139,
+  "threshold": 0.12000000000000001,
+  "checkpoint": "best_iou.pt",
+  "checkpoint_bytes": 3216033
+}
