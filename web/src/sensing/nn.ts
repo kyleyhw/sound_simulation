@@ -160,3 +160,17 @@ export function stft(x: Float32Array, nfft: number, hop: number, window: Float32
   }
   return { re, im, F, T: frames };
 }
+
+/** Nearest-neighbour 2x upsampling (F.interpolate(scale_factor=2, mode='nearest')). */
+export function upsampleNearest2(x: Tensor): Tensor {
+  const ho = 2 * x.h;
+  const wo = 2 * x.w;
+  const y = tensor(x.c, ho, wo);
+  for (let c = 0; c < x.c; c++)
+    for (let i = 0; i < ho; i++) {
+      const src = (c * x.h + (i >> 1)) * x.w;
+      const dst = (c * ho + i) * wo;
+      for (let j = 0; j < wo; j++) y.d[dst + j] = x.d[src + (j >> 1)];
+    }
+  return y;
+}

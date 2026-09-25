@@ -11,7 +11,9 @@
     "preview": "vite preview --port 4173 --strictPort",
     "test": "vitest run",
     "e2e": "playwright test",
-    "render": "vite build --ssr scripts/render.ts --outDir .render --emptyOutDir --logLevel warn && node .render/render.js"
+    "render": "vite build --ssr scripts/render.ts --outDir .render --emptyOutDir --logLevel warn && node .render/render.js",
+    "loop:data": "vite build --ssr scripts/loop_sensing_data.ts --outDir .render/loop-data --emptyOutDir --logLevel warn && node .render/loop-data/loop_sensing_data.js",
+    "loop:eval": "vite build --ssr scripts/loop_sensing_eval.ts --outDir .render/loop-eval --emptyOutDir --logLevel warn && node .render/loop-eval/loop_sensing_eval.js"
   },
   "dependencies": {
     "gifenc": "^1.0.3",

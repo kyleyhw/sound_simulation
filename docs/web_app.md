@@ -171,11 +171,23 @@ that the live measured contrast exceeds 10 dB.
 
 Each epoch runs:
 
-- **Sense:** every speaker pings, every array position records, and the
+- **Sense:** every speaker pings and every array position records. The
   residual against an empty-room reference is back-projected by
-  *coherent* delay-and-sum migration. The largest blob above 0.7 × max,
-  dilated by one cell, is the obstacle estimate. An envelope sum only
-  resolves range and smears whole arcs.
+  *coherent* delay-and-sum migration (`migrationImages`). This gives the
+  coherent image, the coherent images of the left and right half of the
+  array, and the smoothed coherent and incoherent energy. Two estimators
+  turn these images into an obstacle mask (the **Room estimate** selector):
+  - **Learned U-Net** (default, 100² grid): `loop/learnedSensing.ts`. A
+    compact U-Net (120 k parameters, BatchNorm folded) maps the aligned
+    images, plus geometry channels and a training prior, to an obstacle
+    probability. The estimate is the cells above 0.62, a threshold chosen
+    on validation scenes.
+  - **Back-projection:** the largest blob of the coherent energy above
+    0.7 × max, dilated by one cell. An envelope sum only resolves range
+    and smears whole arcs.
+
+  The model is trained for the 100² grid only. On 60² and 80² the loop
+  falls back to back-projection, and the page says so.
 - **Twin:** the true outer boundary plus the estimate as rigid cells.
 - **Design:** ACC on the twin.
 - **Act and measure:** the steady-state contrast over the whole zones in
@@ -187,41 +199,100 @@ Each epoch also scores three references: a **static** controller designed
 once at epoch 0, an **empty-room** design (no sensing), and an **oracle**
 designed on the true room.
 
-Results on the 100² scene (exploration run):
+### Learned room estimate (loop sensing study, 2026-09-25)
 
-| epoch | closed loop | twin | empty room | static | oracle |
-|---|---|---|---|---|---|
-| initial | 35.8 (twin) | 35.8 | 33.0 | 35.8 | 45.4 |
-| listener moves | 40.7 (twin) | 40.7 | 36.6 | 39.8 | 50.3 |
-| obstacle moves | 19.4 (empty) | 9.6 | 19.4 | 16.0 | 34.6 |
-| partition + door | 16.6 (empty) | 15.5 | 16.6 | 15.4 | 29.9 |
+Report: `tests/reports/loop_sensing_2026_09_25.md`.
 
-(All values are contrast in dB; the closed-loop column names the design the guard kept.)
+- **Data.** `web/scripts/loop_sensing_data.ts` (`npm run loop:data`) runs
+  the loop's own sensing code in Node on random scenes from
+  `scenarios.randomLoopScene`. Each scene has 1–3 rigid blocks or thin
+  partitions with a door, kept at least 12 cells from the bar, and a
+  bright and a dark zone. The splits are 2400 train, 300 validation and
+  100 test scenes, with disjoint seeds.
+- **Training.** `scripts/train_loop_sensing.py` trains on CPU (BCE +
+  Dice, 40 epochs) and exports `web/public/models/loop_unet.{bin,json}`
+  and the parity fixture. `tests/unit/loopSensing.test.ts` re-simulates
+  held-out scenes in TypeScript and matches PyTorch's features to 2e-5
+  and its logits to 2e-3.
+- **Evaluation.** `web/scripts/loop_sensing_eval.ts`
+  (`npm run loop:eval`) runs a paired comparison on all 100 held-out test
+  scenes. The results below are mean ± SE in dB, measured in the true
+  room.
 
-What this shows:
+| design | sensing IoU | contrast (dB) |
+|---|---|---|
+| empty room (no sensing) | — | 14.7 ± 1.1 |
+| back-projection twin | 0.18 ± 0.01 | 16.9 ± 1.2 |
+| guarded, back-projection | | 17.8 ± 1.2 |
+| **learned twin** | **0.79 ± 0.02** | **26.3 ± 1.2** |
+| guarded, learned | | 26.4 ± 1.2 |
+| oracle (true room) | 1 | 30.6 ± 1.0 |
 
-- The guarded loop holds the 10 dB target through every change, and never
-  does worse than the static design.
-- The 10–15 dB gap to the oracle is the sensing gap. The back-projected
-  twin finds the obstacle's front face (IoU 0.13–0.32 against the full
-  block), which sometimes helps and sometimes hurts compared with
-  assuming an empty room.
+The paired differences are:
+
+- Learned twin minus back-projection twin: **+9.5 ± 0.7 dB** (z = 12.6;
+  better in 93 % of scenes).
+- IoU: +0.61 ± 0.02 (z = 29.6).
+
+The learned estimate closes **69 %** of the back-projection twin's
+13.7 dB gap to the oracle. The remaining gap is 4.3 ± 0.6 dB, with a
+median of 1.0 dB. The guard now keeps the twin in 93 % of scenes (66 %
+with back-projection). Only 9 of 100 scenes stay below 10 dB (28 with
+back-projection, 2 for the oracle).
+
+Demo epochs (contrast in dB; the IoU is shown after the slash):
+
+| epoch | back-projection twin | learned twin | empty room | oracle |
+|---|---|---|---|---|
+| initial | 35.8 / 0.18 | 45.4 / 1.00 | 33.0 | 45.4 |
+| listener moves | 40.7 / 0.18 | 50.3 / 1.00 | 36.6 | 50.3 |
+| obstacle moves | 9.6 / 0.18 | 34.6 / 1.00 | 19.4 | 34.6 |
+| partition + door | 15.5 / 0.13 | 29.9 / 1.00 | 16.6 | 29.9 |
+
+With the learned estimate, the closed loop matches the oracle on all four
+demo epochs. With back-projection, the guarded loop scored
+35.8/40.7/19.4/16.6 dB and fell back to the empty-room design in epochs
+3 and 4.
+
+Caveats. Training and testing use the same noiseless simulator, grid and
+bar, with the same families of axis-aligned blocks and partitions, so the
+network can use a strong shape prior.
+
+- **Recording noise.** The IoU is 0.78 at an echo SNR of 30 dB, 0.71 at
+  20 dB and 0.36 at 10 dB. Back-projection stays at 0.18 at every level.
+- **Out-of-family shapes.** Discs, L-shapes and diagonal walls were never
+  trained on. On these the IoU falls to 0.32, against 0.18 for
+  back-projection, and the network draws rectangles.
+- **Control on out-of-family rooms.** On 40 such rooms the control gain
+  vanishes. The learned twin minus the back-projection twin is
+  +0.7 ± 1.0 dB (z = 0.7), and the guarded loops are equal. The monitor
+  guard is what keeps the loop safe there.
+
+Real rooms add model mismatch that these tests do not cover.
 
 Latency, measured single-threaded in Node on the 4-core container at 100²:
 
 | stage | time |
 |---|---|
-| sense (2 × 8 pings) | about 2.3 s |
+| sense (2 × 8 pings: the room and the empty-room reference) | about 2.3 s |
+| learned estimate (U-Net forward on the central 96², in the worker) | about 0.27 s |
 | design (8 steady-state tones on the twin) | about 2.3 s |
 | act and measure | about 0.3 s |
 
 This is a loop period of about 5 s, which is room-change pace, not
 audio-rate. Applying new weights is instant.
 
-Tests: `tests/unit/loop.test.ts` checks that the estimate lies on the
-obstacle, and that the guarded loop stays at or above 10 dB, stays at or
-above the static design, and stays at or below the oracle.
-`tests/e2e/loop.spec.ts` runs the dashboard end to end.
+Tests:
+
+- `tests/unit/loop.test.ts` checks that the back-projection estimate lies
+  on the obstacle. It also checks that the guarded loop stays at or above
+  10 dB, at or above the static design, and at or below the oracle.
+- `tests/unit/loopSensing.test.ts` holds the PyTorch parity checks. It
+  also checks that the loop uses the learned estimate at 100² (IoU above
+  0.8 on the demo), and falls back to back-projection on other grids.
+- `tests/e2e/loop.spec.ts` runs the dashboard end to end at 60², where it
+  falls back to back-projection, and checks the learned estimate on the
+  first epoch at 100².
 
 ## 5c. WebGPU engine (plan 10.1, 10.2)
 

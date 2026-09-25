@@ -412,6 +412,13 @@ never below the static design. The loop period is about 5 s.*
     room. *(Oracle, plus static and empty-room references.)*
 *   `[completed]` 8.6: UI dashboard: sensing map, twin vs truth,
     controller state, and zone metrics over time. *(`#/loop`.)*
+*   `[completed]` 8.7: Learned room estimate in the loop: does better
+    sensing close the gap to the oracle? *(A U-Net on the loop's own
+    migration images: IoU 0.79 against back-projection's 0.18, and
+    +9.5 ± 0.7 dB of contrast (z = 12.6) on 100 held-out rooms, closing
+    69 % of the oracle gap. The gain vanishes on shapes outside the
+    training family (+0.7 ± 1.0 dB). Shipped as the default estimator in
+    `#/loop`. Report: `tests/reports/loop_sensing_2026_09_25.md`.)*
 
 ### Phase 9: Real Hardware — `[in-progress]`
 *Tooling complete and tested (fake-device e2e, synthetic-room unit tests;

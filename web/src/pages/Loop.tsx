@@ -1,7 +1,7 @@
 import { Play } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Rect } from '../control/soundfield';
-import type { EpochResult } from '../loop/closedLoop';
+import type { EpochResult, EstimatorName } from '../loop/closedLoop';
 import type { Route } from '../lib/router';
 
 interface ScenarioMsg {
@@ -10,6 +10,8 @@ interface ScenarioMsg {
   frequency: number;
   epochs: { label: string; materials: Uint8Array; bright: Rect; dark: Rect }[];
 }
+
+const ESTIMATOR_LABELS: Record<EstimatorName, string> = { learned: 'learned U-Net', backprojection: 'back-projection' };
 
 const css = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
@@ -33,14 +35,16 @@ function RoomMap({ sc, index, result }: { sc: ScenarioMsg; index: number; result
     const ctx = cv.getContext('2d')!;
     const img = ctx.createImageData(cols, rows);
     const ep = sc.epochs[index];
+    const glow = result?.probability ?? result?.image;
+    const sqrtScale = !result?.probability; // energy image: show amplitude; probability: as is
     let max = 0;
-    if (result) for (const v of result.image) max = Math.max(max, v);
+    if (glow) for (const v of glow) max = Math.max(max, v);
     for (let q = 0; q < rows * cols; q++) {
       let r = 18;
       let g = 20;
       let b = 26;
-      if (result && max > 0) {
-        const v = Math.sqrt(result.image[q] / max);
+      if (glow && max > 0) {
+        const v = sqrtScale ? Math.sqrt(glow[q] / max) : glow[q];
         r += 90 * v;
         g += 60 * v;
         b += 150 * v;
@@ -125,7 +129,9 @@ export default function Loop(_props: { route?: Route }) {
   const [results, setResults] = useState<EpochResult[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [size, setSize] = useState(80);
+  const [size, setSize] = useState(100);
+  const [estimator, setEstimator] = useState<EstimatorName>('learned');
+  const [active, setActive] = useState<EstimatorName | null>(null);
   const workerRef = useRef<Worker | null>(null);
 
   useEffect(() => () => workerRef.current?.terminate(), []);
@@ -135,11 +141,13 @@ export default function Loop(_props: { route?: Route }) {
     const w = new Worker(new URL('../loop/loopWorker.ts', import.meta.url), { type: 'module' });
     workerRef.current = w;
     setResults([]);
+    setActive(null);
     setError(null);
     setRunning(true);
     w.onmessage = (e: MessageEvent) => {
       const m = e.data;
       if (m.type === 'scenario') setSc(m as ScenarioMsg);
+      else if (m.type === 'estimator') setActive(m.estimator as EstimatorName);
       else if (m.type === 'epoch') setResults((r) => [...r, m.result as EpochResult]);
       else if (m.type === 'done') setRunning(false);
       else if (m.type === 'error') {
@@ -147,7 +155,7 @@ export default function Loop(_props: { route?: Route }) {
         setRunning(false);
       }
     };
-    w.postMessage({ size });
+    w.postMessage({ size, estimator });
   };
 
   const n = sc?.epochs.length ?? 4;
@@ -155,8 +163,8 @@ export default function Loop(_props: { route?: Route }) {
     <div className="content" data-testid="loop">
       <h1>Closed loop: sense → twin → control</h1>
       <p className="lede">
-        A speaker bar has to keep one zone loud and another quiet while the room changes. Each epoch the bar pings the room and back-projects the echoes into an obstacle
-        estimate. That estimate becomes a digital twin, the controller is designed on the twin, and the result is measured in the true room. The static controller is designed
+        A speaker bar has to keep one zone loud and another quiet while the room changes. Each epoch the bar pings the room and back-projects the echoes into images of the
+        room. A small U-Net turns those images into an obstacle estimate (or, as before, the brightest blob of the image is taken). That estimate becomes a digital twin, the controller is designed on the twin, and the result is measured in the true room. The static controller is designed
         once and never updated. The oracle is designed on the true room. Five monitor mics per zone (for example a phone at the listener) let the loop fall back to the
         empty-room design when the twin is worse.
       </p>
@@ -170,11 +178,24 @@ export default function Loop(_props: { route?: Route }) {
           </select>
         </div>
         <div className="field">
+          <label>Room estimate</label>
+          <select className="input" value={estimator} onChange={(e) => setEstimator(e.target.value as EstimatorName)} aria-label="Room estimate" disabled={running}>
+            <option value="learned">Learned U-Net (100²)</option>
+            <option value="backprojection">Back-projection (brightest blob)</option>
+          </select>
+        </div>
+        <div className="field">
           <button className="btn primary" onClick={run} disabled={running} data-testid="run-loop">
             <Play size={16} /> {running ? `Running… epoch ${results.length + 1} of ${n}` : 'Run the loop'}
           </button>
         </div>
       </div>
+      {active && (
+        <p className="hint" data-testid="loop-estimator" data-estimator={active}>
+          Active room estimate: <b>{ESTIMATOR_LABELS[active]}</b>
+          {estimator === 'learned' && active !== 'learned' && ' (the learned model is trained for the 100² grid; other grids use back-projection)'}
+        </p>
+      )}
       {error && <p className="warn">Loop failed: {error}</p>}
 
       {sc && (
@@ -192,7 +213,8 @@ export default function Loop(_props: { route?: Route }) {
             ))}
           </div>
           <p className="hint dim" style={{ fontSize: 12 }}>
-            White: true walls and obstacles. Orange: the obstacle estimate from the back-projected echoes (purple glow). Yellow box: loud zone. Blue box: quiet zone. Red dots: speakers.
+            White: true walls and obstacles. Orange: the obstacle estimate. Purple glow: the back-projected echo energy, or the U-Net's obstacle probability when the learned
+            estimate is active. Yellow box: loud zone. Blue box: quiet zone. Red dots: speakers.
           </p>
         </section>
       )}
@@ -219,6 +241,7 @@ export default function Loop(_props: { route?: Route }) {
                 <th>empty room</th>
                 <th>static</th>
                 <th>oracle</th>
+                <th>estimate</th>
                 <th>sense (ms)</th>
                 <th>design (ms)</th>
                 <th>act + measure (ms)</th>
@@ -235,6 +258,10 @@ export default function Loop(_props: { route?: Route }) {
                   <td className="mono">{r.naive.toFixed(1)}</td>
                   <td className="mono">{r.static.toFixed(1)}</td>
                   <td className="mono">{r.oracle.toFixed(1)}</td>
+                  <td>
+                    {ESTIMATOR_LABELS[r.estimator]}
+                    {r.estimator === 'learned' && <span className="dim"> ({r.latencyMs.estimate.toFixed(0)} ms)</span>}
+                  </td>
                   <td className="mono">{r.latencyMs.sense.toFixed(0)}</td>
                   <td className="mono">{r.latencyMs.design.toFixed(0)}</td>
                   <td className="mono">{r.latencyMs.act.toFixed(0)}</td>
@@ -244,6 +271,7 @@ export default function Loop(_props: { route?: Route }) {
           </table>
           <p className="hint dim" style={{ fontSize: 12 }}>
             Latencies are measured in this browser on this device. Sensing and design are dominated by simulating the room: 2 × N pings, and N steady-state tones on the twin.
+            The sense time includes the U-Net, whose own time is shown next to the estimate.
             Applying new weights is instant. The act and measure stage simulates the true room until it reaches steady state.
           </p>
         </section>

@@ -38,8 +38,13 @@ import type { CVec } from '../control/complex';
 
 export interface SenseResult {
   image: Float32Array; // back-projected energy, row-major 2D
-  estimate: Uint8Array; // 1 = estimated obstacle
+  estimate: Uint8Array; // 1 = estimated obstacle (from the active estimator)
   iou: number | null; // against the true obstacle cells (if given)
+  estimator: EstimatorName; // which estimator formed `estimate`
+  images: MigrationImages;
+  backprojection: Uint8Array; // the back-projection estimate (always computed; it is cheap)
+  probability: Float32Array | null; // learned obstacle probability (learned estimator only)
+  learnedMs: number; // time spent in the learned estimator (0 for back-projection)
 }
 
 function buildSim(g: Geometry): Simulation {
@@ -120,77 +125,172 @@ function dilate(mask: Uint8Array, rows: number, cols: number): Uint8Array {
   return out;
 }
 
-/**
- * Sense the room: back-project the residual scattered field and threshold.
- * `truthObstacles` (optional) only scores the estimate; it is never used to
- * form it.
- */
-export function senseRoom(
-  room: Geometry,
-  empty: Geometry,
-  array: number[][],
-  opts: { f0?: number; steps?: number; threshold?: number; exclude?: number; truthObstacles?: Uint8Array; dilate?: boolean } = {},
-): SenseResult {
-  const [rows, cols] = room.params.shape;
-  const f0 = opts.f0 ?? 0.08;
-  const steps = opts.steps ?? Math.round((2.2 * Math.hypot(rows, cols) * room.params.dx) / room.params.c / (0.5 * room.params.dx / room.params.c));
-  const recRoom = pingRecordings(room, array, f0, steps);
-  const recEmpty = pingRecordings(empty, array, f0, steps);
-  const sim = new Simulation(room.params);
-  const dt = sim.dt;
-  const delay = 1.5 / f0;
-  const res = recRoom.map((rs, s) => rs.map((r, m) => r.map((v, k) => v - recEmpty[s][m][k])));
-  const coherent = new Float32Array(rows * cols);
-  const cdx = room.params.dx / room.params.c;
-  for (let i = 0; i < rows; i++)
-    for (let j = 0; j < cols; j++) {
-      const d = array.map((a) => Math.hypot(i - a[0], j - a[1]) * cdx);
-      let acc = 0;
-      for (let s = 0; s < array.length; s++)
-        for (let m = 0; m < array.length; m++) {
-          const k = Math.round((delay + d[s] + d[m]) / dt);
-          if (k < steps) acc += res[s][m][k];
-        }
-      coherent[i * cols + j] = acc;
-    }
-  // Energy of the coherent image, smoothed over about half a wavelength.
-  const r = Math.max(1, Math.round(0.25 / f0 / room.params.dx * room.params.c));
-  const image = new Float32Array(rows * cols);
+/** The back-projected images of one sensing sweep (all row-major, rows x cols). */
+export interface MigrationImages {
+  /** Signed coherent delay-and-sum over all speaker-mic pairs. */
+  coherent: Float32Array;
+  /** Signed coherent sum over the pairs whose source is in the left / right half of the array. */
+  left: Float32Array;
+  right: Float32Array;
+  /** Energy of the coherent image, box-smoothed over about half a wavelength (the back-projection image). */
+  image: Float32Array;
+  /** Incoherent sum of squared residuals at the travel lag, box-smoothed the same way. */
+  incoherent: Float32Array;
+}
+
+/** Number of recorded steps for a sensing sweep (2.2 domain diagonals). */
+export function senseSteps(params: Geometry['params']): number {
+  const [rows, cols] = params.shape;
+  return Math.round((2.2 * Math.hypot(rows, cols) * params.dx) / params.c / (0.5 * params.dx / params.c));
+}
+
+function boxSmooth(src: Float32Array, rows: number, cols: number, r: number, square: boolean): Float32Array {
+  const out = new Float32Array(rows * cols);
   for (let i = 0; i < rows; i++)
     for (let j = 0; j < cols; j++) {
       let acc = 0;
       let n = 0;
       for (let a = Math.max(0, i - r); a <= Math.min(rows - 1, i + r); a++)
         for (let b = Math.max(0, j - r); b <= Math.min(cols - 1, j + r); b++) {
-          acc += coherent[a * cols + b] ** 2;
+          const v = src[a * cols + b];
+          acc += square ? v ** 2 : v;
           n++;
         }
-      image[i * cols + j] = acc / n;
+      out[i * cols + j] = acc / n;
     }
-  // Threshold away from the array (its own near field dominates there).
-  const excl = opts.exclude ?? 6;
-  const near = (i: number, j: number) => array.some((a) => Math.hypot(i - a[0], j - a[1]) < excl);
+  return out;
+}
+
+/**
+ * Back-project the residual scattered field r_sm = rec_room - rec_empty by
+ * delay-and-sum migration (coherent, per half-array, and incoherent).
+ */
+export function migrationImages(recRoom: Float32Array[][], recEmpty: Float32Array[][], array: number[][], params: Geometry['params'], f0: number): MigrationImages {
+  const [rows, cols] = params.shape;
+  const steps = recRoom[0][0].length;
+  const dt = new Simulation(params).dt;
+  const delay = 1.5 / f0;
+  const res = recRoom.map((rs, s) => rs.map((r, m) => r.map((v, k) => v - recEmpty[s][m][k])));
+  const half = array.length / 2;
+  const coherent = new Float32Array(rows * cols);
+  const left = new Float32Array(rows * cols);
+  const right = new Float32Array(rows * cols);
+  const inco = new Float32Array(rows * cols);
+  const cdx = params.dx / params.c;
+  for (let i = 0; i < rows; i++)
+    for (let j = 0; j < cols; j++) {
+      const d = array.map((a) => Math.hypot(i - a[0], j - a[1]) * cdx);
+      let acc = 0;
+      let accL = 0;
+      let acc2 = 0;
+      for (let s = 0; s < array.length; s++)
+        for (let m = 0; m < array.length; m++) {
+          const k = Math.round((delay + d[s] + d[m]) / dt);
+          if (k < steps) {
+            const v = res[s][m][k];
+            acc += v;
+            if (s < half) accL += v;
+            acc2 += v * v;
+          }
+        }
+      coherent[i * cols + j] = acc;
+      left[i * cols + j] = accL;
+      right[i * cols + j] = acc - accL;
+      inco[i * cols + j] = acc2;
+    }
+  // Energy of the coherent image, smoothed over about half a wavelength.
+  const r = Math.max(1, Math.round(0.25 / f0 / params.dx * params.c));
+  return { coherent, left, right, image: boxSmooth(coherent, rows, cols, r, true), incoherent: boxSmooth(inco, rows, cols, r, false) };
+}
+
+/** True where a cell lies within `exclude` cells of an array element (its near field). */
+export function nearArray(array: number[][], rows: number, cols: number, exclude = 6): Uint8Array {
+  const out = new Uint8Array(rows * cols);
+  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) if (array.some((a) => Math.hypot(i - a[0], j - a[1]) < exclude)) out[i * cols + j] = 1;
+  return out;
+}
+
+/**
+ * The back-projection estimate: cells above `threshold` x the image maximum
+ * (away from the array), the largest blob, dilated by one cell.
+ */
+export function backProjectionEstimate(image: Float32Array, array: number[][], shape: number[], opts: { threshold?: number; exclude?: number; dilate?: boolean } = {}): Uint8Array {
+  const [rows, cols] = shape;
+  const near = nearArray(array, rows, cols, opts.exclude ?? 6);
   let max = 0;
-  for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) if (!near(i, j)) max = Math.max(max, image[i * cols + j]);
+  for (let q = 0; q < rows * cols; q++) if (!near[q]) max = Math.max(max, image[q]);
   const th = (opts.threshold ?? 0.7) * max;
   const cand = new Uint8Array(rows * cols);
   for (let i = 1; i < rows - 1; i++)
-    for (let j = 1; j < cols - 1; j++) if (!near(i, j) && image[i * cols + j] >= th) cand[i * cols + j] = 1;
+    for (let j = 1; j < cols - 1; j++) if (!near[i * cols + j] && image[i * cols + j] >= th) cand[i * cols + j] = 1;
   const blob = largestComponent(cand, rows, cols, image);
-  const estimate = opts.dilate === false ? blob : dilate(blob, rows, cols);
-  let iou: number | null = null;
-  if (opts.truthObstacles) {
-    let inter = 0;
-    let uni = 0;
-    for (let q = 0; q < estimate.length; q++) {
-      const a = estimate[q] === 1;
-      const b = opts.truthObstacles[q] !== 0;
-      if (a && b) inter++;
-      if (a || b) uni++;
-    }
-    iou = uni ? inter / uni : 1;
+  return opts.dilate === false ? blob : dilate(blob, rows, cols);
+}
+
+/** Intersection over union of an estimate against the true obstacle cells (nonzero). */
+export function maskIou(estimate: Uint8Array, truth: Uint8Array): number {
+  let inter = 0;
+  let uni = 0;
+  for (let q = 0; q < estimate.length; q++) {
+    const a = estimate[q] !== 0;
+    const b = truth[q] !== 0;
+    if (a && b) inter++;
+    if (a || b) uni++;
   }
-  return { image, estimate, iou };
+  return uni ? inter / uni : 1;
+}
+
+/** Turns the migration images of a sweep into an obstacle estimate (e.g. the learned U-Net). */
+export interface LearnedEstimator {
+  /** Grid shape the estimator was trained for; other shapes fall back to back-projection. */
+  readonly shape: number[];
+  estimate(images: MigrationImages, array: number[][]): { estimate: Uint8Array; probability: Float32Array };
+}
+
+export type EstimatorName = 'backprojection' | 'learned';
+
+/**
+ * Sense the room: back-project the residual scattered field and form the
+ * obstacle estimate, by thresholding (back-projection) or with a learned
+ * estimator on the same images. `truthObstacles` (optional) only scores the
+ * estimate; it is never used to form it.
+ */
+export function senseRoom(
+  room: Geometry,
+  empty: Geometry,
+  array: number[][],
+  opts: {
+    f0?: number;
+    steps?: number;
+    threshold?: number;
+    exclude?: number;
+    truthObstacles?: Uint8Array;
+    dilate?: boolean;
+    learned?: LearnedEstimator | null;
+    recEmpty?: Float32Array[][];
+  } = {},
+): SenseResult {
+  const f0 = opts.f0 ?? 0.08;
+  const steps = opts.steps ?? senseSteps(room.params);
+  const recRoom = pingRecordings(room, array, f0, steps);
+  const recEmpty = opts.recEmpty ?? pingRecordings(empty, array, f0, steps);
+  const images = migrationImages(recRoom, recEmpty, array, room.params, f0);
+  const bp = backProjectionEstimate(images.image, array, room.params.shape, opts);
+  const useLearned = !!opts.learned && opts.learned.shape.every((v, i) => v === room.params.shape[i]);
+  const tl = performance.now();
+  const learned = useLearned ? opts.learned!.estimate(images, array) : null;
+  const learnedMs = learned ? performance.now() - tl : 0;
+  const estimate = learned ? learned.estimate : bp;
+  return {
+    image: images.image,
+    estimate,
+    iou: opts.truthObstacles ? maskIou(estimate, opts.truthObstacles) : null,
+    estimator: learned ? 'learned' : 'backprojection',
+    images,
+    backprojection: bp,
+    probability: learned?.probability ?? null,
+    learnedMs,
+  };
 }
 
 /** Twin geometry: the true outer boundary and the estimated obstacles (rigid). */
@@ -212,14 +312,16 @@ export interface EpochResult {
   guarded: number; // better of twin / empty-room design, chosen by the monitor mics
   guardChoice: 'twin' | 'empty';
   sensedIou: number | null;
+  estimator: EstimatorName; // which estimator formed the twin
   adaptive: number; // measured contrast in the true room, controller designed on the twin
   static: number; // controller designed once at epoch 0
   oracle: number; // controller designed on the true room
   naive: number; // controller designed on the empty room (no sensing)
   predictedTwin: number;
-  latencyMs: { sense: number; twin: number; design: number; act: number };
+  latencyMs: { sense: number; estimate: number; twin: number; design: number; act: number }; // sense includes estimate
   estimate: Uint8Array;
   image: Float32Array;
+  probability: Float32Array | null; // learned obstacle probability (learned estimator only)
 }
 
 /** Five monitor cells around a zone centre (a plus shape, 3 cells apart). */
@@ -247,7 +349,7 @@ export function pointContrast(g: Geometry, drivers: ReturnType<typeof weightedDr
   return 10 * Math.log10(eb / bi.length / Math.max(ed / di.length, 1e-30));
 }
 
-async function accWeights(g: Geometry, array: number[][], bright: Rect, dark: Rect, f: number): Promise<{ w: CVec; predicted: number }> {
+export async function accWeights(g: Geometry, array: number[][], bright: Rect, dark: Rect, f: number): Promise<{ w: CVec; predicted: number }> {
   const T = await measureTransfer(g, array, bright, dark, f, { yieldEvery: 1e9 });
   const w = design('acc', T, array, g.params, bright);
   return { w, predicted: contrastDb(T, w) };
@@ -261,7 +363,7 @@ export async function runLoop(
   epochs: Epoch[],
   array: number[][],
   f: number,
-  opts: { onEpoch?: (r: EpochResult, i: number) => void; senseThreshold?: number; dilate?: boolean } = {},
+  opts: { onEpoch?: (r: EpochResult, i: number) => void; senseThreshold?: number; dilate?: boolean; learned?: LearnedEstimator | null } = {},
 ): Promise<EpochResult[]> {
   const results: EpochResult[] = [];
   let staticW: CVec | null = null;
@@ -270,7 +372,7 @@ export async function runLoop(
     const ep = epochs[e];
     const empty: Geometry = { params: ep.truth.params, materials: new Uint8Array(ep.truth.materials.length), speed: null };
     const t0 = performance.now();
-    const sensed = senseRoom(ep.truth, empty, array, { truthObstacles: ep.truth.materials, threshold: opts.senseThreshold, dilate: opts.dilate });
+    const sensed = senseRoom(ep.truth, empty, array, { truthObstacles: ep.truth.materials, threshold: opts.senseThreshold, dilate: opts.dilate, learned: opts.learned });
     const t1 = performance.now();
     const twin = twinGeometry(ep.truth, sensed.estimate);
     const t2 = performance.now();
@@ -295,14 +397,16 @@ export async function runLoop(
       guarded: monTwin >= monEmpty ? measured : naiveMeasured,
       guardChoice: monTwin >= monEmpty ? 'twin' : 'empty',
       sensedIou: sensed.iou,
+      estimator: sensed.estimator,
       adaptive: measured,
       static: act(staticW),
       oracle: act(oracle.w),
       naive: naiveMeasured,
       predictedTwin: adaptive.predicted,
-      latencyMs: { sense: t1 - t0, twin: t2 - t1, design: t3 - t2, act: t4 - t3 },
+      latencyMs: { sense: t1 - t0, estimate: sensed.learnedMs, twin: t2 - t1, design: t3 - t2, act: t4 - t3 },
       estimate: sensed.estimate,
       image: sensed.image,
+      probability: sensed.probability,
     };
     results.push(r);
     opts.onEpoch?.(r, e);
