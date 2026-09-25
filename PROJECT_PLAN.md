@@ -79,7 +79,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
         `frontend/package.json`.
     *   `[completed]` 3.1.4: Set up GitHub Actions CI: ruff, ty, pytest,
         the CPU kernel checks, and the frontend typecheck and build.
-*   `[pending]` **Task 3.2: Simulation engine (`simulation/`)**
+*   `[in-progress]` **Task 3.2: Simulation engine (`simulation/`)**
     *   `[completed]` 3.2.1: `simulate.py`: step ordering, buffer
         rotation, `reset()`, the driver cache, obstacle masking, and
         the CFL logic.
@@ -115,7 +115,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
     *   `[completed]` 3.3.5: Tests. The server was removed, so its test
         went with it. The web app has one end-to-end test per feature
         instead (4.5.1).
-*   `[pending]` **Task 3.4: Learning code and results (`learning/`,
+*   `[in-progress]` **Task 3.4: Learning code and results (`learning/`,
     `scripts/`)**
     *   `[completed]` 3.4.1: Dataset loader: normalisation, pose
         flattening, and leakage between the train and validation
@@ -134,7 +134,7 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
         and boundary F-score.
     *   `[pending]` 3.4.7: Re-score every checkpoint and update the
         Phase 2 conclusions in the docs and reports.
-*   `[pending]` **Task 3.5: Repo hygiene**
+*   `[in-progress]` **Task 3.5: Repo hygiene**
     *   `[completed]` 3.5.1: Stop tracking `.DS_Store` and `.idea/`.
     *   `[completed]` 3.5.2: Fix `README.md`: broken image paths, stale
         feature list, and the out-of-date layout.
@@ -491,8 +491,8 @@ and explainers, and the write-ups are published.
     archives needs an authorised storage target.)*
 *   `[in-progress]` 10.11: Write-up: "What can a laptop hear?" (the sensing
     results, negative results included). *(Published on `#/research`:
-    the Phase 2 negative result and the Phase 6 physics results. Needs
-    updating with the learned models on physics images and the 3.4.7
+    the Phase 2 negative result, the Phase 6 physics results, the learned
+    models on physics images and the generative sampler. Needs the 3.4.7
     re-score.)*
 *   `[in-progress]` 10.12: Write-ups on control and on the real-hardware
     results. *(Published: control ("Shaping sound"), simulator

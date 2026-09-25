@@ -113,7 +113,19 @@ Real-world conditions remain hard:
 - **3D.** A small 3D study with a 4-mic array doubles the 3D baseline's
   IoU.
 
-
+**Whole-room hypotheses.** A per-pixel probability map cannot say which
+pixels go together. So a generative model was also tried: a masked
+discrete diffusion, fine-tuned from the U-Net, that draws complete room
+maps. Its samples look like rooms, with solid blobs and bars. They are
+also far better than the same samples with each pixel shuffled
+independently (energy score z = −20; best of 32 samples reaches IoU 0.40
+against 0.24). But they do *not* beat independent draws from the
+calibrated U-Net. Fine-tuning degraded the per-pixel probabilities: the
+average of its samples scores IoU 0.311 against the U-Net's 0.362. The
+proper scores follow that loss (energy score z = +12.5 against the
+U-Net). For now the calibrated U-Net remains the better uncertainty
+model. Coherent sampling earns its keep only if it keeps the U-Net's
+marginals.
 
 A Cramér–Rao analysis separates what is theoretically measurable from
 what is resolvable. Range to a single wall is never the bottleneck:
@@ -145,5 +157,7 @@ against the no-audio baseline. The **Loop** page uses coherent
 back-projection to build a digital twin for sound-field control.
 
 Full numbers: [physics imaging report](../../tests/reports/imaging_2026_09_24.md),
+[learned models report](../../tests/reports/imaging_models_2026_09_24.md),
+[generative sampler report](../../tests/reports/imaging_generative_2026_09_25.md),
 [debug audit](../../tests/reports/debug_audit_2026_09_24.md),
 [plan audit](../plan_audit.md).
