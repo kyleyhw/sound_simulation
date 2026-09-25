@@ -1,0 +1,81 @@
+name: Data release
+
+# Publishes the v2 sensing archives and the skip_v2 checkpoints as a GitHub
+# Release (plan 3.5.3, 10.10). The archives are not stored anywhere: the
+# runner regenerates them from the seeds and commands in data/MANIFEST.json
+# and refuses to publish unless their content digests match. The
+# checkpoints come from the `release-assets` branch and must match their
+# recorded SHA-256. Trigger by pushing a tag `data-v*`, or by hand.
+
+on:
+  push:
+    tags: ['data-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create (e.g. data-v2.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: uv sync --extra dev
+      - name: Checkpoints from the release-assets branch
+        run: |
+          git fetch --depth 1 origin release-assets
+          git checkout FETCH_HEAD -- checkpoints
+          git reset -q
+          ls -la checkpoints/skip_v2
+      - name: Regenerate the archives from the manifest
+        run: |
+          mkdir -p data/training_data
+          python3 - <<'EOF' > regen.sh
+          import json
+          for e in json.load(open("data/MANIFEST.json"))["entries"]:
+              if e["kind"] == "dataset":
+                  print(e["regenerate"] + f" --workers {__import__('os').cpu_count()}")
+          EOF
+          cat regen.sh
+          bash -e regen.sh
+      - name: Verify every entry against the manifest
+        run: |
+          uv run python scripts/manifest.py verify | tee verify.txt
+          if grep -qE "MISMATCH|missing" verify.txt; then exit 1; fi
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<EOF
+          Datasets and checkpoints for the room-sensing benchmark (\`docs/benchmark.md\`).
+
+          The archives were regenerated on this runner from the seeds in
+          \`data/MANIFEST.json\`, and their content digests match the manifest:
+
+          \`\`\`
+          $(cat verify.txt)
+          \`\`\`
+
+          - \`active_sensing_v2_heldout_500x8.hdf5\`: the benchmark's 500 held-out rooms, 8 poses each.
+          - \`active_sensing_v2_train_10kx4.hdf5\`: 10 000 training rooms, 4 poses each.
+          - \`skip_v2_*.pt\`: the leak-free Phase 2 CNN retrain (plan 3.4.7). \`best_iou\` is the validation-selected checkpoint the web app runs; its calibration is \`skip_v2_best_iou.calibration.json\`.
+          - \`MANIFEST.json\`: seeds, regeneration commands and digests.
+
+          Check a download with \`uv run python scripts/manifest.py verify\` after placing the files at their manifest paths.
+          EOF
+          mkdir -p assets
+          cp data/training_data/*.hdf5 data/MANIFEST.json assets/
+          for f in checkpoints/skip_v2/*.pt checkpoints/skip_v2/*.calibration.json; do
+            cp "$f" "assets/skip_v2_$(basename "$f")"
+          done
+          ls -la assets
+          gh release create "$TAG" assets/* --title "Sensing data $TAG" --notes-file notes.md --target "$GITHUB_SHA"
