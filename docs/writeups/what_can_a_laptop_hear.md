@@ -29,6 +29,11 @@ The audit found more:
 - a headline number that the documented command could not reproduce.
 
 All of it is fixed and listed in [the debug audit](../../tests/reports/debug_audit_2026_09_24.md).
+The network was then retrained from scratch with the fixes and scored on
+the same 500 rooms. It still sits on the baseline: IoU 0.104 against
+0.101 at four poses (z = 1.1), and worse than the baseline with one pose.
+Its probabilities are over-confident, so it carries *less* information
+than the baseline map at every pose count.
 The Phase 2 conclusion that 0.10 was the "information ceiling" of the
 task was therefore unfounded.
 
@@ -58,6 +63,7 @@ no-audio baseline, ± SE):
 |---|---|---|---|
 | no-audio baseline | 0.101 | — | — |
 | published CNN (skip_v2) | 0.100 | ≈ 0 | — |
+| same CNN, retrained leak-free | 0.104 | +0.002 ± 0.002 | 1.1 |
 | echo ellipses | 0.128 | +0.027 ± 0.003 | 9.0 |
 | back-projection | 0.168 | +0.066 ± 0.004 | 16.8 |
 | **four physics images fused** | **0.189** | **+0.088 ± 0.005** | **19.3** |

@@ -346,6 +346,13 @@ fusion rule amplifies miscalibration):
 | skip_v2, native joint forward @ 0.5 | 0.054 | 0.073 | 0.073 |
 | oracle-threshold ceiling: skip_v2 / v1 | 0.093 / 0.093 | 0.100 / 0.094 | 0.100 / 0.096 |
 
+> **Re-scored (plan 3.4.7).** These numbers predate the debug audit. The
+> no-audio prior map scores 0.101 on the same rooms. skip_v2 retrained
+> with the leak-free split and scored on training-only priors gives
+> 0.071 / 0.104 / 0.104 at K = 1 / 4 / 8, never significantly above the
+> prior map. See `tests/reports/debug_audit_2026_09_24.md` §3. The
+> checkpoint at `checkpoints/skip_v2/best_iou.pt` is now that retrain.
+
 Two findings beyond the headline (+7 % over the v1 recipe at the
 project's new best of 0.100, saturating at K≈4):
 

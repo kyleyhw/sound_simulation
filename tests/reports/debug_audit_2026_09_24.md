@@ -15,7 +15,7 @@ are in `docs/plan_audit.md`.
 |---|---|---|---|---|
 | Simulation engine (`simulation/`, 3.2) | 5 | 13 | 18 | GPU path unverified (no GPU) |
 | Backend (`app/main.py`, 3.3) | 11 (3 critical) | 1 | retired | – |
-| Learning code and scripts (3.4) | 5 | 5 | 10 | re-score after retraining (3.4.7) |
+| Learning code and scripts (3.4) | 5 | 5 | 10 | – (re-scored in §3, 3.4.7) |
 
 ## 1. Simulation engine
 
@@ -125,11 +125,41 @@ archive. That equals the published audio models: skip_v2 0.100 at K = 4,
 joint_v2 0.101 at K = 8. The Phase 2 IoU headline therefore shows no
 measurable use of the audio.
 
-**Re-scoring (3.4.7): in progress.** skip_v2 is being retrained with the
-leak-free room split (L1) and the corrected selection (L2). It will be
-re-scored with `scripts/eval_sensing.py` against the prior map on the
-same rooms, using per-room paired differences. This section will be
-updated with the numbers.
+**Re-scoring (3.4.7).** skip_v2 was retrained from scratch with the
+leak-free room split (L1), sample-weighted selection (L2), a
+per-checkpoint calibration fitted on validation rooms only (L3, L7) and
+the training-room prior (L5): 60 epochs on CPU, `best_iou.pt` from
+epoch 33, calibration T = 4.50, b = −1.76, τ = 0.12. It was then scored
+with `scripts/eval_sensing.py` on all 500 v2 held-out rooms, against the
+prior map on the same rooms, with per-room paired differences
+(`tests/reports/rescore_artifacts/skip_v2.json`):
+
+| K | IoU @ τ | ΔIoU vs prior map (z) | AP (prior 0.127) | info gain vs prior map, bits (z) | boundary F (prior 0.120) |
+|---|---|---|---|---|---|
+| 1 | 0.071 | −0.030 ± 0.003 (−8.9) | 0.132 | −28 (−5.6) | 0.119 |
+| 2 | 0.094 | −0.008 ± 0.003 (−2.8) | 0.143 | −19 (−2.8) | 0.135 |
+| 4 | 0.104 | +0.002 ± 0.002 (+1.1) | 0.150 | −131 (−11.2) | 0.131 |
+| 8 | 0.104 | +0.003 ± 0.002 (+1.3) | 0.161 | −824 (−26.1) | 0.119 |
+
+The prior map scores IoU 0.1014 ± 0.0031 at τ = 0.093 (chosen on training
+rooms). The model's native joint forward is worse than its fused output
+at every K (0.071–0.093).
+
+**Conclusion.** With the leaks fixed, the Phase 2 spectrogram CNN still
+does not beat the no-audio baseline on IoU (z ≤ 1.3 at every K), and it
+is *worse* than the baseline at one or two poses. Its average precision
+is slightly above the prior's (0.150 against 0.127 at K = 4), so its
+ranking carries a little information. But its probabilities are
+over-confident even after temperature scaling, so it loses bits to the
+prior map at every K, and the loss grows with K as the fused map
+sharpens. The Phase 2 result is confirmed as a negative result, with
+the "information ceiling" reading withdrawn: Phase 6 shows the same
+recordings, spatially aligned, reach IoU 0.362
+(`tests/reports/imaging_models_2026_09_24.md`). The published
+(leaky) checkpoints were not re-scored individually. They were trained
+on splits that leak validation rooms and were not kept. The architecture
+comparison in `tests/reports/sensing_v2_2026_07_15.md` already put them
+at the same 0.100 plateau.
 
 ## 4. Repository hygiene (3.5)
 

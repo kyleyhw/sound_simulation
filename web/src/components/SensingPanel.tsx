@@ -191,8 +191,8 @@ export function SensingPanel() {
             </div>
           </div>
           <p className="hint dim" style={{ fontSize: 12 }}>
-            On held-out rooms the published models do not beat the no-audio baseline (IoU ≈ 0.10 for both). See the Research page and the debug audit. The hint is a heuristic:
-            the free spot whose neighbourhood has the most uncertainty.
+            This is the Phase 2 spectrogram CNN, retrained without data leaks. On 500 held-out rooms it does not beat the no-audio baseline (IoU 0.104 against 0.101 at 4 poses,
+            not significant). The aligned models on the Research page do. The hint is a heuristic: the free spot whose neighbourhood has the most uncertainty.
           </p>
         </>
       )}

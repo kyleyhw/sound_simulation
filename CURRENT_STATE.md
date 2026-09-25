@@ -10,14 +10,14 @@ by phase:
 
 | phase | status | headline |
 |---|---|---|
-| 3 Debug audit | in progress | 18 engine, 12 backend and 10 learning findings fixed or retired (`tests/reports/debug_audit_2026_09_24.md`). **Open:** the re-score of the retrained skip_v2 (3.4.7, training running), remote data hosting (3.5.3, needs a storage target), GPU run (3.2.3, needs hardware). |
+| 3 Debug audit | in progress | 18 engine, 12 backend and 10 learning findings fixed or retired (`tests/reports/debug_audit_2026_09_24.md`). The retrained leak-free skip_v2 still sits on the no-audio baseline (IoU 0.104 vs 0.101 at K = 4, z = 1.1; debug audit §3). **Open:** remote data hosting (3.5.3, needs a storage target), GPU run (3.2.3, needs hardware). |
 | 4 UI overhaul | done | Browser app with no server. 27 Playwright end-to-end tests and 46 unit tests, run in CI and against the live site. |
 | 5 Physics | done except the GPU run | Verification report `docs/physics.md`: modes to 1e-5 % of theory, second-order convergence, 1e-7 energy drift, CPML at −49 dB at 62°, T60 between Sabine and Eyring. |
 | 6 Sensing, second attempt | done | Physics imagers beat the no-audio baseline: IoU 0.189 vs 0.101, z = 19.3 (K = 4); 0.244 at K = 8 (`tests/reports/imaging_2026_09_24.md`). **The Phase 2 CNNs sat at the baseline, so the "information ceiling" reading below is wrong.** A U-Net on the aligned physics images reaches **0.362** (K = 4) and 0.450 (K = 8), while a non-aligned encoder of the same impulse responses stays at the baseline (`tests/reports/imaging_models_2026_09_24.md`). Weak points: pose error (back to the baseline at 2 cells), passive sensing, and next-pose choice. A generative sampler (6.3.4) gives coherent room hypotheses but does not beat independent draws from the calibrated U-Net (mean-map IoU 0.311 vs 0.362; `tests/reports/imaging_generative_2026_09_25.md`). |
 | 7 Control | done | ACC 25.5 dB broadband, measured in the time domain. Crosstalk cancellation 17.7 dB broadband in an absorbing room (84 % of the band per frequency). 15 dB needs walls known to 1.5–4 cm (`tests/reports/control_2026_09_24.md`). |
 | 8 Closed loop | done | `#/loop`: sense → twin → ACC → measure, through a moving listener, a moving obstacle and a new partition. The monitor-guarded loop keeps 16–41 dB; the loop period is about 5 s. |
 | 9 Real hardware | tools done, measurements pending | The Lab page covers sweep IRs, device calibration, echoes, T60, the room twin, crosstalk cancellation with head tracking, and phone orientation. It is tested with a fake device. Real-room numbers need the user (§4 stop point). |
-| 10 Showcase | mostly done | Pages deploy, WebGPU engine (parity 1e-6), in-browser CNN (parity 1e-5), 15-scene gallery, 6 explainers, docs site, GIF renderer, benchmark, 4 write-ups. **Open:** dataset hosting, and updating the sensing write-up with 6.3 and the re-score. |
+| 10 Showcase | mostly done | Pages deploy, WebGPU engine (parity 1e-6), in-browser CNN (parity 1e-5), 15-scene gallery, 6 explainers, docs site, GIF renderer, benchmark, 4 write-ups. **Open:** dataset hosting (needs a storage target) and the real-hardware write-up (needs measurements). |
 
 **New findings recorded during execution:**
 - The skip model's phase channels are rounding noise in 57–64 % of the

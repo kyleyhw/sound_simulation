@@ -75,6 +75,7 @@ the value that maximises the mean training IoU (τ = 0.09).
 |---|---|---|---|---|---|
 | no-audio baseline (training prior map) | 0 | 0.101 | — | 0.13 | this page |
 | Phase 2 CNN (skip_v2, calibrated fusion) | 4 | 0.100 | ≈ 0 | — | `tests/reports/sensing_v2_2026_07_15.md` |
+| Phase 2 CNN, retrained leak-free (3.4.7) | 4 | 0.104 | +0.002 (1.1) | 0.15 | `tests/reports/debug_audit_2026_09_24.md` §3 |
 | echo ellipses + prior | 4 | 0.128 | +0.027 (9.0) | 0.21 | `tests/reports/imaging_2026_09_24.md` |
 | back-projection + prior | 4 | 0.168 | +0.066 (16.8) | 0.28 | same |
 | four physics images fused | 4 | 0.189 | +0.088 (19.3) | 0.34 | same |

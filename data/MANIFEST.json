@@ -19,6 +19,81 @@
       "bytes": 1684289462,
       "content_sha256": "d6ba401b83f6746d00d07c352026c1617877ee7a8ffef243cc013e951154bca2",
       "regenerate": "uv run python scripts/generate_active_sensing.py --output data/training_data/active_sensing_v2_train_10kx4.hdf5 --num-samples 10000 --grid 64 --duration 400 --record-step 1 --poses-per-room 4 --n-mics 2 --mic-spacing 12 --room-style mixed --n-obstacles 3 --obstacle-min 4 --obstacle-max 14 --synth-f-start 0.02 --synth-f-end 0.45 --protocol v2 --seed 271828"
+    },
+    {
+      "path": "checkpoints/skip_v2/best.pt",
+      "kind": "checkpoint",
+      "bytes": 3212921,
+      "sha256": "05da7e72268118e41a261d9ec5bb756ead649bf501b49a9a8d75b80d11587cf8",
+      "train_args": {
+        "dataset": "data/training_data/active_sensing_v2_train_10kx4.hdf5",
+        "epochs": 60,
+        "batch_size": 32,
+        "lr": 0.001,
+        "weight_decay": 0.0001,
+        "scheduler": "cosine",
+        "val_frac": 0.1,
+        "target_size": 64,
+        "dropout": 0.0,
+        "augment": false,
+        "model": "skip",
+        "ckpt_dir": "checkpoints/skip_v2",
+        "seed": 42,
+        "num_workers": 0,
+        "device": null,
+        "log_every": 1
+      },
+      "epoch": 15
+    },
+    {
+      "path": "checkpoints/skip_v2/best_iou.pt",
+      "kind": "checkpoint",
+      "bytes": 3216033,
+      "sha256": "13c562d7a3461a984c2ecd95409239a89530fc93f22a48b5d8f10f2d2b68ab8a",
+      "train_args": {
+        "dataset": "data/training_data/active_sensing_v2_train_10kx4.hdf5",
+        "epochs": 60,
+        "batch_size": 32,
+        "lr": 0.001,
+        "weight_decay": 0.0001,
+        "scheduler": "cosine",
+        "val_frac": 0.1,
+        "target_size": 64,
+        "dropout": 0.0,
+        "augment": false,
+        "model": "skip",
+        "ckpt_dir": "checkpoints/skip_v2",
+        "seed": 42,
+        "num_workers": 0,
+        "device": null,
+        "log_every": 1
+      },
+      "epoch": 33
+    },
+    {
+      "path": "checkpoints/skip_v2/final.pt",
+      "kind": "checkpoint",
+      "bytes": 3214947,
+      "sha256": "8826c1e0e31187f39c88f1527401af53bb61d7c1d261a8a7c667f4f3439856e6",
+      "train_args": {
+        "dataset": "data/training_data/active_sensing_v2_train_10kx4.hdf5",
+        "epochs": 60,
+        "batch_size": 32,
+        "lr": 0.001,
+        "weight_decay": 0.0001,
+        "scheduler": "cosine",
+        "val_frac": 0.1,
+        "target_size": 64,
+        "dropout": 0.0,
+        "augment": false,
+        "model": "skip",
+        "ckpt_dir": "checkpoints/skip_v2",
+        "seed": 42,
+        "num_workers": 0,
+        "device": null,
+        "log_every": 1
+      },
+      "epoch": 60
     }
   ]
 }
