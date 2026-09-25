@@ -25,11 +25,18 @@ to make that visible immediately.
 - **Layout:** each HDF5 group holds `sensor` (K, 400, 2), `source`,
   `obstacles` (64, 64), and the pose positions as attributes.
 
-**Getting the data.** The archives are not hosted, because a storage
-target has not been authorised yet. They regenerate deterministically
-instead: `data/MANIFEST.json` lists the exact command for each one and a
-content digest that ignores HDF5 timestamps. Regenerating the held-out
-archive reproduces its digest exactly.
+**Getting the data.** Download the archives and the skip_v2 checkpoints
+from the [`data-v2.0` release](https://github.com/kyleyhw/sound_simulation/releases/tag/data-v2.0). Put them at their manifest paths
+(`data/training_data/`, and `checkpoints/skip_v2/` without the `skip_v2_`
+prefix), then run `uv run python scripts/manifest.py verify`.
+
+The release is built by `.github/workflows/release-data.yml`. The runner
+does not upload stored copies. It regenerates both archives from the
+seeds in `data/MANIFEST.json`, checks their content digests (SHA-256 over
+the contents, ignoring HDF5 timestamps) against the manifest, and
+publishes only if all match. The checkpoints come from the
+`release-assets` branch and are checked against their file SHA-256. You
+can also regenerate an archive yourself:
 
 ```bash
 uv run python scripts/generate_active_sensing.py --output data/training_data/active_sensing_v2_heldout_500x8.hdf5 \

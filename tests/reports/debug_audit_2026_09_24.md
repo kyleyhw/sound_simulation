@@ -169,7 +169,7 @@ at the same 0.100 plateau.
   ignores HDF5 timestamps. It records a file hash and the training
   arguments for each checkpoint. Regenerating the held-out v2 archive
   from its recorded command reproduces the digest exactly.
-- **Open:** off-repo hosting for the 1.6 GB training archive and the
-  checkpoints needs a storage target the owner has not yet authorised
-  (Hugging Face or Releases). Datasets regenerate exactly from the
-  manifest in the meantime.
+- The archives and checkpoints are published as the GitHub Release
+  [`data-v2.0`](https://github.com/kyleyhw/sound_simulation/releases/tag/data-v2.0). The `release-data.yml` workflow regenerates the
+  archives on a runner and publishes only if every digest matches the
+  manifest.

@@ -134,15 +134,16 @@ logged, all tests run in CI, and the Phase 2 results are re-scored.
         and boundary F-score.
     *   `[completed]` 3.4.7: Re-score every checkpoint and update the
         Phase 2 conclusions in the docs and reports. *(skip_v2 retrained leak-free and re-scored on 500 held-out rooms: IoU 0.104 against the prior map's 0.101 at K = 4 (z = 1.1), worse at K = 1 (z = −8.9), and it loses information to the prior at every K. The negative result stands. See the debug audit §3.)*
-*   `[in-progress]` **Task 3.5: Repo hygiene**
+*   `[completed]` **Task 3.5: Repo hygiene**
     *   `[completed]` 3.5.1: Stop tracking `.DS_Store` and `.idea/`.
     *   `[completed]` 3.5.2: Fix `README.md`: broken image paths, stale
         feature list, and the out-of-date layout.
-    *   `[in-progress]` 3.5.3: Store datasets and checkpoints remotely,
+    *   `[completed]` 3.5.3: Store datasets and checkpoints remotely,
         with checksums and seed manifests. *(`data/MANIFEST.json` via
         `scripts/manifest.py`: content digests plus regeneration
-        commands, verified by regenerating the held-out archive.
-        Remote hosting needs an authorised storage target.)*
+        commands. Hosted as the GitHub Release `data-v2.0`, built by
+        `release-data.yml`, which regenerates the archives on a runner and
+        publishes only if every digest matches the manifest.)*
 *   `[completed]` **Task 3.6: Report**
     *   `[completed]` 3.6.1: Write `tests/reports/debug_audit_<date>.md`
         listing the bugs found, the fixes, and the open issues.
@@ -451,9 +452,9 @@ virtual-headphones demo works.
 
 ### Phase 10: Showcase — `[in-progress]`
 *Live at https://kyleyhw.github.io/sound_simulation/. The end-to-end
-suite passes against the deployed site. Open: hosting the dataset
-(needs an authorised storage target) and the real-hardware write-up
-(needs the owner's measurements).*
+suite passes against the deployed site. Data and checkpoints are in the
+GitHub Release `data-v2.0`. Open: the real-hardware write-up (needs the
+owner's measurements).*
 **Objective:** Make the work easy to try, understand, and cite.
 **Done when:** A public zero-install site hosts the sandbox, gallery,
 and explainers, and the write-ups are published.
@@ -484,11 +485,11 @@ and explainers, and the write-ups are published.
     it" link.
 *   `[completed]` 10.9: Docs website built from `docs/`. *(`#/docs`: all
     docs, reports and the plan, with maths and figures.)*
-*   `[in-progress]` 10.10: Public dataset and benchmark, with the baselines
+*   `[completed]` 10.10: Public dataset and benchmark, with the baselines
     included. *(`docs/benchmark.md` and `scripts/benchmark.py`: rules,
     paired scoring against the no-audio baseline, and a leaderboard. The
-    data regenerate byte-identically from the manifest. Hosting the
-    archives needs an authorised storage target.)*
+    archives and checkpoints are in the GitHub Release `data-v2.0`,
+    verified against the manifest.)*
 *   `[completed]` 10.11: Write-up: "What can a laptop hear?" (the sensing
     results, negative results included). *(Published on `#/research`:
     the Phase 2 negative result, the Phase 6 physics results, the learned
