@@ -468,3 +468,102 @@ but no better than the U-Net's entropy (0.54-0.61). A validation-chosen
 logit bias (−0.5) fixes nothing that matters. The calibrated U-Net remains
 the better uncertainty model. The generative sampler is the tool 6.6.3
 lacked for simulating poses on posterior samples, once its marginals match.
+
+## 10. Pose-robust sensing
+
+The report is `tests/reports/pose_robust_2026_09_25.md`. There is one new
+module, `pose_robust.py`, and one script, `scripts/eval_pose_robust.py`.
+
+```
+NUMBA_NUM_THREADS=1 uv run python scripts/eval_pose_robust.py --stages dev,augdata,augtrain,held,polish,score \
+    --out-dir tests/reports/pose_robust_2026_09_25_artifacts   # ~5.5 h of one core, cached; split with --chunks / --conditions
+NUMBA_NUM_THREADS=1 uv run pytest tests/imaging/test_pose_robust.py   # 7 tests, ~1 s
+```
+
+### 10.1 A rigid error model
+
+§8.3 displaces every device independently. A laptop (or any device with a
+fixed speaker-mic layout) is misplaced as a whole: one rigid transform per
+placement. With the pose's devices $\mathbf{d}_i$ and centroid $\mathbf{c}$,
+
+$$ \hat{\mathbf{d}}_i = \operatorname{round}\bigl(R(\theta)(\mathbf{d}_i-\mathbf{c})
+   + \mathbf{c} + \mathbf{t}\bigr), \qquad
+   \mathbf{t}\sim\mathcal{N}(0,\sigma_t^2 I),\ \theta\sim\mathcal{N}(0,\sigma_\theta^2) $$
+
+(`perturb_poses_rigid`). Rounding keeps the inter-device distances only to
+within a cell. In the v2 archives the source and the mic pair of a pose are
+placed independently (median source-mic distance 29 cells), so the RMS lever
+arm about the centroid is 16.3 cells and a rotation of $\theta$ moves a
+device by about $0.28\,\theta/{\rm deg}$ cells, more than for a real 20-30 cm
+laptop. The magnitudes used, at 2.5 cm per cell: $(\sigma_t, \sigma_\theta) =
+(0.5, 1°)$ (placement on measured marks, or phone VIO at 1.5-4 cm absolute
+error), $(1, 2°)$ (careful hand placement) and $(2, 5°)$ (casual placement),
+plus translation only $(1, 0°)$ and rotation only $(0, 3°)$.
+
+### 10.2 Corrections (all search the same candidate set)
+
+Per pose, the candidates are the assumed pose moved by every integer
+translation within $R = \lceil 2\sigma_t\rceil$ and rotated by
+$\{-2,-1,0,1,2\}\,\sigma_\theta$ about its centroid, rounded and
+de-duplicated (`rigid_candidates`; 22-350 per pose). Each candidate is
+scored once (`evaluate_candidates`): the empty-box recording $y^{(0)}$ at its
+cells (one engine run per distinct source cell), three data misfits
+(least squares, Huber with $\delta = 0.05\,\mathrm{rms}(y)$, and the
+quiet-start cost of §8.3), and two focus images of its residual
+$y - y^{(0)}$ (back-projection and first-arrival carving).
+
+- **Rigid least squares** (`select_misfit`): the candidate with the least
+  misfit. It is §8.3's joint fit with 3 unknowns per pose instead of
+  $2(1 + M)$.
+- **Autofocus** (`autofocus_select`): no model of the obstacles. With
+  every per-pose focus feature $\tilde I_k$ smoothed, zero-mean and of unit
+  norm,
+
+  $$ \max_{c_1..c_K}\ \Bigl\lVert \sum_k \tilde I_k(c_k) \Bigr\rVert^2
+     - \lambda \sum_k \rho(c_k),
+     \qquad \Bigl\lVert \sum_k \tilde I_k \Bigr\rVert^2 = K + 2\sum_{k<l}
+     \langle \tilde I_k, \tilde I_l\rangle, $$
+
+  the quadratic sharpness metric of SAR autofocus, i.e. cross-pose
+  coherence, with $\rho$ the negative log Gaussian prior of the correction.
+  `metric="entropy"` minimises the Shannon entropy of
+  $(\sum_k\tilde I_k)^2$ instead. Coordinate ascent over poses from the
+  identity; every update is monotone.
+- **Autofocus + rigid**: the same ascent with the relative data misfit
+  $\beta\log(m_c/m_0)$ subtracted.
+- **Rigid + polish** (`refine_room_rigid_polish`): rigid least squares,
+  then §8.3's per-device joint fit within one cell of each refined device
+  (absorbs the rotation grid step and the rounding).
+- **Pose-jitter augmentation**: the §8.2 U-Net retrained (6 epochs) on
+  the exact images of training rooms 500-3999 plus four copies imaged at
+  poses perturbed by a random member of {independent σ = 0.5, 1, 2; rigid
+  (0.5, 1°), (1, 2°), (2, 5°)}; its threshold is taken on validation rooms
+  perturbed by the same mixture. It needs no test-time search.
+
+Settings were chosen on validation rooms 0-39 (three conditions; the grid
+is `dev_selections`): least squares for the rigid fit; carving features,
+coherence and prior weight 0.2 for autofocus; both channels, data weight 3
+for autofocus + rigid.
+
+### 10.3 Results (held-out, 500 rooms, K = 4; U-Net exact 0.362, prior 0.101)
+
+| condition | no correction | jitter-trained U-Net | autofocus | rigid LS | joint LS (§8.3) | rigid + polish |
+|---|---|---|---|---|---|---|
+| rigid (0.5 cell, 1°) | 0.280 | 0.290 | 0.284 | 0.319 | 0.318 | **0.329** |
+| rigid (1 cell, 2°) | 0.203 | 0.247 | 0.220 | 0.295 | 0.308 | **0.324** |
+| rigid (2 cells, 5°) | 0.143 | 0.184 | 0.160 | 0.245 | 0.281 | **0.290** |
+| rigid (1 cell, 0°) | 0.272 | 0.284 | 0.287 | **0.350** | 0.320 | 0.323 |
+| independent σ = 1 | 0.144 | 0.224 | 0.146 | 0.156 | **0.314** | 0.267 |
+
+Findings. The independent model overstates the damage. At similar device
+error, a rigid error costs 0.159 and a pure translation 0.090, against 0.218
+for independent jitter, because only changes of the pose's internal
+geometry break the direct-wave background. Rigid refinement with a one-cell
+per-device polish recovers 60-76 % of the rigid loss (on par with the §8.3
+joint fit, +0.008 to +0.015). A pure translation is recovered to within
+0.012 of exact poses. Autofocus (cross-pose coherence) adds at most +0.017
+and does not move the poses: a pose error corrupts the background
+subtraction rather than shifting a sharp image. Jitter training gains
++0.01 to +0.08 without refinement. It loses 0.034 at exact poses and
+0.015-0.025 after refinement, so a pipeline that refines should keep the
+exact-pose network.

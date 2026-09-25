@@ -333,6 +333,16 @@ with statistical significance.
     *   `[completed]` 6.6.4: Passive sensing with phase features and
         multiple poses. *(Negative: passive GCC-PHAT imaging gets +0.009 IoU (z = 4.1).)*
     *   `[completed]` 6.6.5: 3D rooms and 3–4 mic laptops. *(3D rooms at 32³ with 4 mics: voxel IoU 0.139 against the 3D prior's 0.070 (z = 14.3).)*
+    *   `[completed]` 6.6.6: Pose-robust sensing, with a literature review
+        (SAR autofocus, EchoSLAM, array self-calibration, robust fitting,
+        domain randomisation). *(A device's pose error is rigid (one move
+        per placement), not independent jitter per speaker and mic. At a
+        careful hand placement (1 cell = 2.5 cm, 2°) the U-Net falls from
+        0.362 to 0.203. A rigid fit to the known-room model plus a
+        one-cell polish restores 0.324 (76 % of the loss; a pure
+        translation is corrected to within 0.012). Autofocus does not
+        help. A U-Net trained on jittered poses helps only without
+        refinement. Report: `tests/reports/pose_robust_2026_09_25.md`.)*
 *   `[completed]` **Task 6.7: UI**
     *   `[completed]` 6.7.1: Uncertainty display and a "move here next"
         hint in the sensing panel. *(Heuristic: the most uncertain
