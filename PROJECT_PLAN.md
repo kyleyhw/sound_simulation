@@ -272,15 +272,17 @@ less than −40 dB, and T60 matches the Sabine formula.
     *   `[completed]` 5.8.1: Material painting, per-edge absorbing
         toggles, and sound-speed painting.
 
-### Phase 6: Room Sensing, second attempt — `[in-progress]`
+### Phase 6: Room Sensing, second attempt — `[completed]`
 *"Done when" met by the physics baselines. All four physics images fused
 with the prior reach held-out IoU 0.189 against the no-audio baseline's
 0.101 (paired ΔIoU +0.088 ± 0.005, z = 19.3; 0.244 at K = 8).
 Report: `tests/reports/imaging_2026_09_24.md`. So the ≈ 0.10 plateau of the
 Phase 2 CNNs was a modelling failure, not an information ceiling.
 Learned models on the aligned physics images reach 0.362 (K = 4) and
-0.450 (K = 8), in `tests/reports/imaging_models_2026_09_24.md`. Open:
-a generative uncertainty model (6.3.4).*
+0.450 (K = 8), in `tests/reports/imaging_models_2026_09_24.md`. The
+generative sampler (6.3.4) is built. Its coherent samples do not beat
+independent samples from the calibrated U-Net
+(`tests/reports/imaging_generative_2026_09_25.md`).*
 **Objective:** Show that sound actually reveals room geometry, then
 push how much.
 **Done when:** A method beats the no-audio baseline on held-out rooms
@@ -303,15 +305,15 @@ with statistical significance.
         differentiable engine (5.7.2). *(A proof of concept on 40 rooms:
         IoU 0.337 against 0.087. It inverts with the simulator that made
         the data.)*
-*   `[in-progress]` **Task 6.3: Improved models**
+*   `[completed]` **Task 6.3: Improved models**
     *   `[completed]` 6.3.1: Feed the synthetic-aperture images to the
         network as spatially aligned inputs. *(An aligned U-Net on the physics images reaches 0.362 against the logistic's 0.189 (z = 22) at K = 4, and 0.450 at K = 8.)*
     *   `[completed]` 6.3.2: Use the recovered impulse response as the
         input features. *(The IR migration net gets 0.370 at K = 4. The same IRs through a non-aligned encoder stay at the prior (0.099), so spatial alignment is what matters.)*
     *   `[completed]` 6.3.3: A pose-aware set transformer for multi-pose
         fusion. *(Negative: the set model gets 0.346 at K = 4, with no gain over summing the aligned images.)*
-    *   `[in-progress]` 6.3.4: A generative model that outputs uncertainty
-        maps. *(Calibrated maps are done (ECE 0.0018, ensemble +8 bits). A generative sampler is not built.)*
+    *   `[completed]` 6.3.4: A generative model that outputs uncertainty
+        maps. *(Calibrated maps: ECE 0.0018, ensemble +8 bits. Generative sampler: a masked discrete diffusion fine-tuned from the U-Net. Negative: coherent samples beat the same samples decorrelated (energy score z = −20, best-of-32 IoU +0.17), but lose to independent draws from the U-Net (energy score z = +12.5; mean-map IoU 0.311 vs 0.362), because fine-tuning degraded the per-pixel marginals.)*
 *   `[completed]` **Task 6.4: What can a laptop hear?**
     *   `[completed]` 6.4.1: Theoretical accuracy limits (Cramér–Rao
         bound) against bandwidth, mic count, spacing, noise, and pose

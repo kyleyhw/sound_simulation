@@ -382,3 +382,89 @@ sensitivity-weighted entropy $\sum_x H(q_x)\,v(d_c(x))$ ($v$ the mean
 squared logit change against the distance to the new pose's nearest device,
 learned on training rooms) beats random choice by only +0.006 IoU at K = 4
 (z = 2.3 and 2.5); the hindsight-best choice would gain +0.076 (z = 34).
+
+## 9. A generative model of whole maps (6.3.4)
+
+The report is `tests/reports/imaging_generative_2026_09_25.md`. There is
+one new module, `generative.py`, and one script,
+`scripts/eval_generative.py`.
+
+```
+NUMBA_NUM_THREADS=1 uv run python scripts/eval_generative.py \
+    --out-dir tests/reports/imaging_generative_2026_09_25_artifacts   # ~2 h on two shared cores, cached
+NUMBA_NUM_THREADS=1 uv run pytest tests/imaging/test_generative.py   # 18 tests, ~3 s
+```
+
+### 9.1 Masked (absorbing-state) discrete diffusion
+
+§8 gives calibrated marginals $q_i = P(m_i = 1 \mid \mathbf{c})$ for the
+filled mask $\mathbf{m} \in \{0,1\}^{64\times64}$, where the conditioning
+$\mathbf{c}$ is the four aligned images plus the prior logits (K = 4). The
+generative model targets the joint $p(\mathbf{m} \mid \mathbf{c})$.
+
+- *Forward process:* per room draw a visible fraction $a \sim \mathcal{U}(0,1)$,
+  then make each pixel visible with probability $a$; hidden pixels are
+  "absorbed".
+- *Reverse model:* a U-Net sees $\mathbf{c}$, the visible values (as
+  $\pm1$, 0 if hidden) and the visibility mask, and outputs
+
+  $$ \operatorname{logit} P(m_i = 1 \mid \mathbf{m}_V, \mathbf{c})
+     = \operatorname{logit}\hat\pi_i + f_\theta(\mathbf{c}, \mathbf{m}_V, V)_i, $$
+
+  trained by the binary cross-entropy on the hidden pixels. It is
+  warm-started from the §8 U-Net, with zero weights on the two state
+  channels, so at initialisation it returns the U-Net's marginal for any
+  state.
+- *Sampling:* draw a uniformly random pixel order $\sigma$ and reveal it in
+  $T$ blocks, with the cumulative count after step $s$ equal to
+  $\lceil P(1 - \cos(\tfrac{\pi}{2} s/T))\rceil$. Each block is drawn from
+  the current conditionals. With one pixel per block this is the chain rule
+  $p(\mathbf{m}) = \prod_i p(m_{\sigma(i)} \mid m_{\sigma(<i)})$, exact for
+  any order. With $T$ blocks, the pixels of one block are drawn independently
+  given the earlier ones.
+- *Mean map:* $\bar q_i = \frac1N\sum_n p_i^{(n)}$, where $p_i^{(n)}$ is the
+  probability pixel $i$ was drawn with in sample $n$. Since
+  $\mathbb{E}[p_i^{\text{reveal}}] = \mathbb{E}[m_i]$ (tower property), this
+  Rao-Blackwellised mean is unbiased for the same marginal as the sample
+  average, has lower variance, and never returns an exact 0 or 1.
+- An optional sampling logit bias $b$ is added to every conditional,
+  chosen on validation rooms.
+
+### 9.2 Multi-sample scores
+
+For a sample set $\{X_n\}_{n=1}^N$ and truth $y$, the fair estimator of a
+kernel score with distance $d$ is
+
+$$ S = \frac1N\sum_n d(X_n, y) - \frac{1}{2N(N-1)}\sum_{n\ne n'} d(X_n, X_{n'}) . $$
+
+| score | $d$ | sees |
+|---|---|---|
+| energy score | $\lVert X - y\rVert_2 = \sqrt{\text{Hamming}}$ | marginals and dependence (strictly proper; with $\lVert\cdot\rVert_2^2$ = Hamming it would see the marginals only) |
+| Jaccard kernel score | $1 - \lvert X\cap y\rvert / \lvert X\cup y\rvert$ (Tanimoto kernel, positive definite) | set overlap, as IoU does (proper) |
+| pixel CRPS | $\sum_i \lvert X_i - y_i\rvert$ | marginals only: its expectation is the Brier score $\sum_i (q_i - y_i)^2$ |
+| variogram score | $\sum_{(a,b)} w_{ab}\bigl(\lvert y_a - y_b\rvert - \mathbb{E}\lvert X_a - X_b\rvert\bigr)^2$ over the 12 neighbour offsets within $\sqrt8$, $w = 1/\text{distance}$ | neighbour dependence only (proper, not strictly) |
+
+The *decorrelated* control permutes each pixel's $N$ values independently
+across samples. It keeps every pixel's empirical marginal exactly, so the
+pixel CRPS is unchanged, and it removes all dependence.
+
+### 9.3 Results (held-out, 500 rooms, K = 4, N = 32, T = 32)
+
+| | IoU (mean map) | info gain (bits) | ECE | energy score | variogram | best-of-32 IoU |
+|---|---|---|---|---|---|---|
+| U-Net (§8) / its independent Bernoulli samples | **0.362** | **480** | **0.002** | **9.12** | 1210 | 0.272 |
+| generative, sample mean / samples | 0.311 | 368 | 0.022 | 9.53 | **785** | **0.404** |
+| generative, decorrelated | — | — | — | 9.60 | 1456 | 0.237 |
+
+Findings. The samples are coherent: solid objects rather than
+salt-and-pepper noise. Holding the marginals fixed, the coherence improves
+every dependence-sensitive score: energy −0.072 (z = −20), variogram −670
+(z = −39), best-of-32 +0.17. But fine-tuning for completion cost marginal
+accuracy (0.302 IoU with nothing visible, against 0.362), and parallel
+decoding over-fills by 29 %. So on the strictly proper energy score,
+independent samples from the U-Net win: +0.41 ± 0.03 (z = +12.5) in their
+favour. Sample diversity correlates with error across rooms (Spearman 0.58)
+but no better than the U-Net's entropy (0.54-0.61). A validation-chosen
+logit bias (−0.5) fixes nothing that matters. The calibrated U-Net remains
+the better uncertainty model. The generative sampler is the tool 6.6.3
+lacked for simulating poses on posterior samples, once its marginals match.
