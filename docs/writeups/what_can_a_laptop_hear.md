@@ -75,7 +75,45 @@ A control shows where the gain comes from: telling the baseline that the
 device's own cells are empty adds only 0.0004 IoU. The gain comes from
 the audio.
 
-## What limits a laptop
+## Learning, done right
+
+Why did the first networks fail when simple physics succeeded? The
+second attempt answered that directly. It kept the learning, but gave
+the network *spatially aligned* inputs: the physics images, which
+already live on the room grid, instead of spectrograms.
+
+| model (500 held-out rooms) | K | IoU | Δ vs no-audio (z) |
+|---|---|---|---|
+| global encoder of the impulse responses (no alignment) | 4 | 0.099 | −0.002 (−1.7) |
+| logistic fusion of the physics images | 4 | 0.189 | +0.088 (19.3) |
+| **U-Net on the aligned physics images** | 4 | **0.362** | +0.261 (28.2) |
+| learned filters + differentiable delay-and-sum | 4 | 0.370 | +0.268 (32.1) |
+| U-Net on the aligned physics images | 8 | 0.450 | +0.349 (35.9) |
+
+The same impulse responses fed to a conventional, non-aligned encoder
+land exactly on the baseline again. It reproduces the Phase 2 failure
+with better inputs. Aligned to the room, they more than triple the
+baseline's IoU. **The missing ingredient was geometry, not data or
+capacity.** The network needs to be told where each echo could have come
+from, which is what delay-and-sum migration does. The U-Net's
+probabilities are also well calibrated (expected calibration error
+0.002), and its per-pixel uncertainty tracks its errors (r = 0.72).
+
+Real-world conditions remain hard:
+- **Pose error.** IoU falls to 0.24 when the device position is off by
+  half a cell and to the baseline at 2 cells (5 cm at the laptop scale).
+  Fitting the poses from the recordings first recovers 65–78 % of that
+  loss.
+- **Unknown source.** Without knowing what was played (passive
+  sensing), the gain nearly vanishes: +0.009.
+- **Choosing the next pose.** A simple "go where it is uncertain" rule
+  is barely better than random. Choosing the best pose in hindsight
+  would gain 0.08 IoU, so pose choice matters, but a better policy is
+  still needed.
+- **3D.** A small 3D study with a 4-mic array doubles the 3D baseline's
+  IoU.
+
+
 
 A Cramér–Rao analysis separates what is theoretically measurable from
 what is resolvable. Range to a single wall is never the bottleneck:

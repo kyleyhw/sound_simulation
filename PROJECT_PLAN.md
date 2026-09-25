@@ -277,7 +277,10 @@ less than −40 dB, and T60 matches the Sabine formula.
 with the prior reach held-out IoU 0.189 against the no-audio baseline's
 0.101 (paired ΔIoU +0.088 ± 0.005, z = 19.3; 0.244 at K = 8).
 Report: `tests/reports/imaging_2026_09_24.md`. So the ≈ 0.10 plateau of the
-Phase 2 CNNs was a modelling failure, not an information ceiling.*
+Phase 2 CNNs was a modelling failure, not an information ceiling.
+Learned models on the aligned physics images reach 0.362 (K = 4) and
+0.450 (K = 8), in `tests/reports/imaging_models_2026_09_24.md`. Open:
+a generative uncertainty model (6.3.4).*
 **Objective:** Show that sound actually reveals room geometry, then
 push how much.
 **Done when:** A method beats the no-audio baseline on held-out rooms
@@ -300,15 +303,15 @@ with statistical significance.
         differentiable engine (5.7.2). *(A proof of concept on 40 rooms:
         IoU 0.337 against 0.087. It inverts with the simulator that made
         the data.)*
-*   `[pending]` **Task 6.3: Improved models**
-    *   `[pending]` 6.3.1: Feed the synthetic-aperture images to the
-        network as spatially aligned inputs.
-    *   `[pending]` 6.3.2: Use the recovered impulse response as the
-        input features.
-    *   `[pending]` 6.3.3: A pose-aware set transformer for multi-pose
-        fusion.
-    *   `[pending]` 6.3.4: A generative model that outputs uncertainty
-        maps.
+*   `[in-progress]` **Task 6.3: Improved models**
+    *   `[completed]` 6.3.1: Feed the synthetic-aperture images to the
+        network as spatially aligned inputs. *(An aligned U-Net on the physics images reaches 0.362 against the logistic's 0.189 (z = 22) at K = 4, and 0.450 at K = 8.)*
+    *   `[completed]` 6.3.2: Use the recovered impulse response as the
+        input features. *(The IR migration net gets 0.370 at K = 4. The same IRs through a non-aligned encoder stay at the prior (0.099), so spatial alignment is what matters.)*
+    *   `[completed]` 6.3.3: A pose-aware set transformer for multi-pose
+        fusion. *(Negative: the set model gets 0.346 at K = 4, with no gain over summing the aligned images.)*
+    *   `[in-progress]` 6.3.4: A generative model that outputs uncertainty
+        maps. *(Calibrated maps are done (ECE 0.0018, ensemble +8 bits). A generative sampler is not built.)*
 *   `[completed]` **Task 6.4: What can a laptop hear?**
     *   `[completed]` 6.4.1: Theoretical accuracy limits (Cramér–Rao
         bound) against bandwidth, mic count, spacing, noise, and pose
@@ -318,17 +321,16 @@ with statistical significance.
 *   `[completed]` **Task 6.5: Room acoustic parameters**
     *   `[completed]` 6.5.1: Estimate T60, direct-to-reverberant ratio,
         and absorption from recordings.
-*   `[pending]` **Task 6.6: Real-world conditions**
-    *   `[pending]` 6.6.1: Robustness when laptop positions are only
-        roughly known.
-    *   `[pending]` 6.6.2: Estimate laptop position and map jointly.
-    *   `[in-progress]` 6.6.3: Suggest the next best place to move the
-        laptop. *(An entropy-neighbourhood heuristic in the sensing panel;
-        no expected-information-gain evaluation yet.)*
-    *   `[pending]` 6.6.4: Passive sensing with phase features and
-        multiple poses.
-    *   `[pending]` 6.6.5: 3D rooms and 3–4 mic laptops.
-*   `[pending]` **Task 6.7: UI**
+*   `[completed]` **Task 6.6: Real-world conditions**
+    *   `[completed]` 6.6.1: Robustness when laptop positions are only
+        roughly known. *(Fragile: IoU 0.362 → 0.235, 0.144, 0.105, 0.089 at σ = 0.5, 1, 2, 3 cells.)*
+    *   `[completed]` 6.6.2: Estimate laptop position and map jointly. *(Fitting poses against the empty-box model, then imaging, recovers 65–78 % of the loss. This is pose-then-map, not a full alternation.)*
+    *   `[completed]` 6.6.3: Suggest the next best place to move the
+        laptop. *(Weak: the entropy heuristic beats random by only +0.006 IoU (z = 2.3), while a hindsight-best pose choice would gain +0.076.)*
+    *   `[completed]` 6.6.4: Passive sensing with phase features and
+        multiple poses. *(Negative: passive GCC-PHAT imaging gets +0.009 IoU (z = 4.1).)*
+    *   `[completed]` 6.6.5: 3D rooms and 3–4 mic laptops. *(3D rooms at 32³ with 4 mics: voxel IoU 0.139 against the 3D prior's 0.070 (z = 14.3).)*
+*   `[completed]` **Task 6.7: UI**
     *   `[completed]` 6.7.1: Uncertainty display and a "move here next"
         hint in the sensing panel. *(Heuristic: the most uncertain
         neighbourhood.)*

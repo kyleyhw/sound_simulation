@@ -25,7 +25,7 @@ This index provides an overview and links to the detailed documentation for each
 
 - [**`benchmark.md`**](./benchmark.md): The room-sensing benchmark. It covers the data (regenerated from the manifest), the rules, scoring against the no-audio baseline (`scripts/benchmark.py`), and the leaderboard.
 
-- [**`imaging.md`**](./imaging.md): The no-ML imagers: deconvolution, echo ellipses and free-space carving, delay-and-sum back-projection, time reversal, and FWI. It also covers the observable targets, the Cramér–Rao design chart, and T60/DRR/absorption estimation. Results are in `tests/reports/imaging_2026_09_24.md`.
+- [**`imaging.md`**](./imaging.md): The no-ML imagers: deconvolution, echo ellipses and free-space carving, delay-and-sum back-projection, time reversal, and FWI. It also covers the observable targets, the Cramér–Rao design chart, and T60/DRR/absorption estimation. Results are in `tests/reports/imaging_2026_09_24.md`. Its §8 adds the learned models on aligned physics images (U-Net, IR migration net, set model, calibrated ensembles), pose robustness and refinement, passive sensing and 3D rooms. Those results are in `tests/reports/imaging_models_2026_09_24.md`.
 
 ## Simulation engine
 

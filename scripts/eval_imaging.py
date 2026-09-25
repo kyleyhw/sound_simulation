@@ -242,13 +242,19 @@ class Evaluator:
         self.y = train[target]
         self.offset = np.broadcast_to(logit(prior), self.y.shape)
         self.choices: dict[str, dict] = {}
-        self.carve_cache: dict[tuple, np.ndarray] = {}
+        # Keyed by id(f), and the entry holds f itself: holding the reference
+        # keeps f alive (so its id cannot be reused), and the identity check
+        # guards the lookup. Keying on id() alone returned stale images once
+        # a freed dict's id was recycled.
+        self.carve_cache: dict[tuple, tuple[dict, np.ndarray]] = {}
 
     def _carve(self, f: dict, variant: tuple[str, float]) -> np.ndarray:
         key = (id(f),) + tuple(variant)
-        if key not in self.carve_cache:
-            self.carve_cache[key] = carving_images(f, variant[1], variant[0])
-        return self.carve_cache[key]
+        hit = self.carve_cache.get(key)
+        if hit is None or hit[0] is not f:
+            hit = (f, carving_images(f, variant[1], variant[0]))
+            self.carve_cache[key] = hit
+        return hit[1]
 
     def _feat(self, f: dict, name: str, sigma: float, variant) -> np.ndarray:
         if name == "carving":

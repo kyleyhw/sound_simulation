@@ -236,3 +236,149 @@ on held-out rooms with significance) is met by every imager.
 Limitations: noise-free simulation (20 dB white noise tested), exact
 poses, a known empty outer box for background subtraction, and an
 inverse crime for FWI. Details are in the report.
+
+## 8. Learned models on the physics images (6.3), pose error, passive and 3D sensing (6.6)
+
+The report is `tests/reports/imaging_models_2026_09_24.md`. Modules added
+(no existing module changed):
+
+| module | plan | what it does |
+|---|---|---|
+| `pose_images.py` | 6.3, 6.6.1 | every imager of §2 kept *per pose*, pose geometry channels, pose perturbation |
+| `models.py` | 6.3.1-6.3.4 | compact U-Net, impulse-response migration net, global IR encoder, pose-set net, D4 augmentation, temperature, reliability |
+| `pose_refine.py` | 6.6.2 | pose refinement against the empty-box model (joint exhaustive least squares, alternating quiet-start search) |
+| `passive.py` | 6.6.4 | GCC-PHAT interferometric imaging without the source signal |
+| `room3d.py` | 6.6.5 | 3D rooms, 4-mic arrays, 3D back-projection and carving |
+
+```
+NUMBA_NUM_THREADS=1 uv run python scripts/eval_imaging_models.py \
+    --out-dir tests/reports/imaging_models_2026_09_24_artifacts   # ~4 h on a shared core, cached
+NUMBA_NUM_THREADS=1 uv run pytest tests/imaging                    # 57 tests, ~9 s
+```
+
+### 8.1 Per-pose images
+
+Each imager of §2 is a sum of per-pose terms (back-projection normalises
+each trace, ellipses and carving counts add per pair, time reversal scales
+each pose by its own RMS), so
+
+$$ I(\mathbf{x}) = \sum_{k=1}^{K} I_k(\mathbf{x}) $$
+
+and `pose_images.aggregate(compute_pose_images(room).images)` equals
+`compute_room_images(room)` exactly (unit-tested). The pose geometry is
+rendered on the grid as $\lVert\mathbf{x}-\mathbf{s}_k\rVert/N$ and the
+bistatic lags $t_{km}(\mathbf{x})/(4N\Delta t)$.
+
+### 8.2 Models (all a residual on the prior logit)
+
+Every model outputs two maps, the filled mask and the illuminated boundary,
+
+$$ \operatorname{logit} q_h(\mathbf{x}) = \operatorname{logit}\hat\pi_h(\mathbf{x})
+   + f_\theta(\cdot)_h(\mathbf{x}), \qquad h \in \{\text{fill}, \text{illum}\}, $$
+
+with the last layer zero-initialised, so training starts at the prior. The
+loss is the summed binary cross-entropy of the two heads. Training uses
+the eight symmetries of the square box (images, targets, prior and device
+coordinates transformed together).
+
+- **Aligned U-Net (6.3.1).** Three levels (widths 12, 24, 48; 119 k
+  parameters). Inputs: the four pose-summed images, each standardised per
+  room, and the two prior logits.
+- **IR migration net (6.3.2).** A shared 1D filter bank (three
+  convolutions, kernel 9) maps each (IR, envelope) trace to 8 channels
+  $a_{kmc}[j]$, which are migrated by a differentiable delay-and-sum,
+
+  $$ F_c(\mathbf{x}) = \frac{1}{KM}\sum_{k,m} a_{kmc}\bigl(t_{km}(\mathbf{x}) - 2\bigr), $$
+
+  (`models.migrate`, linear interpolation, equal to `backproject` with
+  the same filter; unit-tested) and fed to the same U-Net. It learns the
+  detection filter that §2 fixes by hand.
+- **Global IR encoder (6.3.2, control).** The Phase 2 layout with IRs in
+  place of spectrograms: per-pose 1D encoder to a vector, device
+  coordinates appended, mean over poses, decoder from $8\times8$. No
+  spatial alignment.
+- **Pose-set net (6.3.3).** A shared encoder $\phi$ maps each pose's
+  $(4 + 3)$ channels (standardised images plus geometry) to features
+  $F_k$, pooled as $[\sum_k \alpha_k F_k,\ \bar F,\ \max_k F_k]$ with
+  per-pixel attention $\alpha_k = \operatorname{softmax}_k a^\top F_k$:
+  invariant to pose order, defined for any $K$. Trained on random subsets
+  of 1-4 poses.
+- **Uncertainty (6.3.4).** Monte Carlo dropout (`Dropout2d`, $p = 0.1$,
+  16 draws) and a two-member deep ensemble average probabilities; a scalar
+  temperature $T$ minimising the validation log-loss of
+  $\sigma(z/T)$ is then applied. Reliability uses 15 equal-mass bins.
+
+### 8.3 Pose error (6.6.1) and refinement (6.6.2)
+
+`perturb_poses` displaces every device independently by
+$\operatorname{round}(\mathcal{N}(0, \sigma^2))$ per coordinate; the
+recordings stay at the true cells, and both the empty-box background and
+all travel times use the assumed cells. Refinement fits the empty-box model
+$G_{\hat{\mathbf{s}}\to\hat{\mathbf{m}}}$ to the recordings within a window
+of radius $\lceil 2\sigma\rceil$:
+
+- *joint*: $\min \sum_m \lVert y_m - G_{\hat{\mathbf{s}}\to\hat{\mathbf{m}}_m}\rVert^2$,
+  exhaustive over the source window (one simulation per candidate source;
+  the mics then separate);
+- *alternating*: exhaustive mic search in the incident field, and
+  exhaustive source search via reciprocity
+  $G_{\mathbf{a}\to\mathbf{b}} = G_{\mathbf{b}\to\mathbf{a}}$ (exact for the
+  symmetric discrete Laplacian, tested to $10^{-6}$), with the quiet-start
+  cost $\sum_n \log(\epsilon E + \sum_{j\le n} r_j^2)$.
+
+Poses are not identifiable exactly from the pre-scatter data (the direct
+wave only fixes source-mic distances, and the scattered onset trails the
+direct arrival by a median of 4 lags). The fit instead finds cells whose
+empty-box response matches the data, which is what the background
+subtraction needs. With the *true* obstacle map in the model the joint fit
+puts 93 % of devices on their exact cell, against 36 % with the empty box
+(10 validation rooms, σ = 1).
+
+### 8.4 Passive (6.6.4) and 3D (6.6.5)
+
+`passive.passive_images` computes, per pose and mic pair, the GCC-PHAT
+$g = \mathcal{F}^{-1}[Y_1Y_2^*/|Y_1Y_2^*|]$, which does not depend on the
+unknown source spectrum, subtracts the envelope of the empty box's GCC
+(from an impulse probe, not the source), and migrates it along the
+direct-scattered delays $t(\mathbf{s}\to\mathbf{x}\to\mathbf{m}_1) -
+t(\mathbf{s}\to\mathbf{m}_2)$ and its mirror. The speaker and mic
+positions are assumed known; the waveform is not used.
+
+`room3d.py` generates $32^3$ $p = 0$ boxes with 2-4 box obstacles, a
+source with four mics on a $\pm3$-cell square, a known Ricker drive
+($f_0 = 0.12$), and runs 3D envelope back-projection and first-arrival
+carving (echo peak lag and onset lag read from the drive).
+
+### 8.5 Results (held-out, 500 rooms, K = 4 unless stated)
+
+| method | filled IoU | AP | info gain (bits) | ΔIoU vs logistic (z) | illum. IoU | illum. BF |
+|---|---|---|---|---|---|---|
+| no-audio prior | 0.101 | 0.128 | 0 | — | 0.027 | 0.155 |
+| logistic all physics (§7) | 0.189 | 0.344 | 227 | — | 0.056 | 0.224 |
+| global IR encoder (no alignment) | 0.099 | 0.157 | 65 | −0.090 (−21.0) | 0.026 | 0.116 |
+| pose-set net (6 epochs) | 0.346 | 0.552 | 447 | +0.156 (21.3) | 0.133 | 0.435 |
+| aligned U-Net | 0.362 | 0.578 | 480 | +0.173 (22.0) | 0.163 | 0.495 |
+| IR migration net | **0.370** | **0.598** | **509** | **+0.180 (24.4)** | 0.170 | 0.483 |
+| U-Net ensemble ×2 + T | 0.368 | 0.586 | 488 | +0.178 (22.1) | **0.172** | 0.486 |
+| U-Net, K = 8 | 0.450 | 0.684 | 621 | +0.206 (22.8) | — | — |
+| passive GCC-PHAT U-Net (no source) | 0.110 | 0.154 | 22 | vs prior +0.009 (4.1) | 0.030 | 0.169 |
+
+Findings: spatial alignment is what matters. The same impulse responses
+reach 0.370 through a migration layer and stay at the prior (0.099)
+through a global encoder, which reproduces the Phase 2 plateau. The
+learned models nearly double the logistic fusion. The pose-set net is not
+better than summing the images first (budget-matched it is +0.008 ± 0.004
+at K = 4 and −0.004 ± 0.005 at K = 8). The U-Net is already calibrated
+($T \approx 1$). Pose error of half a cell costs a third of the IoU;
+joint refinement recovers 65-78 % of the loss for σ = 0.5-3 cells.
+Passive imaging barely beats the prior. In 3D, carving plus back-projection
+fused with a 3D prior gives voxel IoU 0.139 against 0.070 (z = 14.3,
+100 held-out rooms).
+
+**Next-best pose (6.6.3, evaluated here).** From the first two of the eight
+held-out poses, greedily adding two more with the web panel's heuristic
+(most fused-map entropy within 12 cells of the pose centroid) or with a
+sensitivity-weighted entropy $\sum_x H(q_x)\,v(d_c(x))$ ($v$ the mean
+squared logit change against the distance to the new pose's nearest device,
+learned on training rooms) beats random choice by only +0.006 IoU at K = 4
+(z = 2.3 and 2.5); the hindsight-best choice would gain +0.076 (z = 34).

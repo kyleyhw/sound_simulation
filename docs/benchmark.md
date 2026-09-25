@@ -80,8 +80,13 @@ the value that maximises the mean training IoU (τ = 0.09).
 | four physics images fused | 4 | 0.189 | +0.088 (19.3) | 0.34 | same |
 | four physics images fused | 8 | 0.244 | +0.143 (34.1) | 0.46 | same |
 | full-waveform inversion (40 rooms only) | 4 | 0.337 vs 0.087 | +0.251 (4.5) | 0.45 | same |
+| aligned U-Net on physics images + prior | 4 | 0.362 | +0.261 (28.2) | 0.58 | `tests/reports/imaging_models_2026_09_24.md` |
+| IR migration net (learned filters, delay-and-sum) | 4 | 0.370 | +0.268 (32.1) | 0.60 | same |
+| aligned U-Net | 8 | 0.450 | +0.349 (35.9) | 0.68 | same |
+| global IR encoder, not spatially aligned (control) | 4 | 0.099 | −0.002 (−1.7) | 0.16 | same |
+| passive (unknown source), U-Net | 4 | 0.110 | +0.009 (4.1) | 0.15 | same |
 
-Rows from the physics report were scored with the same metrics and the
+Rows from the physics and imaging-models reports were scored with the same metrics and the
 same paired protocol by `scripts/eval_imaging.py`. `scripts/benchmark.py`
 reproduces that protocol for new submissions.
 
