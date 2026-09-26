@@ -225,3 +225,6 @@ node_modules/
 .secrets.baseline.new
 # macOS Finder metadata
 .DS_Store
+
+# Cached sensitivity matrices for scripts/eval_information.py (regenerable)
+data/information/

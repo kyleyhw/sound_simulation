@@ -321,6 +321,15 @@ with statistical significance.
         count.
     *   `[completed]` 6.4.2: A design chart of which hardware setups can
         resolve what.
+    *   `[completed]` 6.4.3: Information limits of a two-speaker device and
+        virtual baselines. *(A linearised (Born) sensitivity analysis of the
+        loop room: one placement of 2 speakers + 2 mics resolves only 2–3 %
+        of the room at 20–30 dB SNR, against 36–73 % for the 8-element bar.
+        Moving the device is the strongest lever: 4 placements resolve
+        45–85 %, 8 placements the whole room at 30 dB. Bandwidth is second;
+        known reflective walls act as image speakers and help, half of it
+        from extra echo energy. Playing both speakers at once buys time,
+        never information. Report: `tests/reports/information_2026_09_26.md`.)*
 *   `[completed]` **Task 6.5: Room acoustic parameters**
     *   `[completed]` 6.5.1: Estimate T60, direct-to-reverberant ratio,
         and absorption from recordings.

@@ -567,3 +567,75 @@ subtraction rather than shifting a sharp image. Jitter training gains
 +0.01 to +0.08 without refinement. It loses 0.034 at exact poses and
 0.015-0.025 after refinement, so a pipeline that refines should keep the
 exact-pose network.
+
+## 11. Information limits and virtual baselines
+
+`information.py` (study `tests/reports/information_2026_09_26.md`) asks how
+much of a room map a sensing configuration can deliver at all, whatever
+the estimator. It linearises the engine around the empty room, whitens by
+the noise, and counts the modes measured better than a weak prior.
+
+**Born sensitivity.** The engine is $p^{n+1} = 2p^n - p^{n-1} +
+C\mathcal Lp^n + q^n$, so a change of the scheme at a cell is an extra
+injection there, propagated by the engine's Green's function. The scheme
+is reciprocal. One impulse run per mic ($G_{\mathbf m}$ at every cell) and
+one run per shot (the incident field $P$, all drives together) therefore
+give every column:
+
+- monopole $K_M = G_{\mathbf m} * (C\mathcal LP)$, delayed one step, per
+  unit $\delta C/C$;
+- dipole $K_D = C(G_{\mathbf m}(\mathbf a)-G_{\mathbf m}(\mathbf b)) *
+  (P(\mathbf a)-P(\mathbf b))$, per closed face.
+
+An occupied rigid pixel is modelled as $aK_M + bK_D$, with the pixel's
+cells and boundary faces summed. $a$ and $b$ are fitted to exact engine
+runs with that pixel made rigid.
+
+Checks:
+
+- the monopole kernel equals a central difference of the engine to
+  $7\times10^{-4}$;
+- the fit explains 96 % of a 2 × 2 pixel's echo in the CPML room, and
+  83 % with rigid walls;
+- the Born degrees of freedom match the exact single-pixel Jacobian
+  (4 × 4 pixels) to 3 %.
+
+**Measures.** With $F = J^\top J/\sigma^2$, a prior sd $\tau$ and
+$x_i = \lambda_i\tau^2/\sigma^2$:
+
+- recoverable DOF $\#\{x_i\ge1\}$;
+- DFS $= \mathrm{tr}R = \sum x_i/(1+x_i)$;
+- per-pixel CRB with prior $\sqrt{\mathrm{diag}(F+I/\tau^2)^{-1}}$;
+- resolution matrix $R = (F+I/\tau^2)^{-1}F$: its diagonal is the
+  resolvability and its columns are the PSFs. The PSF extent is an
+  energy-weighted RMS along the radial and tangential directions.
+
+**Emission algebra.** Per frequency, $F = \sum_f\sum_m K_m^H M(f) K_m$,
+with $M(f) = \sum_k \bar w_k w_k^\top$ over the shots' drive spectra.
+Speakers in turn give $M = |r|^2 I$: the full MIMO virtual array. A summed
+or steered emission has $M \preceq \lambda_{\max}(M)I$ and rows in the span
+of the in-turn rows, so it cannot resolve a mode the in-turn scheme misses.
+One simultaneous shot has rank-1 $M(f)$, so separable codes recover the
+in-turn information only as far as their cross-correlation vanishes over
+the delay spread. Disjoint bands give a diagonal $M$ with half the band
+per speaker.
+
+**Results** (loop room, 2 × 2 pixels, SNR vs a reference block's echo,
+equal energy per speaker emission):
+
+| configuration | DOF 20 / 30 dB | pixels resolved 20 / 30 dB |
+|---|---|---|
+| 8-element bar | 592 / 770 | 36 % / 73 % |
+| 2 speakers + 2 mics, 30 cm, in turn | 197 / 259 | 2 % / 3 % |
+| same, both at once | 119 / 147 | 1 % / 1 % |
+| same, disjoint half bands | 132 / 157 | 1 % / 2 % |
+| same, up/down chirps (vs the chirps in turn) | 256 / 302 (280 / 325) | 4 % / 5 % |
+| same device at K = 4 placements | 622 / 814 | 45 % / 85 % |
+| same device, rigid walls (known) | 409 / 485 | 14 % / 26 % |
+| same device, pulse f0 doubled | 500 / 584 | 23 % / 38 % |
+
+Two speakers at one position deliver range along ellipses, not a map. A
+virtual baseline makes the map attainable. In order of strength, it comes
+from motion (known poses), bandwidth, or known reflective walls (image
+sources; part of that gain is reverberant echo energy). Simultaneous
+emission saves time at best; it adds no information.
