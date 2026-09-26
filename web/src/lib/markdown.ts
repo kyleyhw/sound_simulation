@@ -7,6 +7,13 @@
  * backslashes, and then pasted back as KaTeX HTML. Relative links to other
  * .md files become in-app routes. Relative image paths resolve through
  * `resolveAsset`.
+ *
+ * In-page links (`#section`) must not reach the hash router, which would
+ * read them as routes. Headings get GitHub-style ids, and `#id` links are
+ * marked with `data-anchor`; `installAnchorLinks` (lib/anchors.ts, called from main)
+ * turns a click on one into a scroll to the element. Cross-document links
+ * carry their fragment as `?h=id`, which lib/anchors.ts scrolls to once
+ * the document has rendered.
  */
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
@@ -20,6 +27,18 @@ export interface RenderOptions {
   /** Route for a repo-relative Markdown path, or null if it is not published. */
   routeFor: (repoPath: string) => string | null;
 }
+
+/** GitHub-style heading slug: lowercase, punctuation dropped, spaces to hyphens. */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/<[^>]*>/g, '')
+    .replace(/[^\p{L}\p{N}\s_-]/gu, '')
+    .trim()
+    .replace(/\s/g, '-');
+}
+
+const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 function joinPath(base: string, rel: string): string {
   const parts = base.split('/').slice(0, -1);
@@ -54,13 +73,35 @@ export function renderMarkdown(src: string, opts: RenderOptions): string {
     return `\u0000C${code.length - 1}\u0000`;
   });
   s = s.replace(/\$\$([\s\S]+?)\$\$/g, (_m, tex) => stash(tex, true));
+  // A closing $ followed by a digit is a currency amount, not maths.
   s = s.replace(/(^|[^\\$])\$([^$\n]+?)\$(?!\d)/g, (_m, pre, tex) => pre + stash(tex, false));
+  // Then inline maths that wraps onto the next source line (one line break,
+  // no blank line, no space just inside the dollars).
+  s = s.replace(/(^|[^\\$])\$(?=\S)([^$\n]*\n(?![ \t]*\n)[^$\n]*?\S)\$(?!\d)/g, (_m, pre, tex: string) => pre + stash(tex.replace(/\s*\n\s*/g, ' '), false));
   s = s.replace(/\u0000C(\d+)\u0000/g, (_m, k) => code[Number(k)]);
 
   const renderer = new marked.Renderer();
+  const self = opts.routeFor(opts.path);
+  const slugs = new Map<string, number>();
+  const baseHeading = renderer.heading.bind(renderer);
+  renderer.heading = (tok) => {
+    const html = baseHeading(tok) as string;
+    let slug = slugify(tok.text.replace(/\u0000[MC]\d+\u0000/g, '')) || 'section';
+    const n = slugs.get(slug) ?? 0;
+    slugs.set(slug, n + 1);
+    if (n) slug = `${slug}-${n}`;
+    return html.replace(/^<h(\d)>/, `<h$1 id="${escapeAttr(slug)}">`);
+  };
   const baseLink = renderer.link.bind(renderer);
   renderer.link = (tok) => {
     const href = tok.href ?? '';
+    if (/^#[^/]/.test(href)) {
+      // In-page anchor: keep it away from the hash router.
+      const id = decodeURIComponent(href.slice(1));
+      const to = self ? `#${self}?h=${encodeURIComponent(id)}` : href;
+      const title = tok.title ? ` title="${escapeAttr(tok.title)}"` : '';
+      return `<a href="${escapeAttr(to)}" data-anchor="${escapeAttr(id)}"${title}>${marked.parseInline(tok.text) as string}</a>`;
+    }
     if (!/^[a-z]+:|^#|^\//i.test(href)) {
       const [file, hash] = href.split('#');
       const target = joinPath(opts.path, file);

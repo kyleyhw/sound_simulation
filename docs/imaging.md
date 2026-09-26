@@ -170,7 +170,7 @@ $\beta^2 = f_c^2 + B^2/12$ when the carrier phase is usable. So:
 - bearing from TDOA with the range as a nuisance parameter:
   $\sigma_\theta = c\,\sigma_\tau / (\cos\theta\,\sqrt{\sum_m (x_m-\bar x)^2}\,\sqrt K)$,
   which is $\sqrt2\,c\sigma_\tau/(d\cos\theta)$ for a pair;
-- two-reflector range resolution $c/2B$, and feature size $\lambda_\min/2$.
+- two-reflector range resolution $c/2B$, and feature size $\lambda_{\min}/2$.
 
 A Monte Carlo test confirms that the cross-correlation ML delay
 estimator reaches the bound at high SNR (within 20 %).
