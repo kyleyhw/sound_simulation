@@ -249,7 +249,7 @@ export function Volume3D() {
   return (
     <div className="viewport" style={{ padding: 0 }}>
       <div ref={hostRef} style={{ position: 'absolute', inset: 0 }} data-testid="volume" />
-      <div className="legend" style={{ width: 230 }}>
+      <div className="legend volume-controls" style={{ width: 230 }} data-testid="volume-controls">
         <div className="field" style={{ marginBottom: 4 }}>
           <label>
             <span>Opacity</span>

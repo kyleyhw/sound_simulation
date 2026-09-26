@@ -1,9 +1,10 @@
 import { Camera, Film, HelpCircle, Link2, Pause, Play, Redo2, RotateCcw, SkipForward, Undo2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { encodeSceneUrl } from '../engine/scene';
 import { recordGif, recordVideo, screenshot } from '../lib/exporters';
 import { toScene } from '../state/editable';
 import type { FrameStats } from '../state/runtime';
+import { consumedState } from '../state/urlScene';
 import { useApp } from '../state/store';
 
 const SPEEDS = [1, 2, 4, 8, 16, 32, 64];
@@ -18,6 +19,45 @@ export function StageToolbar() {
   const [busy, setBusy] = useState<string | null>(null);
   const [gpuOk, setGpuOk] = useState(false);
   const [backend, setBackendState] = useState(runtime.backend);
+  // Record menu: a controlled popover (a <details> never closed by itself
+  // and was anchored off-screen on phones).
+  const [recOpen, setRecOpen] = useState(false);
+  const [recPos, setRecPos] = useState<{ left: number; top: number } | null>(null);
+  const recBtnRef = useRef<HTMLButtonElement>(null);
+  const recMenuRef = useRef<HTMLDivElement>(null);
+  const REC_W = 200;
+  useLayoutEffect(() => {
+    if (!recOpen) return;
+    const place = () => {
+      const b = recBtnRef.current?.getBoundingClientRect();
+      if (!b) return;
+      const vw = document.documentElement.clientWidth;
+      const left = Math.max(8, Math.min(b.right - REC_W, vw - REC_W - 8));
+      setRecPos({ left, top: b.bottom + 6 });
+    };
+    place();
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (recMenuRef.current?.contains(t) || recBtnRef.current?.contains(t)) return;
+      setRecOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setRecOpen(false);
+        recBtnRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [recOpen]);
 
   useEffect(() => {
     let live = true;
@@ -53,7 +93,8 @@ export function StageToolbar() {
     try {
       const token = await encodeSceneUrl(toScene(useApp.getState().scene));
       const url = `${location.origin}${location.pathname}#/sandbox?s=${token}`;
-      history.replaceState(null, '', `#/sandbox?s=${token}`);
+      // Marked as loaded, so Back/Forward onto this entry keeps later edits.
+      history.replaceState(consumedState(`s=${token}`), '', `#/sandbox?s=${token}`);
       try {
         await navigator.clipboard.writeText(url);
         notify('Share link copied to the clipboard');
@@ -91,7 +132,7 @@ export function StageToolbar() {
       <button className="btn" onClick={() => runtime.stepOnce(1)} title="Single step (.)" aria-label="Step" data-testid="step">
         <SkipForward size={16} />
       </button>
-      <button className="btn" onClick={() => runtime.reset()} title="Reset field (R)" aria-label="Reset" data-testid="reset">
+      <button className="btn" onClick={() => runtime.reset()} title="Reset field (Shift+R)" aria-label="Reset" data-testid="reset">
         <RotateCcw size={16} />
       </button>
       <label className="row tight" title="Simulation steps per displayed frame">
@@ -137,17 +178,37 @@ export function StageToolbar() {
       >
         <Camera size={16} />
       </button>
-      <details className="export-menu" style={{ position: 'relative' }}>
-        <summary className="btn icon" title="Record" aria-label="Record" style={{ listStyle: 'none' }}>
-          <Film size={16} />
-        </summary>
-        <div className="card" style={{ position: 'absolute', right: 0, top: 36, zIndex: 5, width: 190 }}>
+      <button
+        ref={recBtnRef}
+        className="btn icon"
+        title={busy === 'gif' || busy === 'video' ? 'Recording…' : 'Record'}
+        aria-label="Record"
+        aria-haspopup="menu"
+        aria-expanded={recOpen}
+        data-testid="record-menu"
+        style={{ position: 'relative' }}
+        onClick={() => setRecOpen(!recOpen)}
+      >
+        <Film size={16} />
+        {(busy === 'gif' || busy === 'video') && <span className="rec-dot" aria-hidden="true" />}
+      </button>
+      {recOpen && (
+        <div
+          ref={recMenuRef}
+          className="card"
+          role="menu"
+          aria-label="Record"
+          data-testid="record-popover"
+          style={{ position: 'fixed', left: recPos?.left ?? 8, top: recPos?.top ?? 60, zIndex: 30, width: REC_W, visibility: recPos ? 'visible' : 'hidden' }}
+        >
           <button
             className="btn sm"
+            role="menuitem"
             style={{ width: '100%', marginBottom: 6 }}
             disabled={!!busy}
             onClick={() =>
               run('gif', async () => {
+                setRecOpen(false);
                 if (!runtime.running) runtime.start();
                 if (wrap()) await recordGif(wrap()!, 60, 'acoustic-sandbox');
               })
@@ -157,10 +218,12 @@ export function StageToolbar() {
           </button>
           <button
             className="btn sm"
+            role="menuitem"
             style={{ width: '100%' }}
             disabled={!!busy}
             onClick={() =>
               run('video', async () => {
+                setRecOpen(false);
                 if (!runtime.running) runtime.start();
                 const c = wrap()?.querySelector('canvas');
                 if (c) await recordVideo(c, 5000, 'acoustic-sandbox');
@@ -170,7 +233,7 @@ export function StageToolbar() {
             {busy === 'video' ? 'Recording 5 s…' : 'Video (5 s)'}
           </button>
         </div>
-      </details>
+      )}
       <button className="btn icon" onClick={() => useApp.getState().setShowHelp(true)} title="Keyboard shortcuts (?)" aria-label="Help">
         <HelpCircle size={16} />
       </button>

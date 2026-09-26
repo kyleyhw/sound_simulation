@@ -84,8 +84,21 @@ export function Viewport() {
   const [hover, setHover] = useState<Cell | null>(null);
   const [preview, setPreview] = useState<{ a: Cell; b: Cell } | null>(null);
   const [stats, setStats] = useState<FrameStats>(() => runtime.stats());
-  const scaleRef = useRef(1);
-  const dragRef = useRef<{ kind: 'paint' | 'shape' | 'move'; last?: Cell; start?: Cell; marker?: { kind: 'driver' | 'probe'; id: string } } | null>(null);
+  // Colour-scale full-scale value. It starts at 0 (nothing drawn yet) rather
+  // than 1, so a silent field does not show a made-up scale.
+  const scaleRef = useRef(0);
+  // The legend shows the scale of the last drawn frame. draw() updates the
+  // ref after render, so the label is state, set only when its text changes.
+  const [scaleLabel, setScaleLabel] = useState(0);
+  const scaleTextRef = useRef('');
+  const dragRef = useRef<{
+    kind: 'paint' | 'shape' | 'move';
+    last?: Cell;
+    start?: Cell;
+    marker?: { kind: 'driver' | 'probe'; id: string };
+    /** Move drags checkpoint on the first real move, so a select-only click adds no undo entry. */
+    moved?: boolean;
+  } | null>(null);
 
   // Fit the canvas to the available area, preserving the grid aspect.
   useEffect(() => {
@@ -153,6 +166,11 @@ export function Viewport() {
       const target = Math.max(peak, 1e-9);
       scaleRef.current = target > scaleRef.current ? target : Math.max(target, scaleRef.current * 0.96);
     } else scaleRef.current = view.fixedScale;
+    const text = fmt(scaleRef.current);
+    if (text !== scaleTextRef.current) {
+      scaleTextRef.current = text;
+      setScaleLabel(scaleRef.current);
+    }
     const cmap = signed ? view.colormap : SEQUENTIAL.includes(view.colormap) ? view.colormap : 'magma';
     r.draw(buffers.field, plane.rows, plane.cols, buffers.mat, {
       colormap: cmap,
@@ -289,8 +307,7 @@ export function Viewport() {
       if (marker) {
         st.select(marker);
         st.setInspectorTab(marker.kind === 'driver' ? 'sources' : 'probes');
-        st.checkpoint();
-        dragRef.current = { kind: 'move', marker };
+        dragRef.current = { kind: 'move', marker, moved: false };
       } else st.select(null);
       return;
     }
@@ -337,7 +354,15 @@ export function Viewport() {
     } else if (drag.kind === 'shape' && drag.start) {
       setPreview({ a: drag.start, b: cell });
     } else if (drag.kind === 'move' && drag.marker) {
-      st.moveMarker(drag.marker.kind, drag.marker.id, plane.toPos(cell[0], cell[1]));
+      const pos = plane.toPos(cell[0], cell[1]);
+      const list: { id: string; pos: number[] }[] = drag.marker.kind === 'driver' ? st.scene.drivers : st.scene.probes;
+      const cur = list.find((m) => m.id === drag.marker!.id);
+      if (cur && cur.pos.join() === pos.join()) return;
+      if (!drag.moved) {
+        st.checkpoint();
+        drag.moved = true;
+      }
+      st.moveMarker(drag.marker.kind, drag.marker.id, pos);
     }
   };
 
@@ -349,6 +374,7 @@ export function Viewport() {
       const st = useApp.getState();
       if (scene.params.dims === 2)
         st.setZone(st.zoneKind, [Math.min(drag.start[0], end[0]), Math.min(drag.start[1], end[1]), Math.max(drag.start[0], end[0]), Math.max(drag.start[1], end[1])]);
+      else st.notify('Control zones work on 2D grids only: switch the grid to 2D in the Scene tab.', 'error');
       st.setInspectorTab('control');
       setPreview(null);
       return;
@@ -375,7 +401,6 @@ export function Viewport() {
 
   const mk = Math.max(1.6, plane.cols / 55);
   const vb = `0 0 ${plane.cols} ${plane.rows}`;
-  const scaleLabel = scaleRef.current;
   const isRms = view.overlay === 'rms';
   const legendCss = colormapCss(isRms ? (SEQUENTIAL.includes(view.colormap) ? view.colormap : 'magma') : view.colormap);
 
@@ -508,7 +533,7 @@ export function Viewport() {
         )}
       </div>
 
-      <div className="legend" aria-label="Colour scale">
+      <div className="legend" aria-label="Colour scale" data-testid="legend">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span>{isRms ? 'RMS pressure' : 'Pressure'}</span>
           <span className="dim">{view.mode === 'db' ? `dB, ${view.dbRange} dB range` : view.autoScale ? 'auto' : 'fixed'}</span>
@@ -517,13 +542,13 @@ export function Viewport() {
         <div className="ticks mono">
           {view.mode === 'db' ? (
             <>
-              <span>{isRms ? `−${view.dbRange}` : '−0 dB'}</span>
-              <span>{isRms ? '' : `−${view.dbRange}`}</span>
-              <span>0 dB</span>
+              <span>{isRms ? `−${view.dbRange} dB` : '0 dB (−)'}</span>
+              <span>{isRms ? '' : `−${view.dbRange} dB`}</span>
+              <span>{isRms ? '0 dB' : '0 dB (+)'}</span>
             </>
           ) : (
             <>
-              <span>{isRms ? '0' : `−${fmt(scaleLabel)}`}</span>
+              <span>{isRms ? '0' : fmt(scaleLabel) === '—' ? '—' : `−${fmt(scaleLabel)}`}</span>
               <span>{isRms ? fmt(scaleLabel / 2) : '0'}</span>
               <span>{fmt(scaleLabel)}</span>
             </>
@@ -537,6 +562,7 @@ export function Viewport() {
 function fmt(v: number): string {
   if (!Number.isFinite(v)) return '—';
   if (v === 0) return '0';
+  if (Math.abs(v) <= 1e-9) return '—'; // silent field: no scale yet
   const a = Math.abs(v);
   if (a >= 100 || a < 0.01) return v.toExponential(1);
   return v.toPrecision(2);

@@ -21,7 +21,11 @@ function prepCanvas(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
   return c.getContext('2d');
 }
 
-export function drawSeries(c: HTMLCanvasElement, series: { data: ArrayLike<number>; color: string }[], opts: { symmetric?: boolean } = {}): void {
+/**
+ * Line plot with min/max decimation. `topPad` (CSS px, default 18) keeps the
+ * trace clear of the plot title drawn over the canvas's top-left corner.
+ */
+export function drawSeries(c: HTMLCanvasElement, series: { data: ArrayLike<number>; color: string }[], opts: { symmetric?: boolean; topPad?: number; bottomPad?: number } = {}): void {
   const ctx = prepCanvas(c);
   if (!ctx) return;
   const { width: W, height: H } = c;
@@ -40,10 +44,14 @@ export function drawSeries(c: HTMLCanvasElement, series: { data: ArrayLike<numbe
     hi = m;
   }
   if (hi - lo < 1e-12) hi = lo + 1;
-  const pad = 6 * (window.devicePixelRatio || 1);
+  const dpr = window.devicePixelRatio || 1;
+  const pad = (opts.bottomPad ?? 6) * dpr;
+  const padTop = Math.min(H / 3, (opts.topPad ?? 18) * dpr);
+  const span = Math.max(1, H - pad - padTop);
+  const yOf = (v: number) => H - pad - ((v - lo) / (hi - lo)) * span;
   ctx.strokeStyle = cssVar('--border');
   ctx.lineWidth = 1;
-  const y0 = H - pad - ((0 - lo) / (hi - lo)) * (H - 2 * pad);
+  const y0 = yOf(0);
   ctx.beginPath();
   ctx.moveTo(0, y0);
   ctx.lineTo(W, y0);
@@ -66,8 +74,8 @@ export function drawSeries(c: HTMLCanvasElement, series: { data: ArrayLike<numbe
         mx = Math.max(mx, s.data[i]);
       }
       const px = (x / Math.max(1, cols - 1)) * W;
-      const yA = H - pad - ((mn - lo) / (hi - lo)) * (H - 2 * pad);
-      const yB = H - pad - ((mx - lo) / (hi - lo)) * (H - 2 * pad);
+      const yA = yOf(mn);
+      const yB = yOf(mx);
       if (x === 0) ctx.moveTo(px, yA);
       ctx.lineTo(px, yA);
       ctx.lineTo(px, yB);
@@ -118,6 +126,17 @@ export function Dock() {
   const waveRef = useRef<HTMLCanvasElement>(null);
   const specRef = useRef<HTMLCanvasElement>(null);
   const lastDraw = useRef(0);
+  // Each Listen gets an id; a timer from an earlier clip must not flip the
+  // label of a newer one back to "Listen".
+  const playIdRef = useRef(0);
+  const playTimerRef = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(playTimerRef.current);
+      stopPlayback();
+    },
+    [],
+  );
 
   useEffect(() => runtime.subscribe(setStats), [runtime]);
 
@@ -138,9 +157,10 @@ export function Dock() {
       drawSeries(waveRef.current, [{ data: window, color: cssVar('--probe') }]);
       if (mode === 'spectrogram') drawSpectrogram(specRef.current, series);
       else {
+        // magnitudeSpectrum is already one-sided (0 .. Nyquist): plot all of it.
         const spec = magnitudeSpectrum(series);
         const db = Array.from(spec, (v) => 20 * Math.log10(v + 1e-9));
-        drawSeries(specRef.current, [{ data: db.slice(0, Math.floor(db.length / 2)), color: cssVar('--accent') }], { symmetric: false });
+        drawSeries(specRef.current, [{ data: db, color: cssVar('--accent') }], { symmetric: false, bottomPad: 18 });
       }
     };
     redraw(true);
@@ -149,6 +169,8 @@ export function Dock() {
 
   const listen = async () => {
     if (!probe) return;
+    const id = ++playIdRef.current;
+    window.clearTimeout(playTimerRef.current);
     if (playing) {
       stopPlayback();
       setPlaying(false);
@@ -156,12 +178,23 @@ export function Dock() {
     }
     const x = runtime.sim.probeSeries(probe.id);
     if (x.length < 64) return useApp.getState().notify('Run the simulation first to record something to play.');
-    const { seconds } = await playSignal(x, { dt: runtime.sim.dt, units: scene.units });
-    setPlaying(true);
-    setTimeout(() => setPlaying(false), seconds * 1000 + 50);
+    try {
+      const { seconds } = await playSignal(x, { dt: runtime.sim.dt, units: scene.units });
+      if (id !== playIdRef.current) return;
+      setPlaying(true);
+      playTimerRef.current = window.setTimeout(() => {
+        if (id === playIdRef.current) setPlaying(false);
+      }, seconds * 1000 + 50);
+    } catch (e) {
+      useApp.getState().notify(`Could not play the recording: ${(e as Error).message}`, 'error');
+    }
   };
 
   const fmtT = (t: number) => (scene.units === 'si' ? `${(t * 1000).toFixed(2)} ms` : t.toFixed(1));
+  // Spectrum axis: 0 .. Nyquist, in Hz (SI) or cycles per time unit (grid).
+  const nyquist = 1 / (2 * runtime.sim.dt);
+  const fmtF = (f: number) =>
+    scene.units === 'si' ? (f >= 1000 ? `${(f / 1000).toPrecision(3)} kHz` : `${f.toPrecision(3)} Hz`) : `${f.toPrecision(3)} cycles/unit`;
 
   return (
     <section className="dock" aria-label="Recordings and timeline">
@@ -197,8 +230,18 @@ export function Dock() {
               <canvas ref={waveRef} data-testid="scope" />
             </div>
             <div className="plot">
-              <span className="plot-title">{mode === 'spectrogram' ? 'spectrogram (time →, frequency ↑)' : 'spectrum (dB)'}</span>
-              <canvas ref={specRef} />
+              <span className="plot-title">{mode === 'spectrogram' ? 'spectrogram (time →, frequency ↑)' : 'spectrum (dB) vs frequency'}</span>
+              <canvas ref={specRef} data-testid="spectrum" />
+              {mode === 'spectrum' && (
+                <>
+                  <span className="plot-axis mono" style={{ left: 8 }}>
+                    0
+                  </span>
+                  <span className="plot-axis mono" style={{ right: 8 }} data-testid="spectrum-max">
+                    {fmtF(nyquist)} (Nyquist)
+                  </span>
+                </>
+              )}
             </div>
           </>
         ) : (

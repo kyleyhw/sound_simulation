@@ -547,6 +547,18 @@ input[type='range'] {
   display: flex;
   justify-content: space-between;
 }
+/* The 3D Volume view's sliders reuse the legend panel, but unlike the
+   colour legend (hidden on phones) they must stay reachable. */
+@media (max-width: 560px) {
+  .legend.volume-controls {
+    display: block;
+    width: auto !important;
+    left: 12px;
+    right: 12px;
+    top: 10px;
+    bottom: auto;
+  }
+}
 
 .banner {
   position: absolute;
@@ -684,6 +696,23 @@ input[type='range'] {
   top: 5px;
   left: 8px;
   font-size: 11px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+/* Recording in progress, on the toolbar's Record button. */
+.rec-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.plot .plot-axis {
+  position: absolute;
+  bottom: 3px;
+  font-size: 10.5px;
   color: var(--text-3);
   pointer-events: none;
 }
