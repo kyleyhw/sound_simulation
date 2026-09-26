@@ -379,16 +379,17 @@ the 8-speaker bar, and the U-Net above.
    axis, 2 cells thick) or **Erase**. It is clamped to the area that
    `randomLoopScene` uses (rows 8–74, columns 8–91), away from the bar.
    **Hide the room** hides the truth so the viewer can guess along.
-2. **Listen.** A worker (`echo/echoWorker.ts`) runs the 8 pings. It loads
-   the model and records the empty-room reference once, when the page
-   opens. It streams the live pressure field of the current ping, and the
-   page shows "Ping k of 8". A Listen takes about 3 s (2.9–3.2 s in
-   headless Chromium in the cloud container).
+2. **Listen.** The worker computes; the page plays the result back at a
+   readable pace (below). The room canvas becomes the player, and the
+   picture panel sits top right (on a phone, under the player, beside its
+   note).
 3. **What the echoes show:** the back-projection energy image, with its
    brightest-blob estimate outlined, and its IoU.
 4. **What the network reconstructs:** the U-Net probability map, with the
    thresholded estimate outlined, and its IoU. Both maps sit next to the
    true room, with a toggle for the true outline and a one-line verdict.
+   These panels appear when the playback reaches the network's guess (or
+   is skipped to it).
 
 A room outside the training family gets an honest note. This covers
 non-rectangular objects, objects larger than 12 × 36 cells, and more than
@@ -396,12 +397,104 @@ six pieces. The note reads: "It was trained on boxes and walls, so it
 draws boxes." Details sit in a collapsed "How it works" section, which
 links to the report.
 
+**Compute.** A worker (`echo/echoWorker.ts`) loads the model once. Each
+Listen runs every ping in the room and in the empty room side by side
+(`listenSweep`). The engine is linear, so room − empty is the scattered
+field: only the sound that bounced off something. The recordings are
+exactly the loop's `pingRecordings` (unit-tested). As each ping finishes,
+the worker posts, with its buffers transferred:
+
+- the scattered field every 2nd step over the frame window, gamma-coded
+  to 8 bits (`round(127 sign(v) sqrt(|v| / S))`, S the frame's peak);
+- the echo-only recordings (room − empty) of the eight microphones;
+- the back-projection of that ping alone and of the pings so far.
+  Both are the loop's `migrationImages` with the other pings given a
+  zero residual. With all pings, the cumulative images are
+  `migrationImages` bit for bit, so no imaging code is duplicated.
+
+The frame window runs from just before the click to one pulse period
+after the first-order echo of the farthest obstacle cell has reached every
+microphone (`echoWindow`); later steps hold only weak multiple bounces.
+After the last ping the worker runs back-projection and the U-Net on the
+final images. The empty room is now simulated with every Listen, so a
+Listen costs about twice the old one. Measured in Node on the shared
+4-core container under load (the five examples):
+
+- the first ping is ready after 0.5–0.75 s;
+- all eight, with their pictures, after 4.7–5.2 s, of which the pictures
+  take about 0.4 s;
+- the U-Net takes about 0.6 s more.
+
+The playback needs ping 2 only at 4.1 s, so it normally never waits.
+Each ping keeps 130–190 frames of 10 kB, 11–15 MB per Listen on the page.
+The worker keeps only the recordings, under 1 MB.
+
+**Playback** (`echo/Player.tsx`, schedule in `echo/timeline.ts`). It
+starts as soon as the first ping arrives and never depends on compute
+speed. If it catches up with the worker, it holds ("Still listening…")
+and a lighter band on the scrubber shows what has been computed. At 1×:
+
+| segment | stage | seconds |
+| --- | --- | --- |
+| ping 1 | 1 Clicks and echoes | 3.2 |
+| trace 1 | 2 Tracing echoes back | 0.9 |
+| pings 2–8 | 1 | 1.0, 0.7, then 0.45 each |
+| traces 2–8 | 2 | 0.4, 0.3, then 0.25 each |
+| guess | 3 The network's guess | 1.6 |
+
+In total that is 11.6 s. A step indicator names the stage.
+
+- **Stage 1.** The scattered field is drawn on a symmetric colour
+  scale. The display value is `sign(v) (|v| / P)^0.8`, with P the
+  frame's peak or the earlier peak decaying with a 100-frame half-life,
+  whichever is larger, never below 0.3 × the ping's peak
+  (`displayScales`). Faint returning echoes stay visible, and the late
+  multiple bounces stay dim. The click itself is a thin dashed ring of
+  radius c(t − delay) around the speaker. Walls are drawn in grey unless
+  the room is hidden. Each microphone gets a halo while an echo arrives.
+  Under the room, the echo timeline shows the eight echo-only recordings
+  (amplitude `|r / R|^0.6`, the clicking speaker's own trace in red) with
+  a playhead. The echoes arriving there line up with the rings reaching
+  the bar.
+- **Stage 2.** After each ping, that ping's own arcs flash in cyan on the
+  picture panel. The cumulative back-projection then fades in, shown
+  against `sqrt(n / (k + 1))` × its own peak, so the picture fills in and
+  sharpens ping by ping.
+- **Stage 3.** The U-Net map fades in over the picture with the guess
+  outlined (and the true outline, dashed, unless hidden). The room canvas
+  shows the guess over the room, and the IoU verdict appears with a link
+  to the three result panels.
+
+Controls: play/pause (replay at the end), a scrubber, speed 0.5×/1×/2×,
+and **Skip to the answer**. Under `prefers-reduced-motion` nothing plays
+by itself: once computed, the page shows the end state as a static
+summary, and Play is still offered. Drawing runs in
+`requestAnimationFrame` straight into the canvases. The 100 × 100 layer
+is scaled up smoothly under vector walls and outlines, and the picture is
+redrawn only when it changes. React re-renders only on segment and state
+changes.
+
+**Other devices.** The device is data (`echo/device.ts`): speaker and
+microphone positions, and emissions (the speakers that fire together,
+each with its waveform). The sweep, the frame window, the schedule and the
+player read everything from it. A two-speaker device with simultaneous
+coded emissions needs a new `Device` in `DEVICES` and, for the picture,
+its own imaging branch in the worker. The bar's picture is the loop's
+migration, which assumes speakers = microphones.
+
 Code:
 
 - `echo/room.ts`: the room model, drag, clamp, paint and the family check.
-- `echo/sense.ts`: `recordPings` is `pingRecordings` with a per-step frame
-  hook. `analyseEchoes` is the rest of `senseRoom`.
-- `echo/draw.ts`: the canvas panels and the cell-edge outlines.
+- `echo/device.ts`: the device description (`barDevice`, `DEVICES`).
+- `echo/sense.ts`: `listenSweep`, frame coding (`encodeFrame`,
+  `decodeValue`), `echoWindow`, `partialImages` / `cumulativeImages` /
+  `singleImages`, and `analyseImages` (the rest of `senseRoom`).
+  `recordPings` (`pingRecordings` with a per-step hook) and
+  `analyseEchoes` remain for the tests.
+- `echo/timeline.ts`: the schedule, `locate`, `availableSeconds`,
+  `displayScales`.
+- `echo/Player.tsx` and `echo/playerDraw.ts`: the player and its canvas
+  drawing. `echo/draw.ts`: the static panels and the cell-edge outlines.
 - `pages/EchoVision.tsx` and `echo/echo.css`: the page.
 
 Tests:
@@ -410,9 +503,24 @@ Tests:
   the family check. It checks that `recordPings` equals `pingRecordings`
   exactly, and that the network beats back-projection on the door
   example.
-- `tests/e2e/echo.spec.ts` covers the listen flow and the IoU display,
-  drawing, hiding and the out-of-family note, and the absence of
-  horizontal overflow at 390 px.
+- `tests/unit/echoPlayback.test.ts` covers the following:
+  - the bar device;
+  - `listenSweep` equals `pingRecordings` exactly, room and empty room;
+  - a decoded frame equals an independently stepped room − empty field,
+    and is exactly zero before the click reaches an obstacle;
+  - the frame window and the 8-bit coding error;
+  - the per-ping coherent images sum to the full image, and the last
+    cumulative image equals `migrationImages`;
+  - the schedule (8–12 s, first ping slowest), `locate`,
+    `availableSeconds` and `displayScales`.
+- `tests/e2e/echo.spec.ts` covers the following:
+  - the three stages in order, with the results held back until stage 3,
+    the IoU display and no main-thread task over 200 ms during playback;
+  - play, pause, speed, scrub, skip and replay;
+  - drawing, hiding and the out-of-family note;
+  - the reduced-motion summary;
+  - at 390 px: no horizontal overflow, the controls on one row within the
+    screen, and no long tasks.
 
 ## 5c. WebGPU engine (plan 10.1, 10.2)
 

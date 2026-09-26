@@ -1,54 +1,75 @@
 /// <reference lib="webworker" />
 /**
- * Echo vision worker: loads the loop's U-Net and records the empty-room
- * reference once, then runs each Listen (8 pings, migration, back-projection
- * and the network) off the main thread, streaming field frames as it goes.
+ * Echo vision worker: loads the loop's U-Net once, then runs each Listen off
+ * the main thread. Each emission is simulated in the room and in the empty
+ * room side by side (sense.ts listenSweep); as soon as one is done the
+ * worker posts its scattered-field frames, its echo-only recordings and the
+ * back-projected picture so far, so the page can start playing while the
+ * rest is computed. The frame buffers are transferred, so the worker keeps
+ * only the recordings (a few hundred kB).
  */
-import { pingRecordings } from '../loop/closedLoop';
+import { Simulation } from '../engine/simulation';
 import { LoopUNet } from '../loop/learnedSensing';
-import { N } from './room';
-import { analyseEchoes, echoSetup, type EchoResult, F0, geometry, recordPings } from './sense';
+import { DEVICES, type DeviceId } from './device';
+import { analyseImages, cumulativeImages, type EchoResult, echoSetup, echoWindow, type FrameWindow, geometry, listenSweep, residuals, singleImages } from './sense';
 
-export type EchoRequest = { type: 'listen'; id: number; materials: Uint8Array };
+export type EchoRequest = { type: 'listen'; id: number; materials: Uint8Array; device?: DeviceId };
+
+/** One ping, ready to play. */
+export interface PingData {
+  ping: number;
+  /** Gamma-coded scattered-field frames over the window (see sense.ts encodeFrame). */
+  frames: Int8Array;
+  scales: Float32Array;
+  /** Echo-only recordings, mic by mic (mics x steps). */
+  residual: Float32Array;
+  /** Back-projected energy of this ping alone, and of pings 0..ping. */
+  single: Float32Array;
+  cumulative: Float32Array;
+}
+
 export type EchoReply =
   | { type: 'ready' }
-  | { type: 'frame'; id: number; ping: number; pings: number; step: number; steps: number; field: Float32Array }
-  | { type: 'analysing'; id: number }
+  | { type: 'start'; id: number; device: DeviceId; pings: number; steps: number; dt: number; window: FrameWindow }
+  | { type: 'ping'; id: number; data: PingData }
   | { type: 'result'; id: number; ms: number; result: EchoResult }
   | { type: 'error'; id?: number; message: string };
 
 const post = (m: EchoReply, transfer: Transferable[] = []) => self.postMessage(m, transfer);
-const { array, steps } = echoSetup();
+const { params, steps } = echoSetup();
+const dt = new Simulation(params).dt;
 
-const ready = (async () => {
-  const model = await LoopUNet.load(`${import.meta.env.BASE_URL}models/loop_unet`);
-  const recEmpty = pingRecordings(geometry(new Uint8Array(N * N)), array, F0, steps);
-  return { model, recEmpty };
-})();
+const ready = LoopUNet.load(`${import.meta.env.BASE_URL}models/loop_unet`);
 ready.then(
   () => post({ type: 'ready' }),
   (err: Error) => post({ type: 'error', message: `could not load the model: ${err.message}` }),
 );
 
-/** At most one field frame per this many ms (the page draws the latest one). */
-const FRAME_MS = 30;
-
 self.onmessage = async (e: MessageEvent<EchoRequest>) => {
   const { id, materials } = e.data;
+  const deviceId: DeviceId = e.data.device ?? 'bar';
   try {
-    const { model, recEmpty } = await ready;
+    const model = await ready;
     const t0 = performance.now();
+    const device = DEVICES[deviceId]();
     const truth = geometry(materials);
-    let last = -Infinity;
-    const recRoom = recordPings(truth, array, F0, steps, (ping, step, p) => {
-      const now = performance.now();
-      if (now - last < FRAME_MS && step !== steps - 1) return;
-      last = now;
-      const field = p.slice();
-      post({ type: 'frame', id, ping, pings: array.length, step, steps, field }, [field.buffer]);
+    const win = echoWindow(materials, device, params, steps);
+    post({ type: 'start', id, device: deviceId, pings: device.emissions.length, steps, dt, window: win });
+    // The bar's picture: the loop's coherent migration (speakers are the mics).
+    const array = device.speakers;
+    const rr: Float32Array[][] = [];
+    const re: Float32Array[][] = [];
+    let last = null as ReturnType<typeof cumulativeImages> | null;
+    listenSweep(truth, device, steps, win, (r) => {
+      rr[r.emission] = r.recRoom;
+      re[r.emission] = r.recEmpty;
+      last = cumulativeImages(rr, re, array, params, device.f0, r.emission);
+      const single = singleImages(rr, re, array, params, device.f0, r.emission).image;
+      const data: PingData = { ping: r.emission, frames: r.frames, scales: r.scales, residual: residuals(r.recRoom, r.recEmpty), single, cumulative: last.image };
+      post({ type: 'ping', id, data }, [data.frames.buffer, data.scales.buffer, data.residual.buffer, data.single.buffer]);
     });
-    post({ type: 'analysing', id });
-    const result = analyseEchoes(recRoom, recEmpty, array, truth, model);
+    // With every ping included, the cumulative images are the loop's migration images.
+    const result = analyseImages(last!, array, truth, model);
     post({ type: 'result', id, ms: performance.now() - t0, result });
   } catch (err) {
     post({ type: 'error', id, message: (err as Error).message });

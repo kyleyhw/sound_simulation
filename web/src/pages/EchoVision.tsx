@@ -1,17 +1,20 @@
 /**
  * Echo vision (#/echo): a toy page for "machine learning reconstructs a room
  * from its echoes". The closed loop's sensing (8-speaker bar, CPML room,
- * coherent migration images) runs in a worker (echo/echoWorker.ts); the
- * loop's U-Net turns the images into an obstacle map, shown next to the raw
- * back-projection image and the true room. See docs/web_app.md §5b (Echo vision page).
+ * coherent migration images) runs in a worker (echo/echoWorker.ts), which
+ * streams each ping; echo/Player.tsx plays them back at a readable pace
+ * (clicks and echoes, tracing echoes back, the network's guess). The loop's
+ * U-Net map is then shown next to the raw back-projection image and the
+ * true room. See docs/web_app.md §5b (Echo vision page).
  */
 
 import { Ear, Eraser, Eye, EyeOff, Hand, Minus, Shuffle, Square, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { barDevice } from '../echo/device';
 import type { EchoReply, EchoRequest } from '../echo/echoWorker';
 import { drawPanel, ESTIMATE_COLOR, type Layer, type Overlay, TRUTH_COLOR } from '../echo/draw';
+import { EchoPlayer, type PlayerProgress, type Run } from '../echo/Player';
 import { AREA, type CellRect, dragRect, EXAMPLES, familyCheck, N, paintRect, pointToCell, randomRoom, RIGID, type Tool } from '../echo/room';
-import { echoSetup, type EchoResult } from '../echo/sense';
 import { nearArray } from '../loop/closedLoop';
 import { useApp } from '../state/store';
 import '../echo/echo.css';
@@ -49,9 +52,15 @@ function pct(v: number) {
   return `${Math.round(100 * v)}\u00a0%`;
 }
 
+/** Whether the viewer asked for reduced motion (read once per page view). */
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
 export default function EchoVision() {
-  const setup = useMemo(() => echoSetup(), []);
+  const device = useMemo(() => barDevice(), []);
   const theme = useApp((s) => s.theme);
+  const reduced = useMemo(prefersReducedMotion, []);
   const [room, setRoom] = useState<Uint8Array>(() => EXAMPLES[0].build());
   const [source, setSource] = useState<string>(EXAMPLES[0].id); // example id, 'random:<seed>' or 'custom'
   const [tool, setTool] = useState<Tool>('look');
@@ -59,21 +68,21 @@ export default function EchoVision() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ ping: number; pings: number; frac: number } | null>(null);
-  const [out, setOut] = useState<{ result: EchoResult; ms: number; room: Uint8Array } | null>(null);
+  // The Listen in progress or played: filled in place by the worker's messages; `version` counts them.
+  const [run, setRun] = useState<Run | null>(null);
+  const [version, setVersion] = useState(0);
   const [showTruth, setShowTruth] = useState(true);
   const [drag, setDrag] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const workerRef = useRef<Worker | null>(null);
-  const idRef = useRef(0);
+  const runRef = useRef<Run | null>(null);
   const roomCanvas = useRef<HTMLCanvasElement>(null);
-  const frameRef = useRef<{ field: Float32Array; ping: number } | null>(null);
-  const peakRef = useRef(1e-9);
+  const stageRef = useRef<HTMLElement>(null);
   const resultsRef = useRef<HTMLElement>(null);
-  const sentRoom = useRef<Uint8Array | null>(null); // the room of the run in flight
-  const nearField = useMemo(() => nearArray(setup.array, N, N, 6), [setup]);
+  const nearField = useMemo(() => nearArray(device.mics, N, N, 6), [device]);
 
   const busy = phase === 'listening' || phase === 'analysing';
   const empty = !room.some((v) => v);
+  const out = phase === 'done' && run?.result ? run : null;
 
   // ---- the worker ------------------------------------------------------
   useEffect(() => {
@@ -91,19 +100,15 @@ export default function EchoVision() {
         setPhase('error');
         return;
       }
-      if (m.id !== idRef.current) return; // a stale run
-      if (m.type === 'frame') {
-        if (frameRef.current?.ping !== m.ping) peakRef.current = 1e-9;
-        frameRef.current = { field: m.field, ping: m.ping };
-        setProgress({ ping: m.ping, pings: m.pings, frac: (m.ping + (m.step + 1) / m.steps) / m.pings });
-      } else if (m.type === 'analysing') {
-        setPhase('analysing');
-      } else if (m.type === 'result') {
-        frameRef.current = null;
-        setOut({ result: m.result, ms: m.ms, room: sentRoom.current ?? new Uint8Array(N * N) });
-        setPhase('done');
-        setProgress(null);
+      const r = runRef.current;
+      if (!r || m.id !== r.id) return; // a stale run
+      if (m.type === 'start') r.start = { pings: m.pings, steps: m.steps, dt: m.dt, window: m.window };
+      else if (m.type === 'ping') r.pings[m.data.ping] = m.data;
+      else if (m.type === 'result') {
+        r.result = m.result;
+        r.ms = m.ms;
       }
+      setVersion((v) => v + 1);
     };
     return () => w.terminate();
   }, []);
@@ -111,31 +116,43 @@ export default function EchoVision() {
   const listen = () => {
     const w = workerRef.current;
     if (!w || busy || empty) return;
-    const id = ++idRef.current;
+    const id = (runRef.current?.id ?? 0) + 1;
     const materials = room.slice();
-    sentRoom.current = materials.slice();
-    frameRef.current = null;
-    setOut(null);
+    const r: Run = { id, device, room: materials.slice(), start: null, pings: [], result: null, ms: 0 };
+    runRef.current = r;
+    setRun(r);
     setError(null);
-    setProgress({ ping: 0, pings: setup.array.length, frac: 0 });
     setPhase('listening');
     setTool('look');
-    w.postMessage({ type: 'listen', id, materials } satisfies EchoRequest);
+    w.postMessage({ type: 'listen', id, materials, device: 'bar' } satisfies EchoRequest);
   };
 
-  // Bring the answer into view once it arrives (phones: it is below the fold).
+  // The player drives the phase: listening while the pings play, analysing while it
+  // waits for the network, done once the network's guess is on screen.
+  const onProgress = useCallback((p: PlayerProgress) => {
+    const r = runRef.current;
+    if (p.kind === 'guess' && r?.result) setPhase('done');
+    else setPhase((ph) => (ph === 'done' || ph === 'error' ? ph : p.waiting && r && r.start && r.pings.length >= r.start.pings ? 'analysing' : 'listening'));
+  }, []);
+
+  // Bring the player into view when a Listen starts (phones: the room is below the controls).
   useEffect(() => {
-    if (phase !== 'done') return;
-    const el = resultsRef.current;
-    if (el && el.getBoundingClientRect().top > window.innerHeight * 0.6) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [phase]);
+    if (!run) return;
+    const el = stageRef.current;
+    const r = el?.getBoundingClientRect();
+    if (el && r && (r.top < 0 || r.bottom > window.innerHeight)) el.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
+  }, [run, reduced]);
+  const showResults = () => resultsRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' });
 
   // ---- editing ---------------------------------------------------------
   const changeRoom = (m: Uint8Array, src: string) => {
     setRoom(m);
     setSource(src);
-    setOut(null);
-    if (phase === 'done') setPhase('idle');
+    if (!busy) {
+      runRef.current = null;
+      setRun(null);
+      if (phase === 'done') setPhase('idle');
+    }
   };
   const newRandom = () => {
     const seed = 1 + Math.floor(Math.random() * 99_999);
@@ -168,30 +185,21 @@ export default function EchoVision() {
     return rect ? { rect, erase: tool === 'erase' } : null;
   }, [drag, tool]);
 
-  // ---- the room canvas (room view, or the live field while listening) ----
+  // ---- the room canvas (when no Listen is on screen) -------------------
   const drawRoom = useCallback(() => {
     const cv = roomCanvas.current;
     if (!cv) return;
-    const f = frameRef.current;
-    const walls = hidden ? null : room;
-    if (f) {
-      let m = 0;
-      for (let q = 0; q < f.field.length; q++) if (!nearField[q]) m = Math.max(m, Math.abs(f.field[q]));
-      peakRef.current = Math.max(m, peakRef.current * 0.9);
-      drawPanel(cv, N, { kind: 'field', values: f.field, walls, colormap: theme === 'light' ? 'balance' : 'icefire', scale: peakRef.current }, { array: setup.array, active: f.ping });
-    } else {
-      drawPanel(cv, N, { kind: 'room', walls }, { array: setup.array, area: busy || hidden ? null : AREA, preview });
-    }
-  }, [room, hidden, theme, preview, busy, setup, nearField]);
+    drawPanel(cv, N, { kind: 'room', walls: hidden ? null : room }, { array: device.speakers, area: hidden ? null : AREA, preview });
+  }, [room, hidden, preview, device]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(drawRoom);
     return () => cancelAnimationFrame(raf);
-  }, [drawRoom, progress]);
+  }, [drawRoom, theme, run]);
 
   // ---- results ---------------------------------------------------------
   const view = useMemo(() => {
-    if (!out) return null;
+    if (!out?.result) return null;
     const { result } = out;
     // The echo image as amplitude, normalised away from the bar's near field (as back-projection does).
     let max = 0;
@@ -203,7 +211,7 @@ export default function EchoVision() {
 
   const truthOutline = out && showTruth && !hidden ? [{ mask: out.room, color: TRUTH_COLOR, dash: true }] : [];
   const layers = useMemo(() => {
-    if (!out || !view) return null;
+    if (!out?.result || !view) return null;
     return {
       truth: { kind: 'room', walls: out.room } as Layer,
       echo: { kind: 'map', values: view.echo, colormap: 'magma' } as Layer,
@@ -211,30 +219,22 @@ export default function EchoVision() {
     };
   }, [out, view]);
   const overlays = useMemo(() => {
-    if (!out) return null;
+    if (!out?.result) return null;
     return {
-      truth: { array: setup.array } as Overlay,
-      echo: { array: setup.array, outlines: [...truthOutline, { mask: out.result.backprojection, color: ESTIMATE_COLOR }] } as Overlay,
-      net: { array: setup.array, outlines: [...truthOutline, { mask: out.result.learned, color: ESTIMATE_COLOR }] } as Overlay,
+      truth: { array: device.speakers } as Overlay,
+      echo: { array: device.speakers, outlines: [...truthOutline, { mask: out.result.backprojection, color: ESTIMATE_COLOR }] } as Overlay,
+      net: { array: device.speakers, outlines: [...truthOutline, { mask: out.result.learned, color: ESTIMATE_COLOR }] } as Overlay,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [out, showTruth, hidden, setup]);
+  }, [out, showTruth, hidden, device]);
 
   const exampleLabel = EXAMPLES.find((e) => e.id === source)?.label;
   const roomCaption = source.startsWith('random:') ? `Random room #${source.slice(7)}` : source === 'custom' ? 'Your room' : exampleLabel;
 
   let status: React.ReactNode = null;
-  if (phase === 'loading' && !busy) status = <span className="dim">Loading the network…</span>;
-  if (phase === 'listening')
-    status = progress && ready ? (
-      <span>
-        Ping <b>{progress.ping + 1}</b> of {progress.pings}: speaker {progress.ping + 1} clicks, all eight record.
-      </span>
-    ) : (
-      <span className="dim">Getting ready…</span>
-    );
-  if (phase === 'analysing') status = <span>Turning the echoes into images, then running the network…</span>;
-  if (phase === 'done' && out) status = <span className="dim">Done in {(out.ms / 1000).toFixed(1)} s, in this browser.</span>;
+  if (phase === 'loading') status = <span className="dim">Loading the network…</span>;
+  if (busy) status = <span className="dim">{ready ? 'Listening…' : 'Getting ready…'}</span>;
+  if (phase === 'done' && out) status = <span className="dim">Computed in {(out.ms / 1000).toFixed(1)} s in this browser, then played back slowly.</span>;
   if (phase === 'error') status = <span className="warn">Something went wrong: {error}</span>;
 
   return (
@@ -244,7 +244,7 @@ export default function EchoVision() {
         Eight speakers click one at a time and listen to the echoes. A small neural network turns those echoes into a map of the room it cannot see.
       </p>
 
-      <section className="echo-top">
+      <section className={`echo-top${run ? ' has-player' : ''}`}>
         <div className="echo-s1">
           <h2 className="echo-step">
             <span className="echo-num">1</span> The room
@@ -279,7 +279,17 @@ export default function EchoVision() {
             <span className="label">Draw</span>
             <div className="seg" role="group" aria-label="Drawing tool">
               {TOOLS.map((t) => (
-                <button key={t.id} aria-pressed={tool === t.id} onClick={() => setTool(t.id)} title={t.hint} disabled={busy || hidden} data-testid={`echo-tool-${t.id}`}>
+                <button
+                  key={t.id}
+                  aria-pressed={tool === t.id}
+                  onClick={() => {
+                    setTool(t.id);
+                    if (t.id !== 'look' && !busy) changeRoom(room, source);
+                  }}
+                  title={t.hint}
+                  disabled={busy || hidden}
+                  data-testid={`echo-tool-${t.id}`}
+                >
                   {t.icon} {t.label}
                 </button>
               ))}
@@ -287,29 +297,44 @@ export default function EchoVision() {
           </div>
         </div>
 
-        <figure className="echo-stage">
-          <div className="echo-canvas-wrap">
-            <canvas
-              ref={roomCanvas}
-              className={`echo-canvas${canDraw ? ' drawing' : ''}`}
-              data-testid="echo-room"
-              role="img"
-              aria-label={busy ? 'live pressure field of the current ping' : 'the room'}
-              onPointerDown={onDown}
-              onPointerMove={onMove}
-              onPointerUp={onUp}
-              onPointerCancel={() => setDrag(null)}
-            />
-            {hidden && !busy && (
-              <div className="echo-hidden-badge" aria-hidden>
-                ?<span>The room is hidden. Listen, and guess along.</span>
-              </div>
-            )}
-          </div>
-          <figcaption className="dim echo-cap">
-            {busy ? 'The sound field of the current ping (red and blue: pressure above and below rest).' : `${roomCaption}. ${canDraw ? 'Drag on the room to draw; the dashed box is where objects may go.' : ''}`}
-          </figcaption>
-        </figure>
+        {run ? (
+          <EchoPlayer
+            key={run.id}
+            ref={stageRef}
+            run={run}
+            version={version}
+            hidden={hidden}
+            showTruth={showTruth}
+            theme={theme}
+            reduced={reduced}
+            onProgress={onProgress}
+            onShowResults={showResults}
+          />
+        ) : (
+          <figure className="echo-stage" ref={stageRef}>
+            <div className="echo-canvas-wrap">
+              <canvas
+                ref={roomCanvas}
+                className={`echo-canvas${canDraw ? ' drawing' : ''}`}
+                data-testid="echo-room"
+                role="img"
+                aria-label="the room"
+                onPointerDown={onDown}
+                onPointerMove={onMove}
+                onPointerUp={onUp}
+                onPointerCancel={() => setDrag(null)}
+              />
+              {hidden && (
+                <div className="echo-hidden-badge" aria-hidden>
+                  ?<span>The room is hidden. Listen, and guess along.</span>
+                </div>
+              )}
+            </div>
+            <figcaption className="dim echo-cap">
+              {roomCaption}. {canDraw ? 'Drag on the room to draw; the dashed box is where objects may go.' : ''}
+            </figcaption>
+          </figure>
+        )}
 
         <div className="echo-s2">
           <h2 className="echo-step">
@@ -317,21 +342,16 @@ export default function EchoVision() {
           </h2>
           <p className="muted echo-say">Each speaker clicks in turn; all eight record what comes back.</p>
           <button className="btn primary echo-listen" onClick={listen} disabled={busy || empty} data-testid="echo-listen">
-            <Ear size={18} /> {busy ? 'Listening…' : phase === 'done' ? 'Listen again' : 'Listen'}
+            <Ear size={18} /> {busy ? 'Listening…' : run ? 'Listen again' : 'Listen'}
           </button>
           {empty && !busy && <p className="hint dim">The room is empty. Add something to it first.</p>}
-          <div className="echo-status" data-testid="echo-progress" aria-live="polite">
+          <div className="echo-status" data-testid="echo-status" aria-live="polite">
             {status}
           </div>
-          {busy && (
-            <div className="echo-bar" aria-hidden>
-              <div style={{ width: `${Math.round(100 * (phase === 'analysing' ? 1 : (progress?.frac ?? 0)))}%` }} />
-            </div>
-          )}
         </div>
       </section>
 
-      {out && layers && overlays && view && (
+      {out?.result && layers && overlays && view && (
         <section
           ref={resultsRef}
           className="echo-results"
