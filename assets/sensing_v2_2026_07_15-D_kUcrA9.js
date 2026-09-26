@@ -1,0 +1,166 @@
+var e=`# Sensing v2 (Task 2.3, a–e) — 2026-07-15
+
+Build, training, and evaluation report for the five sensing-quality
+improvements motivated by the demo-8 diagnosis: (a) inter-channel
+phase channels, (b) chirp band to the physical limit + longer
+recording, (c) shape-diverse rooms, (d) multi-scale skip decoder,
+(e) calibrated fusion with a validated operating point. Design details
+in \`docs/learning.md\` §8.
+
+**Headline: held-out IoU 0.100 at K=4** (calibrated Bayes fusion at
+the val-selected threshold τ=0.12) — the project best, +7 % over the
+v1 recipe evaluated on the same archive (0.094), and equal to the
+oracle-threshold ceiling without test-set leakage.
+
+## What was done
+
+1. **Dataset v2** (\`--room-style mixed\`, $f_{\\mathrm{end}} = 0.45$,
+   400-step recording): 10k rooms × 4 poses train (seed 271828,
+   7.0 % mean occupancy), 500 × 8 held-out (seed 161803). One
+   correction to the plan as stated: the chirp ceiling is the
+   *spatial* Nyquist $f_{\\max} = c/2\\Delta x = 0.5$, not the temporal
+   1.0 originally quoted — $f_{\\mathrm{end}} = 0.45$ (λ ≈ 2.2 cells)
+   is near the physical maximum, and the doubled window (~3 domain
+   crossings) is where the additional information actually comes from.
+2. **\`SkipSensingCNN\`** (798,641 params): GCC-PHAT phase channels +
+   three-scale pose-pooled encoder + skip decoder; trained 60 epochs
+   on v2 (60 not 100 because every historical run peaked by epoch ~50;
+   this one peaked at epoch 39 with val IoU 0.0641 — vs 0.0464 for
+   the best v1 model — then slid to 0.047 by epoch 60).
+3. **Calibration** (\`fit_calibration.py\` on the 1000-room validation
+   split, 300 rooms fitted): T = 4.65, b = −1.80 — the raw model is
+   ~4.7× overconfident — plus the val-selected IoU-optimal decision
+   threshold τ = 0.12 (val fused IoU 0.105 at K=4).
+
+## Why
+
+Each component targets a specific measured deficiency: discarded TDOA
+phase (a), wavelength-limited resolution (b), distribution brittleness
+on non-rectangular rooms (c), the single-8×8-latent information
+bottleneck (d), and K-fold amplification of miscalibration in the
+product rule (e).
+
+## Results — v2 held-out (500 shape-diverse rooms)
+
+| recipe | K=1 | K=2 | K=4 | K=8 |
+| --- | --- | --- | --- | --- |
+| v1 joint, Bayes @ 0.5 (transfer baseline) | 0.052 | 0.071 | 0.085 | 0.094 |
+| skip_v2, Bayes @ 0.5 (raw) | 0.054 | 0.069 | 0.087 | 0.090 |
+| **skip_v2, calibrated Bayes @ τ=0.12** | 0.066 | 0.092 | **0.100** | 0.100 |
+| skip_v2, native joint forward @ 0.5 | 0.054 | 0.061 | 0.073 | 0.073 |
+| oracle-threshold ceiling: skip_v2 | 0.093 | 0.097 | 0.100 | 0.100 |
+| oracle-threshold ceiling: v1 joint | 0.093 | 0.094 | 0.094 | 0.096 |
+
+Reading the table: the calibrated operating point (row 3) captures the
+oracle ceiling (row 5) at K ≥ 4 with no leakage — threshold selected
+on validation only. The new model's ceiling exceeds v1's at every
+K ≥ 2; fusion saturates at K ≈ 4 in the calibrated view.
+
+## The threshold finding (affects interpretation of all prior reports)
+
+Sweeping decision thresholds per K exposed that **the fixed 0.5
+threshold did hidden work in every earlier multi-pose result**: at
+per-K oracle thresholds, even a single pose reaches ~0.093, so most of
+the published "0.038 → 0.092, 2.4×" fusion gain was the fused map's
+scale shifting relative to a fixed threshold as K grew — an effective
+threshold-annealing, not information. Genuine evidence accumulation is
+≈ +8 % (0.093 → 0.100). Fusion still helps, and pose-diverse training
+still helps (the K=1 columns above), but the magnitude previously
+attributed to fusion was inflated by the metric's operating point.
+
+Mathematical note that makes this crisp: scalar calibration
+$\\ell' = \\ell/T + b$ turns the fused logit into an affine monotone
+function of the raw fused logit at fixed K, so (e) cannot change any
+ranking-based metric — its IoU contribution is exactly the choice of
+operating point, and its other product is honest probabilities (the
+saturated all-yellow demo maps are gone; compare the committed demo
+figures).
+
+Consequences applied: \`calibration.json\` stores {T, b, prior,
+threshold}; \`sensing.py\`, the web UI bridge, and \`eval_multipose.py
+--calibration auto\` all score and display at the stored operating
+point; comparisons against historical IoU@0.5 numbers remain possible
+via \`--calibration none\`.
+
+## Ablation attribution (completed 2026-07-17)
+
+Three comparisons pin down where the improvement comes from. All
+numbers are v2 held-out, calibrated Bayes fusion at each model's own
+val-selected operating point (oracle-threshold values for the v1
+zero-shot model, whose calibration was not fitted):
+
+| model | trained on | val IoU (native) | fused K=4 | fused K=8 |
+| --- | --- | --- | --- | --- |
+| v1 joint (zero-shot transfer) | v1 data | 0.046 | 0.094 | 0.096 |
+| joint_v2 (v1 arch) | v2 data | 0.046 | 0.099 | **0.101** |
+| skip_v2 (a+d arch) | v2 data | **0.064** | **0.100** | 0.100 |
+
+Attribution, reading down the columns:
+
+1. **(e) calibration + operating point is the largest single lever**
+   (≈ +6 % over fixed-0.5 scoring) and — the surprise — it *equalises
+   the architectures*: joint_v2 and skip_v2 land on the same fused
+   ceiling (0.100 ± 0.001) despite skip_v2's clearly better raw
+   confidence structure (native val IoU 0.064 vs 0.046; T = 4.65 vs
+   4.01). What (a)+(d) improved, explicit calibration recovers for
+   the old architecture too.
+2. **(b+c) data/protocol contribute ≈ +5 %** (0.096 → 0.101 at K=8,
+   same architecture) — the longer recording window, wider band, and
+   shape-diverse rooms carry real additional information.
+3. **(a+d) contribute ≈ 0 at the calibrated ceiling.** The mic-swap
+   gate proves the phase channels reach the network, and they do
+   improve uncalibrated maps (raw @ 0.5, low K) and single-pose
+   quality (calibrated K=1: 0.066 vs 0.060) — but the fused ceiling
+   is unmoved.
+
+The convergence of two structurally different architectures onto the
+same ≈ 0.10 plateau is itself evidence that this is the **information
+ceiling of the task configuration** (2 mics, 64² grid, λ ≥ 2.2-cell
+band, K ≤ 8 poses) rather than a modelling shortfall — consistent
+with the diffraction-limit analysis that motivated (b). Raising it
+further means changing the physics of the acquisition (finer grids /
+higher relative bandwidth, more poses, more channels), not the
+network.
+
+Default checkpoint: \`skip_v2\` stays the default (marginally better at
+the low-K regime the demos operate in); \`joint_v2\` is the equivalent
+232k-parameter alternative where inference cost matters.
+
+joint_v2 runtime: 60 epochs ≈ 116 s/epoch ≈ 1.9 h of compute (wall
+clock spanned a ~26 h user-requested suspension, which cost nothing:
+the resumed run continued mid-epoch and completed normally —
+incidentally validating suspend/resume of detached training runs).
+
+## Demo refresh
+
+\`scripts/demo_room_mapping.py\` defaults switched to the skip_v2
+checkpoint and the shape-diverse room family; the default seed was
+re-swept against the new model (24 rooms: mean 0.092 → 0.127 over
+K=1→8, saturating at K≈4; room 20 selected as the representative
+monotone case, 0.203 → 0.256). The web UI's sensing panel reports IoU
+at the calibrated operating point (shown as τ in the caption). All
+seed-selection numbers and the variance caveat are documented in the
+script's help text.
+
+## Test-data rationale
+
+v2 seeds (271828, 161803) are disjoint from every earlier stream; the
+held-out archive uses the same generator as training but a different
+RNG stream, making it a distribution-level generalisation test.
+Calibration and threshold selection used only the training archive's
+validation split. The 24-room demo sweep skipped draws under 2 %
+occupancy (near-empty rooms make IoU degenerate).
+
+## Runtime
+
+| stage | time |
+| --- | --- |
+| v2 dataset generation (10k×4 + 500×8) | 377 s |
+| skip_v2 training (60 epochs, CPU) | 10 092 s (≈ 2.8 h, ~168 s/epoch) |
+| calibration fit + threshold selection | 23 s |
+| held-out evals (calibrated, raw, native, oracle sweep) | ~5 min |
+| demo re-sweep (23 rooms) + regeneration | ~50 s |
+| joint_v2 ablation (paused at ~epoch 40/60) | ~4 600 s so far |
+| **total so far** | **≈ 4.3 h** |
+`;export{e as default};
+//# sourceMappingURL=sensing_v2_2026_07_15-D_kUcrA9.js.map

@@ -1,0 +1,598 @@
+var e=`# Web app (\`web/\`): the Acoustic Sandbox
+
+The browser application replaces the previous Socket.IO UI (\`frontend/\` +
+\`app/main.py\`). The simulator runs **entirely in the browser**, so the app
+is a static site hosted on GitHub Pages (\`.github/workflows/pages.yml\`) with
+no server.
+
+## 1. Why the UI was rebuilt (plan 4.1.1)
+
+Inventory of the previous UI:
+- A single ~1.1k-line \`App.tsx\` with 40+ \`useState\`/\`useRef\` variables.
+- A fixed 600 px canvas.
+- JSON nested-list frames sent over a socket.
+- The Python server was required, so there was no static hosting.
+- The backend audit (\`tests/reports/debug_audit_2026_09_24.md\`) found 12
+  bugs. Three were critical:
+  - one malformed \`update_config\` blocked every new client
+  - one config change could freeze the event loop for 61 s
+  - clients could make the server open arbitrary file paths
+
+Features the old UI had, all kept:
+- 2D and 3D views
+- obstacle brush and eraser
+- driver placement
+- waveform, grid and cadence settings
+- the sensing panel (removed in 2026-09; Echo vision replaces it)
+
+Features it lacked:
+- recordings, spectra and listening
+- dB, RMS and energy-flow views
+- materials and absorbing boundaries
+- undo and redo
+- saving, loading and sharing scenes
+- a history scrubber
+- presets
+- export
+- keyboard shortcuts
+- a responsive layout
+
+## 2. UX specification (4.1.2)
+
+### Site structure (declutter, 2026-09-26)
+
+The first visit used to land in the full sandbox, which was overwhelming.
+The site now has a front door and a short navigation bar.
+
+- **Home (\`#/\`, \`pages/Home.tsx\`).** One-line pitch, a small live
+  simulation (a pulse echoing off a wall, a pillar and a box; it runs only
+  while on screen and holds still under \`prefers-reduced-motion\`), and
+  three entry cards: **Echo vision**, **Sandbox** and **Learn**. A quiet
+  row below links Gallery, Research, Loop, Lab and Docs with one phrase
+  each.
+- **Top navigation (\`components/TopNav.tsx\`).** The logo goes home, then
+  Echo vision, Sandbox, Gallery, Learn and a **More** menu (Research,
+  Loop, Lab, Docs). The menu is a disclosure button with \`role="menu"\`:
+  ArrowDown/ArrowUp open it and move between items, Home/End jump, Escape
+  closes it and returns focus, and an outside click or a route change
+  closes it. Below 760 px the brand text is hidden; below 520 px the theme
+  toggle and the GitHub link move into the menu, so the bar fits in 390 px
+  with nothing hidden and no sideways scrolling.
+- **Routing (\`lib/router.ts\`, \`pageOf\`).** The sandbox lives at
+  \`#/sandbox\`. Old links still work: \`#/?s=…\` and \`#/?preset=…\` open the
+  sandbox with that scene. The app writes \`#/sandbox?s=…\` and
+  \`#/sandbox?preset=…\`. Unknown routes, such as \`#/nope\`,
+  \`#/sandbox/extra\` or a bare \`#anchor\`, show "Page not found" with a link
+  home. Each section opens scrolled to the top (the scroll container is
+  \`.page\`, not the window).
+- **Gallery.** Each card shows a title and one line; the physics note
+  moved to the sandbox's Scene tab ("Why it happens"). Thumbnails are
+  simulated in a Web Worker (\`gallery/thumbWorker.ts\`), one preset at a
+  time in page order and only once a card is near the viewport. The
+  fields are cached for the session (\`gallery/thumbs.ts\`), so a revisit or
+  a theme switch only repaints them with Canvas2D (\`render/paint2d.ts\`).
+  There is no WebGL context per card.
+- **Loop.** A two-sentence intro, then a collapsed "How it works". The
+  controls wrap on a phone, and the results table scrolls inside its own
+  box. The room panels draw the true room as a white outline over the
+  orange estimate fill, so agreement is visible.
+- **Research.** The four write-ups are cards. The reports sit under a
+  collapsed "All reports", newest first, listed by their H1 titles.
+- **Docs.** The sidebar is grouped: **Start here** (overview, current
+  state, the web app, the write-ups), **Guides**, and a collapsed
+  **Developer reference** (module notes such as \`calculate\`, \`data_io\`,
+  \`simulate\`, \`waveforms\`, \`gpu\`) and **Reports**. \`#/docs\` opens the
+  README. On a phone the list folds into an "All documents" button, and
+  choosing a document shows the article at the top.
+
+### Sandbox
+
+Layout. The sandbox route is a four-region grid:
+
+| region | content |
+| --- | --- |
+| left rail | tools: select, brush, eraser, line, rectangle, ellipse, source, microphone |
+| centre stage | run controls, speed, undo/redo, share and export toolbar above the field canvas, with a HUD (step, time, fps, cursor cell) and a colour legend |
+| bottom dock | recording of the selected microphone (scope + spectrogram or spectrum), a Listen button, and the history scrubber |
+| right inspector | tabs: Scene, Sources, Mics, View, Control (arrow keys move between tabs) |
+
+Below 980 px the regions stack vertically (rail as a horizontal strip).
+
+Scene tab. Name, description and "Why it happens" (the preset's physics
+note), the preset picker, Save/Open, the wall-material and sound-speed
+brushes. Grid (2D/3D, rows/cols, units, Courant number) and boundaries
+sit under a collapsed **Advanced** section; its open state is remembered.
+If a Courant number would make the painted c(x) unstable, it is clamped
+to the largest stable value, with a warning toast (bug B23).
+
+The Control tab keeps its long notes behind one-line disclosures. Once
+opened it stays mounted (hidden when another tab is shown), so a measured
+design and its predicted table survive a tab switch (bug B19).
+
+The Sensing tab (the Phase 2 model, which does not beat the no-audio
+baseline) was removed; Echo vision replaces it. Its model and parity
+fixtures stay for \`tests/unit/sensing.test.ts\`.
+
+The first visit shows a slim welcome banner under the field (two short
+lines, "Got it" dismisses it for good). It never covers the canvas.
+
+Main flows:
+1. Open the app → Sandbox, press Space: the default scene runs. A
+   first-run banner explains the basics.
+2. Gallery → pick an experiment → it opens in the sandbox.
+3. Draw walls → place a source → place a microphone → run → listen.
+4. Share: the scene is compressed into the URL (\`#/sandbox?s=…\`).
+
+Other routes:
+- Echo vision: a network rebuilds a room from its echoes (§5b).
+- Learn: interactive explainers.
+- Research: write-ups and reports.
+- Loop: the closed-loop dashboard (§5b).
+- Lab: real-hardware measurement with the laptop's speakers and mics.
+- Docs: every Markdown document in the repository.
+
+## 3. Visual design (4.1.3)
+
+- **Themes:** dark ("instrument") and light, as CSS custom properties on
+  \`:root\` / \`[data-theme=light]\`. The default follows
+  \`prefers-color-scheme\`, and the choice is remembered.
+- **Pressure colormaps** (signed data, diverging): \`icefire\` is
+  dark-centred for the dark theme, \`balance\` is light-centred for the
+  light theme.
+- **Magnitude colormaps** (RMS, dB, spectrograms, sequential): \`magma\`,
+  \`viridis\`.
+- **Walls** are drawn in material-specific neutral colours, so they read
+  as geometry rather than data.
+- **Marker colours:** sources are rose circles, microphones amber
+  triangles.
+
+## 4. Architecture (4.1.4)
+
+\`\`\`
+web/src/
+  engine/   simulation.ts   FDTD engine (TypeScript port of Simulate)
+            waveforms.ts    source waveforms (same formulas as Python)
+            scene.ts        serialisable scene, RLE, share-URL codec
+            presets.ts      gallery experiments
+  state/    store.ts        zustand store: scene, tools, view, undo/redo
+            runtime.ts      live Simulation + rAF loop + frame history
+            editable.ts     in-memory scene form (byte maps)
+  render/   fieldRenderer.ts  WebGL2 field renderer (Canvas2D fallback)
+            colormaps.ts
+  components/ TopNav, Viewport, Volume3D, ToolRail, StageToolbar, Inspector, Dock, …
+  gallery/  thumbWorker.ts, thumbs.ts   gallery thumbnails (worker + cache)
+  pages/    Home, Sandbox, EchoVision, Gallery, Learn, Research, Loop, Lab, Docs
+  lib/      dsp (FFT, spectrogram), audio (Web Audio), exporters, geometry, router
+\`\`\`
+
+**State.** The zustand store owns the *scene* (the single source of
+truth for geometry and sources) and the UI state. The \`Runtime\` owns the
+live \`Simulation\` outside React, mirrors store edits into it, and runs
+the \`requestAnimationFrame\` loop. Stepping is bounded per frame by a step
+count (the speed setting) and a 12 ms budget, so rendering stays smooth
+on any grid. Every edit goes through a store action that snapshots the
+scene for undo/redo, up to 60 levels.
+
+**Rendering.** The field is uploaded each frame as an R32F texture at
+native grid resolution and mapped through a 256-entry colormap in a
+fragment shader. Linear and dB scaling happen in the shader. Nearest
+sampling keeps cells crisp. Materials are a second texture composited in
+the same pass. Markers, previews and the brush cursor are an SVG
+overlay; energy-flow arrows are a Canvas2D overlay. 3D grids show either
+an editable slice or a ray-marched volume (Three.js). Drawing tools paint
+in the current slice plane.
+
+**Engine.** The engine has two paths:
+- **Fast path.** p = 0 walls and obstacles, uniform c. It is the exact
+  port of the Python kernels, and parity is tested against Python
+  fixtures (\`tests/unit/parity.test.ts\`, gate 1e-4).
+- **General path.** Rigid and impedance walls, the absorbing layer, and
+  c(x), with precomputed per-cell coefficients. The physics is
+  documented in \`docs/physics.md\`.
+
+## 5a. Sound-field control panel (plan 7.7)
+
+The **Control** tab is \`components/ControlPanel.tsx\`, backed by
+\`control/soundfield.ts\` and \`control/complex.ts\`. The workflow:
+
+1. **Zones.** The Zone tool (Z) drags a loud (bright) and a quiet (dark)
+   rectangle. They live in the store (\`zones\`), not in the scene file.
+2. **Array.** Place N speakers on a line (count, spacing, centre,
+   orientation). They are ordinary drivers with ids \`arr-*\`.
+3. **Measure and design.** In a Web Worker (\`control/transferWorker.ts\`,
+   with progress and Cancel), the browser engine drives each speaker in turn
+   with cos(ωt). Once the room has settled, it reads the steady-state
+   transfer function H by a DFT over whole periods at up to 40 points per
+   zone. The walls, materials and c(x) all come from the current scene.
+   The panel predicts contrast for four designs, all scaled to the same
+   array effort (‖w‖² = N):
+   - delay-and-sum (free-field alignment);
+   - focus (time reversal, conj H);
+   - pressure matching (regularised least squares);
+   - acoustic contrast control (the principal generalised eigenvector of
+     R_b and R_d + δI).
+4. **Apply.** Each weight w_s = g_s e^{−jωd_s} becomes the driver's \`gain\`
+   and \`delay\`, so the drivers play g cos(ω(t − d)).
+5. **Live readout.** The measured bright/dark contrast comes from the
+   time-averaged loudness map (RMS overlay). *Reset averaging* drops the
+   start-up transient.
+
+Verified in \`tests/unit/soundfield.test.ts\`: an 8-speaker array in a
+90² CPML room at 20 cells per wavelength.
+
+| design | contrast |
+|---|---|
+| delay-and-sum | 19.1 dB predicted |
+| pressure matching | 21.2 dB predicted |
+| ACC | 46.6 dB predicted, **44.8 dB measured** in the time domain |
+
+\`tests/e2e/control.spec.ts\` runs the same flow through the UI and checks
+that the live measured contrast exceeds 10 dB.
+
+## 5b. Closed-loop dashboard (plan Phase 8)
+
+\`#/loop\` (\`pages/Loop.tsx\`) runs \`loop/closedLoop.ts\` in a Web Worker
+(\`loop/loopWorker.ts\`) on the scenario in \`loop/scenarios.ts\`: an
+8-speaker bar in an anechoic (CPML) room, over four epochs:
+
+1. initial room;
+2. the listener (loud zone) moves;
+3. the obstacle moves;
+4. a partition with a door appears.
+
+Each epoch runs:
+
+- **Sense:** every speaker pings and every array position records. The
+  residual against an empty-room reference is back-projected by
+  *coherent* delay-and-sum migration (\`migrationImages\`). This gives the
+  coherent image, the coherent images of the left and right half of the
+  array, and the smoothed coherent and incoherent energy. Two estimators
+  turn these images into an obstacle mask (the **Room estimate** selector):
+  - **Learned U-Net** (default, 100² grid): \`loop/learnedSensing.ts\`. A
+    compact U-Net (120 k parameters, BatchNorm folded) maps the aligned
+    images, plus geometry channels and a training prior, to an obstacle
+    probability. The estimate is the cells above 0.62, a threshold chosen
+    on validation scenes.
+  - **Back-projection:** the largest blob of the coherent energy above
+    0.7 × max, dilated by one cell. An envelope sum only resolves range
+    and smears whole arcs.
+
+  The model is trained for the 100² grid only. On 60² and 80² the loop
+  falls back to back-projection, and the page says so.
+- **Twin:** the true outer boundary plus the estimate as rigid cells.
+- **Design:** ACC on the twin.
+- **Act and measure:** the steady-state contrast over the whole zones in
+  the true room.
+- **Guard:** five monitor mics per zone score the twin design and the
+  empty-room design in the true room, and the loop keeps the better one.
+
+Each epoch also scores three references: a **static** controller designed
+once at epoch 0, an **empty-room** design (no sensing), and an **oracle**
+designed on the true room.
+
+### Learned room estimate (loop sensing study, 2026-09-25)
+
+Report: \`tests/reports/loop_sensing_2026_09_25.md\`.
+
+- **Data.** \`web/scripts/loop_sensing_data.ts\` (\`npm run loop:data\`) runs
+  the loop's own sensing code in Node on random scenes from
+  \`scenarios.randomLoopScene\`. Each scene has 1–3 rigid blocks or thin
+  partitions with a door, kept at least 12 cells from the bar, and a
+  bright and a dark zone. The splits are 2400 train, 300 validation and
+  100 test scenes, with disjoint seeds.
+- **Training.** \`scripts/train_loop_sensing.py\` trains on CPU (BCE +
+  Dice, 40 epochs) and exports \`web/public/models/loop_unet.{bin,json}\`
+  and the parity fixture. \`tests/unit/loopSensing.test.ts\` re-simulates
+  held-out scenes in TypeScript and matches PyTorch's features to 2e-5
+  and its logits to 2e-3.
+- **Evaluation.** \`web/scripts/loop_sensing_eval.ts\`
+  (\`npm run loop:eval\`) runs a paired comparison on all 100 held-out test
+  scenes. The results below are mean ± SE in dB, measured in the true
+  room.
+
+| design | sensing IoU | contrast (dB) |
+|---|---|---|
+| empty room (no sensing) | — | 14.7 ± 1.1 |
+| back-projection twin | 0.18 ± 0.01 | 16.9 ± 1.2 |
+| guarded, back-projection | | 17.8 ± 1.2 |
+| **learned twin** | **0.79 ± 0.02** | **26.3 ± 1.2** |
+| guarded, learned | | 26.4 ± 1.2 |
+| oracle (true room) | 1 | 30.6 ± 1.0 |
+
+The paired differences are:
+
+- Learned twin minus back-projection twin: **+9.5 ± 0.7 dB** (z = 12.6;
+  better in 93 % of scenes).
+- IoU: +0.61 ± 0.02 (z = 29.6).
+
+The learned estimate closes **69 %** of the back-projection twin's
+13.7 dB gap to the oracle. The remaining gap is 4.3 ± 0.6 dB, with a
+median of 1.0 dB. The guard now keeps the twin in 93 % of scenes (66 %
+with back-projection). Only 9 of 100 scenes stay below 10 dB (28 with
+back-projection, 2 for the oracle).
+
+Demo epochs (contrast in dB; the IoU is shown after the slash):
+
+| epoch | back-projection twin | learned twin | empty room | oracle |
+|---|---|---|---|---|
+| initial | 35.8 / 0.18 | 45.4 / 1.00 | 33.0 | 45.4 |
+| listener moves | 40.7 / 0.18 | 50.3 / 1.00 | 36.6 | 50.3 |
+| obstacle moves | 9.6 / 0.18 | 34.6 / 1.00 | 19.4 | 34.6 |
+| partition + door | 15.5 / 0.13 | 29.9 / 1.00 | 16.6 | 29.9 |
+
+With the learned estimate, the closed loop matches the oracle on all four
+demo epochs. With back-projection, the guarded loop scored
+35.8/40.7/19.4/16.6 dB and fell back to the empty-room design in epochs
+3 and 4.
+
+Caveats. Training and testing use the same noiseless simulator, grid and
+bar, with the same families of axis-aligned blocks and partitions, so the
+network can use a strong shape prior.
+
+- **Recording noise.** The IoU is 0.78 at an echo SNR of 30 dB, 0.71 at
+  20 dB and 0.36 at 10 dB. Back-projection stays at 0.18 at every level.
+- **Out-of-family shapes.** Discs, L-shapes and diagonal walls were never
+  trained on. On these the IoU falls to 0.32, against 0.18 for
+  back-projection, and the network draws rectangles.
+- **Control on out-of-family rooms.** On 40 such rooms the control gain
+  vanishes. The learned twin minus the back-projection twin is
+  +0.7 ± 1.0 dB (z = 0.7), and the guarded loops are equal. The monitor
+  guard is what keeps the loop safe there.
+
+Real rooms add model mismatch that these tests do not cover.
+
+Latency, measured single-threaded in Node on the 4-core container at 100²:
+
+| stage | time |
+|---|---|
+| sense (2 × 8 pings: the room and the empty-room reference) | about 2.3 s |
+| learned estimate (U-Net forward on the central 96², in the worker) | about 0.27 s |
+| design (8 steady-state tones on the twin) | about 2.3 s |
+| act and measure | about 0.3 s |
+
+This is a loop period of about 5 s, which is room-change pace, not
+audio-rate. Applying new weights is instant.
+
+Tests:
+
+- \`tests/unit/loop.test.ts\` checks that the back-projection estimate lies
+  on the obstacle. It also checks that the guarded loop stays at or above
+  10 dB, at or above the static design, and at or below the oracle.
+- \`tests/unit/loopSensing.test.ts\` holds the PyTorch parity checks. It
+  also checks that the loop uses the learned estimate at 100² (IoU above
+  0.8 on the demo), and falls back to back-projection on other grids.
+- \`tests/e2e/loop.spec.ts\` runs the dashboard end to end at 60², where it
+  falls back to back-projection, and checks the learned estimate on the
+  first epoch at 100².
+
+### Echo vision page (\`#/echo\`)
+
+A toy front door for the learned room estimate: "machine learning
+reconstructs a room from its echoes". It is the first entry in the nav
+and on the home page, and uses the loop's sensing setup unchanged: the 100² CPML room,
+the 8-speaker bar, and the U-Net above.
+
+1. **The room.** Pick a named example (the demo's rooms, plus a round
+   pillar and a diagonal wall as hard cases), press **New random room**
+   (\`randomLoopScene\`, so rooms match the training family), or draw.
+   Drawing is a rectangle drag: **Block**, **Wall** (snaps to the dominant
+   axis, 2 cells thick) or **Erase**. It is clamped to the area that
+   \`randomLoopScene\` uses (rows 8–74, columns 8–91), away from the bar.
+   **Hide the room** hides the truth so the viewer can guess along.
+2. **Listen.** The worker computes; the page plays the result back at a
+   readable pace (below). The room canvas becomes the player, and the
+   picture panel sits top right (on a phone, under the player, beside its
+   note).
+3. **What the echoes show:** the back-projection energy image, with its
+   brightest-blob estimate outlined, and its IoU.
+4. **What the network reconstructs:** the U-Net probability map, with the
+   thresholded estimate outlined, and its IoU. Both maps sit next to the
+   true room, with a toggle for the true outline and a one-line verdict.
+   These panels appear when the playback reaches the network's guess (or
+   is skipped to it).
+
+A room outside the training family gets an honest note. This covers
+non-rectangular objects, objects larger than 12 × 36 cells, and more than
+six pieces. The note reads: "It was trained on boxes and walls, so it
+draws boxes." Details sit in a collapsed "How it works" section, which
+links to the report.
+
+**Compute.** A worker (\`echo/echoWorker.ts\`) loads the model once. Each
+Listen runs every ping in the room and in the empty room side by side
+(\`listenSweep\`). The engine is linear, so room − empty is the scattered
+field: only the sound that bounced off something. The recordings are
+exactly the loop's \`pingRecordings\` (unit-tested). As each ping finishes,
+the worker posts, with its buffers transferred:
+
+- the scattered field every 2nd step over the frame window, gamma-coded
+  to 8 bits (\`round(127 sign(v) sqrt(|v| / S))\`, S the frame's peak);
+- the echo-only recordings (room − empty) of the eight microphones;
+- the back-projection of that ping alone and of the pings so far.
+  Both are the loop's \`migrationImages\` with the other pings given a
+  zero residual. With all pings, the cumulative images are
+  \`migrationImages\` bit for bit, so no imaging code is duplicated.
+
+The frame window runs from just before the click to one pulse period
+after the first-order echo of the farthest obstacle cell has reached every
+microphone (\`echoWindow\`); later steps hold only weak multiple bounces.
+After the last ping the worker runs back-projection and the U-Net on the
+final images. The empty room is now simulated with every Listen, so a
+Listen costs about twice the old one. Measured in Node on the shared
+4-core container under load (the five examples):
+
+- the first ping is ready after 0.5–0.75 s;
+- all eight, with their pictures, after 4.7–5.2 s, of which the pictures
+  take about 0.4 s;
+- the U-Net takes about 0.6 s more.
+
+The playback needs ping 2 only at 4.1 s, so it normally never waits.
+Each ping keeps 130–190 frames of 10 kB, 11–15 MB per Listen on the page.
+The worker keeps only the recordings, under 1 MB.
+
+**Playback** (\`echo/Player.tsx\`, schedule in \`echo/timeline.ts\`). It
+starts as soon as the first ping arrives and never depends on compute
+speed. If it catches up with the worker, it holds ("Still listening…")
+and a lighter band on the scrubber shows what has been computed. At 1×:
+
+| segment | stage | seconds |
+| --- | --- | --- |
+| ping 1 | 1 Clicks and echoes | 3.2 |
+| trace 1 | 2 Tracing echoes back | 0.9 |
+| pings 2–8 | 1 | 1.0, 0.7, then 0.45 each |
+| traces 2–8 | 2 | 0.4, 0.3, then 0.25 each |
+| guess | 3 The network's guess | 1.6 |
+
+In total that is 11.6 s. A step indicator names the stage.
+
+- **Stage 1.** The scattered field is drawn on a symmetric colour
+  scale. The display value is \`sign(v) (|v| / P)^0.8\`, with P the
+  frame's peak or the earlier peak decaying with a 100-frame half-life,
+  whichever is larger, never below 0.3 × the ping's peak
+  (\`displayScales\`). Faint returning echoes stay visible, and the late
+  multiple bounces stay dim. The click itself is a thin dashed ring of
+  radius c(t − delay) around the speaker. Walls are drawn in grey unless
+  the room is hidden. Each microphone gets a halo while an echo arrives.
+  Under the room, the echo timeline shows the eight echo-only recordings
+  (amplitude \`|r / R|^0.6\`, the clicking speaker's own trace in red) with
+  a playhead. The echoes arriving there line up with the rings reaching
+  the bar.
+- **Stage 2.** After each ping, that ping's own arcs flash in cyan on the
+  picture panel. The cumulative back-projection then fades in, shown
+  against \`sqrt(n / (k + 1))\` × its own peak, so the picture fills in and
+  sharpens ping by ping.
+- **Stage 3.** The U-Net map fades in over the picture with the guess
+  outlined (and the true outline, dashed, unless hidden). The room canvas
+  shows the guess over the room, and the IoU verdict appears with a link
+  to the three result panels.
+
+Controls: play/pause (replay at the end), a scrubber, speed 0.5×/1×/2×,
+and **Skip to the answer**. Under \`prefers-reduced-motion\` nothing plays
+by itself: once computed, the page shows the end state as a static
+summary, and Play is still offered. Drawing runs in
+\`requestAnimationFrame\` straight into the canvases. The 100 × 100 layer
+is scaled up smoothly under vector walls and outlines, and the picture is
+redrawn only when it changes. React re-renders only on segment and state
+changes.
+
+**Other devices.** The device is data (\`echo/device.ts\`): speaker and
+microphone positions, and emissions (the speakers that fire together,
+each with its waveform). The sweep, the frame window, the schedule and the
+player read everything from it. A two-speaker device with simultaneous
+coded emissions needs a new \`Device\` in \`DEVICES\` and, for the picture,
+its own imaging branch in the worker. The bar's picture is the loop's
+migration, which assumes speakers = microphones.
+
+Code:
+
+- \`echo/room.ts\`: the room model, drag, clamp, paint and the family check.
+- \`echo/device.ts\`: the device description (\`barDevice\`, \`DEVICES\`).
+- \`echo/sense.ts\`: \`listenSweep\`, frame coding (\`encodeFrame\`,
+  \`decodeValue\`), \`echoWindow\`, \`partialImages\` / \`cumulativeImages\` /
+  \`singleImages\`, and \`analyseImages\` (the rest of \`senseRoom\`).
+  \`recordPings\` (\`pingRecordings\` with a per-step hook) and
+  \`analyseEchoes\` remain for the tests.
+- \`echo/timeline.ts\`: the schedule, \`locate\`, \`availableSeconds\`,
+  \`displayScales\`.
+- \`echo/Player.tsx\` and \`echo/playerDraw.ts\`: the player and its canvas
+  drawing. \`echo/draw.ts\`: the static panels and the cell-edge outlines.
+- \`pages/EchoVision.tsx\` and \`echo/echo.css\`: the page.
+
+Tests:
+
+- \`tests/unit/echo.test.ts\` covers drawing and clamping, the outlines and
+  the family check. It checks that \`recordPings\` equals \`pingRecordings\`
+  exactly, and that the network beats back-projection on the door
+  example.
+- \`tests/unit/echoPlayback.test.ts\` covers the following:
+  - the bar device;
+  - \`listenSweep\` equals \`pingRecordings\` exactly, room and empty room;
+  - a decoded frame equals an independently stepped room − empty field,
+    and is exactly zero before the click reaches an obstacle;
+  - the frame window and the 8-bit coding error;
+  - the per-ping coherent images sum to the full image, and the last
+    cumulative image equals \`migrationImages\`;
+  - the schedule (8–12 s, first ping slowest), \`locate\`,
+    \`availableSeconds\` and \`displayScales\`.
+- \`tests/e2e/echo.spec.ts\` covers the following:
+  - the three stages in order, with the results held back until stage 3,
+    the IoU display and no main-thread task over 200 ms during playback;
+  - play, pause, speed, scrub, skip and replay;
+  - drawing, hiding and the out-of-family note;
+  - the reduced-motion summary;
+  - at 390 px: no horizontal overflow, the controls on one row within the
+    screen, and no long tasks.
+
+## 5c. WebGPU engine (plan 10.1, 10.2)
+
+\`engine/gpu.ts\` runs the simulation in WGSL compute shaders, and the
+**Engine** selector in the stage toolbar switches between CPU and GPU.
+The CPU \`Simulation\` still owns the model. The GPU mirrors it from
+\`Simulation.deviceState()\`, the precomputed general-update coefficients
+(C, S, Q, Q/a, 1/a, K_s, K and the active flags). The same update also
+expresses the fast path, so one kernel covers:
+- p = 0, rigid and impedance walls and materials;
+- the sponge and c(x);
+- the CPML, as two extra passes for ψ and ζ;
+- Mur edges, as one pass per axis in the CPU's face order.
+
+It works in 2D and in 3D.
+
+Each frame encodes a batch of steps. Driver values for the batch come from
+the CPU waveform code, and probe samples and RMS accumulate on the device.
+After each batch, p and p_prev are read back, so rendering, probes,
+history and the instability guard work unchanged. Switching back to the
+CPU first reads the full state (branch and CPML memory), so a run
+continues seamlessly. Intensity arrows need the CPU engine, and the app
+switches automatically.
+
+Parity (\`tests/e2e/gpu.spec.ts\`) runs the CPU and GPU engines on eight
+scenes. The relative field error is 7e-7 to 2e-6, and 4e-5 on a
+low-amplitude 3D CPML case. The scenes cover:
+
+- the fast path;
+- rigid ellipse;
+- impedance materials;
+- c(x) lens;
+- CPML with obstacles;
+- the quiet-zone array;
+- mixed Mur/impedance/sponge faces;
+- a 3D CPML box.
+
+Headless Chromium in CI provides a SwiftShader (CPU-emulated) WebGPU
+adapter, which checks correctness, not speed. Speed on real GPUs has not
+been measured here.
+
+## 5. Testing (4.5)
+
+| layer | tool | what |
+| --- | --- | --- |
+| unit | Vitest (\`npm test\`) | Python parity 2D/3D, energy conservation (closed box, rigid box), absorption, scene/RLE/URL round-trips, every preset runs finite, DSP, geometry, throughput guard |
+| end-to-end | Playwright (\`npm run e2e\`) | one test per feature: run/pause/step/reset, shortcuts, brush/eraser/undo/redo, shape tools, sources, microphones + listen, share link, scrubbing, view modes, grid/units/boundaries + input validation, 3D slice + volume, theme + help, PNG export, save, gallery, phone layout (no horizontal overflow). \`shell.spec.ts\` covers the home page, the nav at 390 and 768 px and its keyboard menu, not-found routes, old sandbox links, the Advanced section, B19, B23, gallery long tasks (< 500 ms), the phone welcome banner and docs list, and the grouped docs and research lists; \`loop.spec.ts\` checks the Loop at 390 px |
+
+The store is exposed as \`window.__app\`, so end-to-end tests assert on the
+engine's actual state, not just pixels.
+
+Throughput (Node 22, one core of the cloud container):
+
+| scene | steps/s |
+| --- | --- |
+| 2D 256², fast path | 3,600 |
+| 2D 200×240, rigid ellipse | 3,100 |
+| 2D 256², absorbing layer | 1,700 |
+| 3D 64³ | 505 |
+
+The UI renders at display rate and steps up to the speed setting per
+frame.
+
+## 6. Commands
+
+\`\`\`bash
+cd web
+npm install
+npm run dev        # http://127.0.0.1:3000
+npm test           # unit tests
+npm run e2e        # end-to-end (builds + previews on :4173)
+npm run build      # static site in web/dist (BASE=/repo/ for Pages)
+\`\`\`
+`;export{e as default};
+//# sourceMappingURL=web_app-CamFAk7u.js.map

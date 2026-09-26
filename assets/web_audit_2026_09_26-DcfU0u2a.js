@@ -1,0 +1,104 @@
+var e=`# Web app audit, 2026-09-26
+
+**Trigger.** The owner's feedback: the site was overwhelming, with too much
+information up front and many bugs, and the machine-learning room
+reconstruction was hard to find.
+
+**Method.**
+- Screenshots of every page of the live site at 1440×900 and 390×844, with
+  console, page-error and failed-request logs.
+- A scripted functional bug hunt of a local production build (1440×900,
+  768×1024 and 390×844; fake mic and camera; headless WebGPU), spot-checked
+  on the live site. Every button, select, tab, tool, shortcut, undo/redo,
+  share link, save/open, preset, 2D/3D, engine switch, recording, Loop run
+  and Lab control was exercised.
+- A search of where the ML reconstruction lived and how well it worked.
+
+**Result.** 46 confirmed bugs (0 blockers, 8 major, 30 minor, 8 cosmetic)
+and 7 suspicions. 44 bugs and all 7 suspicions are fixed or retired, most
+with a regression test. Two cosmetic items and one small undo leftover
+remain (listed at the end). The information overload was addressed by
+restructuring the site. The ML demo now has its own page.
+
+## 1. Information overload
+
+| finding | fix |
+|---|---|
+| There was no front door. \`#/\` opened the expert sandbox: a tool rail, a toolbar with an engine selector, a six-tab inspector whose first tab led with grid size, Courant number, units and boundary types, and an empty recordings dock. About 240 words on first load. | New home page: a one-line pitch, a small live simulation, and three entry cards (Echo vision, Sandbox, Learn), then one-line links to the rest. 87 words. The sandbox moved to \`#/sandbox\`, and old \`#/?s=\` and \`#/?preset=\` links still open it. |
+| Seven top-level sections, with overlap between Research, Docs, Loop and Lab. On phones the nav scrolled sideways with no hint (B08). | Nav: Echo vision, Sandbox, Gallery, Learn and a keyboard-accessible "More" menu (Research, Loop, Lab, Docs). It fits at 390 and 768 px. |
+| The ML reconstruction was buried in the sandbox's Sensing side tab. It ran the Phase 2 spectrogram CNN, which does not beat the no-audio baseline (the audit's random room scored IoU 0.010). | New **Echo vision** page (\`#/echo\`) with the loop's learned U-Net (held-out IoU 0.79 against back-projection's 0.18). It shows the room, a live view of the pings, the raw echo image and the network's reconstruction side by side with their IoU, plus hard cases (a round pillar, a diagonal wall) that show the network's box prior. The Sensing tab was removed. |
+| Sandbox settings: the advanced numerics came first. The welcome box covered the field on phones. | The grid, units, Courant number and boundaries sit in a collapsed "Advanced" section. The welcome is a two-line banner under the field. Arrow keys move between inspector tabs. |
+| Gallery cards had two paragraphs each. | One line per card. The physics note moved to the sandbox's "Why it happens". |
+| Loop: a ten-line paragraph before the first control. The estimate was painted over the true room, so agreement could not be seen. | A two-sentence intro and a collapsed "How it works". The true room is drawn as an outline over the estimate fill. |
+| Research listed reports by raw file name. Docs listed module-level developer notes next to the guides. | Reports are listed by title, newest first, under a collapsed "All reports". The Docs sidebar is grouped into Start here, Guides, and collapsed Developer reference and Reports groups. |
+
+## 2. Bugs
+
+**Major (8, all fixed).**
+
+| id | page | bug | fix | test |
+|---|---|---|---|---|
+| B01 | Lab | The virtual-headphones "Play test" threw on 44.1 kHz devices. The filters were hard-coded to 48 kHz. | The filters are designed at the AudioContext's rate, and playback errors are caught. | unit + e2e |
+| B02 | Lab | The tape-measured distance field ate the decimal point and saved NaN or garbage as ground truth. | The raw text is kept and validated; Save is disabled on bad input. | unit + e2e |
+| B03 | Learn | The live demos rebuilt the first variant on auto-replay, so the wall comparison was wrong. | The variant is read from a ref, not a stale closure. | e2e |
+| B04 | Docs | In-page anchor links navigated to the Sandbox. | Headings get GitHub-style ids. Anchor links scroll in place, and \`?h=\` deep links work. | unit + e2e |
+| B05 | Loop | "Run the loop" was off-screen on phones, and the table overflowed. | Controls wrap, and the table scrolls in its own box. | e2e |
+| B06 | Gallery | Every visit and theme toggle froze the page for about 3 s. | Thumbnails are simulated in a worker, lazily, and cached for the session. | e2e (no long task > 500 ms) |
+| B07 | Sandbox, Control | "Measure room & design" janked the UI for about 24 s. | The measurement runs in a Web Worker with progress and Cancel. | e2e |
+| B08 | Nav | Phone and tablet nav hid half the sections. | The new nav with a "More" menu. | e2e at 390 and 768 px |
+
+**Minor (30).**
+
+| id | fixed | how |
+|---|---|---|
+| B09 | yes | Shift+R resets the field. |
+| B10 | yes | Space on a focused control activates it instead of toggling the simulation. |
+| B11 | mostly | Switching units is one undo step, and undo rebuilds the engine. **Open:** the rescaled default waveform for new sources is UI state and is not undone. |
+| B12 | yes | Per-keystroke rename edits coalesce into one undo step. |
+| B13 | yes | A select-only click no longer adds an undo step. |
+| B14 | yes | Open and capture import can load the same file twice. |
+| B15 | yes | Imported captures get fresh ids when they collide. |
+| B16 | yes | The contrast readout resets when zones change. |
+| B17 | yes | Apply is disabled, with the reason shown, when zones are missing or changed. |
+| B18 | yes | Zones are dropped on a new grid (load, resize, undo). |
+| B19 | yes | Control results survive tab switches (the panel stays mounted). |
+| B20 | retired | The Sensing tab was removed. |
+| B21 | yes | The spectrum shows the whole one-sided band. |
+| B22 | yes | The colour legend follows the actual scale. |
+| B23 | yes | An unstable Courant number is clamped with a warning. |
+| B24 | yes | Back to a \`?preset=\` URL no longer reloads it over your edits. |
+| B25 | yes | Unknown routes show "Page not found". |
+| B26 | yes | The Loop estimator note follows the last run. |
+| B27 | yes | The Lab measurement row wraps on phones. |
+| B28 | yes | The Record popover is clamped to the viewport. |
+| B29 | yes | The Record popover closes on Escape, an outside click or a choice. |
+| B30 | yes | The 3D Volume sliders are reachable on phones. |
+| B31 | yes | Choosing a document on a phone shows the article. |
+| B32 | yes | Learn's Next and Previous open at the top. |
+| B33 | yes | The maths renders without KaTeX errors in every doc. |
+| B34 | yes | Impossible Lab room geometry is rejected. |
+| B35 | yes | The Lab room twin runs in a Web Worker with Cancel. |
+| B36 | retired | The Sensing tab was removed. |
+| B37 | yes | The Help dialog takes, traps and restores focus. |
+| B38 | yes | The shortcut list is complete, and the shared-link error message is clear. |
+
+**Cosmetic (8).**
+- **Fixed:** C1 (plot titles), C3 (tab strip overflow, gone with the fifth tab), C4 (LiveSim follows the theme), C7 (the guarded loop line is drawn on top), C8 (the dB legend).
+- **Partly fixed:** C2. The welcome banner no longer covers the field. The step counter and colour legend still float over it on small screens.
+- **Open:** C5 (3D Volume layout: the slice controls should hide in Volume mode) and C6 (at 768 px the "?" button wraps alone onto a second toolbar row).
+
+**Suspicions (7), all addressed.**
+- S1–S3: Lab playback, orientation-listener and twin-error cleanup.
+- S4: a negative latency shows "n/a".
+- S5: a 3D Volume long frame. It was seen only under software GL, so it is not reproduced as a bug.
+- S6: the Listen label race.
+- S7: a zone drag on a 3D grid now shows a toast.
+
+## 3. Tests
+
+- **Unit:** 73 Vitest tests.
+- **End-to-end:** 71 Playwright tests. New specs are \`shell.spec.ts\` (home, nav, routes, gallery long tasks, Advanced, Docs and Research), \`sandbox-fixes.spec.ts\`, \`markdown.spec.ts\` and \`echo.spec.ts\`.
+- **Configurable port:** the Playwright preview port is now set with \`PW_PORT\`, so two suites can run side by side.
+- **Workers:** there are three new ones: \`gallery/thumbWorker.ts\`, \`control/transferWorker.ts\` and \`lab/twinWorker.ts\`.
+`;export{e as default};
+//# sourceMappingURL=web_audit_2026_09_26-DcfU0u2a.js.map
