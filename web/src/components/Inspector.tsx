@@ -212,7 +212,11 @@ function ScenePanel() {
         <button className="btn sm" onClick={() => fileRef.current?.click()}>
           <Upload size={14} /> Open
         </button>
-        <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+        <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = ''; // so choosing the same file again fires change
+            if (f) void onFile(f);
+          }} />
       </div>
 
       <h3>Wall material (brush)</h3>

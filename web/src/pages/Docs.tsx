@@ -82,7 +82,8 @@ export default function Docs({ route }: { route: Route }) {
       void load().then((md) => {
         if (!live) return;
         setHtml(renderMarkdown(md, { path, resolveAsset: assetUrl, routeFor: docRoute }));
-        scrollPageTop();
+        // A ?h=<heading> deep link scrolls to its heading (lib/anchors.ts).
+        if (!route.query.has('h')) scrollPageTop();
       });
     return () => {
       live = false;

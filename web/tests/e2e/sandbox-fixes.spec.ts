@@ -1,5 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
-import { app, clickField, drag, open } from './helpers';
+import { app, clickField, drag, open, openAdvanced } from './helpers';
 
 // Regression tests for the 2026-09-26 bug hunt (bug ids in the test names).
 
@@ -57,6 +57,7 @@ test.describe('sandbox shortcuts and focus', () => {
 test.describe('undo history', () => {
   test('B11: switching units is one undo step', async ({ page }) => {
     await open(page);
+    await openAdvanced(page);
     const n0 = await pastLen(page);
     await page.getByRole('button', { name: 'SI (m, s, Hz)' }).click();
     expect(await pastLen(page)).toBe(n0 + 1);
@@ -130,6 +131,7 @@ test.describe('scene loading', () => {
     await drag(page, [0.2, 0.2], [0.4, 0.4]);
     expect(await app<unknown>(page, '(s) => s.zones.bright')).not.toBeNull();
     await page.getByTestId('tab-scene').click();
+    await openAdvanced(page);
     await page.getByTestId('grid-0').fill('64');
     await page.getByTestId('grid-0').press('Enter');
     expect(await app<unknown>(page, '(s) => s.zones.bright')).toBeNull();
@@ -190,6 +192,7 @@ test.describe('phone', () => {
 
   test('B30: the 3D Volume sliders are reachable', async ({ page }) => {
     await open(page);
+    await openAdvanced(page);
     await page.getByRole('button', { name: '3D' }).click();
     await page.getByTestId('tab-view').click();
     await page.getByRole('button', { name: 'Volume' }).click();
