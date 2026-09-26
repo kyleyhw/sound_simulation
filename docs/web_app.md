@@ -294,6 +294,55 @@ Tests:
   falls back to back-projection, and checks the learned estimate on the
   first epoch at 100².
 
+### Echo vision page (`#/echo`)
+
+A toy front door for the learned room estimate: "machine learning
+reconstructs a room from its echoes". It sits in the nav right after the
+sandbox and uses the loop's sensing setup unchanged: the 100² CPML room,
+the 8-speaker bar, and the U-Net above.
+
+1. **The room.** Pick a named example (the demo's rooms, plus a round
+   pillar and a diagonal wall as hard cases), press **New random room**
+   (`randomLoopScene`, so rooms match the training family), or draw.
+   Drawing is a rectangle drag: **Block**, **Wall** (snaps to the dominant
+   axis, 2 cells thick) or **Erase**. It is clamped to the area that
+   `randomLoopScene` uses (rows 8–74, columns 8–91), away from the bar.
+   **Hide the room** hides the truth so the viewer can guess along.
+2. **Listen.** A worker (`echo/echoWorker.ts`) runs the 8 pings. It loads
+   the model and records the empty-room reference once, when the page
+   opens. It streams the live pressure field of the current ping, and the
+   page shows "Ping k of 8". A Listen takes about 3 s (2.9–3.2 s in
+   headless Chromium in the cloud container).
+3. **What the echoes show:** the back-projection energy image, with its
+   brightest-blob estimate outlined, and its IoU.
+4. **What the network reconstructs:** the U-Net probability map, with the
+   thresholded estimate outlined, and its IoU. Both maps sit next to the
+   true room, with a toggle for the true outline and a one-line verdict.
+
+A room outside the training family gets an honest note. This covers
+non-rectangular objects, objects larger than 12 × 36 cells, and more than
+six pieces. The note reads: "It was trained on boxes and walls, so it
+draws boxes." Details sit in a collapsed "How it works" section, which
+links to the report.
+
+Code:
+
+- `echo/room.ts`: the room model, drag, clamp, paint and the family check.
+- `echo/sense.ts`: `recordPings` is `pingRecordings` with a per-step frame
+  hook. `analyseEchoes` is the rest of `senseRoom`.
+- `echo/draw.ts`: the canvas panels and the cell-edge outlines.
+- `pages/EchoVision.tsx` and `echo/echo.css`: the page.
+
+Tests:
+
+- `tests/unit/echo.test.ts` covers drawing and clamping, the outlines and
+  the family check. It checks that `recordPings` equals `pingRecordings`
+  exactly, and that the network beats back-projection on the door
+  example.
+- `tests/e2e/echo.spec.ts` covers the listen flow and the IoU display,
+  drawing, hiding and the out-of-family note, and the absence of
+  horizontal overflow at 390 px.
+
 ## 5c. WebGPU engine (plan 10.1, 10.2)
 
 `engine/gpu.ts` runs the simulation in WGSL compute shaders, and the
