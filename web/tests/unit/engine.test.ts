@@ -24,6 +24,13 @@ describe('scene serialisation', () => {
       expect(back.drivers.length).toBe(s.drivers.length);
     }
   });
+  it('explains why a share link cannot be opened', async () => {
+    await expect(decodeSceneUrl('garbage')).rejects.toThrow(/incomplete or corrupted/);
+    const full = await encodeSceneUrl(PRESETS[0].build());
+    await expect(decodeSceneUrl(full.slice(0, full.length >> 1))).rejects.toThrow(/incomplete or corrupted/);
+    const notScene = await encodeSceneUrl({ hello: 1 } as unknown as Parameters<typeof encodeSceneUrl>[0]);
+    await expect(decodeSceneUrl(notScene)).rejects.toThrow(/does not hold a valid scene/);
+  });
   it('validates scenes', () => {
     expect(() => validateScene({})).toThrow();
     const s = emptyScene({ shape: [32, 32] });

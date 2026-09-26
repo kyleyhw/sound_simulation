@@ -56,6 +56,28 @@ export function toScene(e: EditableScene): Scene {
   };
 }
 
+function arraysEqual(a: ArrayLike<number> | null, b: ArrayLike<number> | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** Deep equality of two scenes (used to skip no-op undo entries). */
+export function sceneEquals(a: EditableScene, b: EditableScene): boolean {
+  if (a === b) return true;
+  return (
+    a.name === b.name &&
+    a.description === b.description &&
+    a.units === b.units &&
+    JSON.stringify(a.params) === JSON.stringify(b.params) &&
+    JSON.stringify(a.drivers) === JSON.stringify(b.drivers) &&
+    JSON.stringify(a.probes) === JSON.stringify(b.probes) &&
+    arraysEqual(a.speed, b.speed) &&
+    arraysEqual(a.materials, b.materials)
+  );
+}
+
 export function cloneScene(e: EditableScene): EditableScene {
   return {
     ...e,

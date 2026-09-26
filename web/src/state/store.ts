@@ -11,7 +11,7 @@ import type { DriverSpec, ProbeSpec, SimParams } from '../engine/simulation';
 import { defaultWaveform, type WaveformSpec } from '../engine/waveforms';
 import type { ColormapName } from '../render/colormaps';
 import type { ScaleMode } from '../render/fieldRenderer';
-import { cloneScene, type EditableScene, fromScene } from './editable';
+import { cloneScene, type EditableScene, fromScene, sceneEquals } from './editable';
 import { Runtime } from './runtime';
 
 export type Tool = 'select' | 'brush' | 'eraser' | 'line' | 'rect' | 'ellipse' | 'speed' | 'driver' | 'probe' | 'zone';
@@ -91,8 +91,13 @@ export interface AppState {
   /** Replace the drivers with ids starting `prefix` (array tools); undoable. */
   replaceDrivers: (prefix: string, drivers: DriverSpec[]) => void;
 
-  /** Record the current scene on the undo stack (call before an edit). */
-  checkpoint: () => void;
+  /**
+   * Record the current scene on the undo stack (call before an edit). A
+   * snapshot identical to the last one is not recorded again. Consecutive
+   * calls with the same `coalesceKey` (e.g. keystrokes of one rename) share
+   * one undo entry.
+   */
+  checkpoint: (coalesceKey?: string) => void;
   undo: () => void;
   redo: () => void;
 
@@ -114,10 +119,16 @@ export interface AppState {
   setName: (name: string) => void;
 }
 
+/** Zones are 2D cell rectangles of one grid: drop them when the grid changes. */
+const NO_ZONES = { bright: null, dark: null };
+const sameGrid = (a: EditableScene, b: EditableScene) => a.params.dims === b.params.dims && a.params.shape.join() === b.params.shape.join();
+
 export const useApp = create<AppState>((set, get) => {
   const scene = initialScene();
   const runtime = new Runtime(scene);
   const theme = readTheme();
+  /** Coalescing key of the last checkpoint (see `checkpoint`). */
+  let lastKey: string | null = null;
 
   const commitSources = (next: EditableScene) => {
     set({ scene: next, future: [] });
@@ -215,18 +226,30 @@ export const useApp = create<AppState>((set, get) => {
     },
     setShowHelp: (showHelp) => set({ showHelp }),
 
-    checkpoint: () => {
-      const past = [...get().past, cloneScene(get().scene)];
-      if (past.length > MAX_HISTORY) past.shift();
-      set({ past, future: [] });
+    checkpoint: (coalesceKey) => {
+      const key = typeof coalesceKey === 'string' ? coalesceKey : null;
+      if (key !== null && key === lastKey) return;
+      lastKey = key;
+      const { past, scene } = get();
+      if (past.length && sceneEquals(past[past.length - 1], scene)) return;
+      const next = [...past, cloneScene(scene)];
+      if (next.length > MAX_HISTORY) next.shift();
+      set({ past: next, future: [] });
     },
     undo: () => {
-      const { past, future, scene } = get();
-      if (past.length === 0) return;
+      lastKey = null;
+      const { future, scene } = get();
+      let { past } = get();
+      // Entries identical to the current scene (an edit that changed
+      // nothing) would make this undo look like a no-op: skip them.
+      while (past.length && sceneEquals(past[past.length - 1], scene)) past = past.slice(0, -1);
+      if (past.length === 0) return set({ past });
       const prev = past[past.length - 1];
       set({ past: past.slice(0, -1), future: [cloneScene(scene), ...future], scene: prev });
+      if (!sameGrid(prev, scene)) set({ zones: NO_ZONES });
       const rt = get().runtime;
-      if (prev.params.shape.join() !== scene.params.shape.join() || prev.params.dims !== scene.params.dims) rt.load(prev);
+      // Any parameter change (grid, units, c, dx, boundaries) needs a rebuild, not just a new shape.
+      if (JSON.stringify(prev.params) !== JSON.stringify(scene.params)) rt.load(prev);
       else {
         rt.syncGeometry(prev);
         rt.syncSources(prev);
@@ -234,12 +257,15 @@ export const useApp = create<AppState>((set, get) => {
       rt.renderNow();
     },
     redo: () => {
+      lastKey = null;
       const { past, future, scene } = get();
       if (future.length === 0) return;
       const next = future[0];
       set({ past: [...past, cloneScene(scene)], future: future.slice(1), scene: next });
+      if (!sameGrid(next, scene)) set({ zones: NO_ZONES });
       const rt = get().runtime;
-      if (next.params.shape.join() !== scene.params.shape.join() || next.params.dims !== scene.params.dims) rt.load(next);
+      // Any parameter change (grid, units, c, dx, boundaries) needs a rebuild, not just a new shape.
+      if (JSON.stringify(next.params) !== JSON.stringify(scene.params)) rt.load(next);
       else {
         rt.syncGeometry(next);
         rt.syncSources(next);
@@ -251,7 +277,9 @@ export const useApp = create<AppState>((set, get) => {
       get().checkpoint();
       const view = { ...get().view };
       if (s.params.dims === 3) view.sliceIndex = Math.floor(s.params.shape[2] / 2);
-      set({ scene: s, selected: null, view });
+      // A new room: its control zones would lie off-grid or on the wrong walls.
+      const zones = sameGrid(s, get().scene) && s.params.dims === 2 ? get().zones : NO_ZONES;
+      set({ scene: s, selected: null, view, zones });
       get().runtime.load(s);
     },
     setParams: (p) => {
@@ -292,7 +320,7 @@ export const useApp = create<AppState>((set, get) => {
         };
         const view = { ...get().view };
         if (params.dims === 3) view.sliceIndex = Math.floor(nz / 2);
-        set({ scene: next, view });
+        set({ scene: next, view, zones: NO_ZONES });
       } else {
         next = { ...cur, params };
         set({ scene: next });
@@ -312,7 +340,8 @@ export const useApp = create<AppState>((set, get) => {
     clearObstacles: () => {
       get().checkpoint();
       const cur = get().scene;
-      const next = { ...cur, materials: new Uint8Array(cur.materials.length), speed: null };
+      // Walls only: the painted sound-speed map has its own reset.
+      const next = { ...cur, materials: new Uint8Array(cur.materials.length) };
       set({ scene: next });
       get().runtime.syncGeometry(next);
       get().runtime.renderNow();
@@ -347,7 +376,9 @@ export const useApp = create<AppState>((set, get) => {
       return id;
     },
     updateProbe: (id, patch) => {
-      get().checkpoint();
+      // Renaming fires per keystroke: one undo entry per rename, not per key.
+      const keys = Object.keys(patch);
+      get().checkpoint(keys.length === 1 && keys[0] === 'label' ? `probe-label:${id}` : undefined);
       commitSources({ ...get().scene, probes: get().scene.probes.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
     },
     removeProbe: (id) => {

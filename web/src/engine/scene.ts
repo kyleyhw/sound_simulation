@@ -146,6 +146,18 @@ export async function encodeSceneUrl(scene: Scene): Promise<string> {
 }
 
 export async function decodeSceneUrl(token: string): Promise<Scene> {
-  const bytes = await pipe(fromBase64Url(token), new DecompressionStream('deflate-raw'));
-  return validateScene(JSON.parse(new TextDecoder().decode(bytes)));
+  // The low-level failures ("Failed to fetch" from the decompressor, JSON
+  // syntax errors) do not tell the reader what is wrong, so name the cause.
+  let json: unknown;
+  try {
+    const bytes = await pipe(fromBase64Url(token), new DecompressionStream('deflate-raw'));
+    json = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Error('the link is incomplete or corrupted (was it cut off when copied?)');
+  }
+  try {
+    return validateScene(json);
+  } catch (e) {
+    throw new Error(`the link does not hold a valid scene (${(e as Error).message})`);
+  }
 }

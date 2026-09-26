@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Dock } from '../components/Dock';
 import { Inspector } from '../components/Inspector';
 import { StageToolbar } from '../components/StageToolbar';
@@ -11,10 +11,18 @@ import { decodeSceneUrl } from '../engine/scene';
 import type { Route } from '../lib/router';
 import { fromScene } from '../state/editable';
 import { useApp } from '../state/store';
+import { markUrlSceneConsumed, urlSceneConsumed } from '../state/urlScene';
 
 function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+}
+
+/** A focused control that Space activates itself (button, tab, link, summary…). */
+function spaceActivates(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null;
+  if (!t || typeof t.closest !== 'function') return false;
+  return !!t.closest('button, a[href], summary, [role="button"], [role="tab"], [role="menuitem"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"]');
 }
 
 export function useSandboxShortcuts(): void {
@@ -22,6 +30,8 @@ export function useSandboxShortcuts(): void {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const st = useApp.getState();
+      // The help dialog is modal: only its own keys work behind it.
+      if (st.showHelp && e.key !== '?' && e.key !== 'Escape') return;
       const mod = e.ctrlKey || e.metaKey;
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
@@ -36,10 +46,13 @@ export function useSandboxShortcuts(): void {
       }
       if (mod) return;
       if (e.key === ' ') {
+        // Space on a focused button activates the button, not the simulation.
+        if (spaceActivates(e)) return;
         e.preventDefault();
         st.runtime.toggle();
       } else if (e.key === '.') st.runtime.stepOnce(1);
-      else if (e.key === 'r' && e.shiftKey) st.runtime.reset();
+      // With Shift held, e.key is "R", not "r".
+      else if (e.key.toLowerCase() === 'r' && e.shiftKey) st.runtime.reset();
       else if (e.key === '?') st.setShowHelp(!st.showHelp);
       else if (e.key === 'Escape') {
         st.setShowHelp(false);
@@ -56,28 +69,72 @@ export function useSandboxShortcuts(): void {
   }, []);
 }
 
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function HelpDialog() {
   const show = useApp((s) => s.showHelp);
   const setShow = useApp((s) => s.setShowHelp);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Modal focus: take focus on open, keep Tab inside, give it back on close.
+  useEffect(() => {
+    if (!show) return;
+    const back = document.activeElement as HTMLElement | null;
+    dialogRef.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus();
+    return () => {
+      if (back && document.contains(back)) back.focus();
+    };
+  }, [show]);
   if (!show) return null;
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setShow(false);
+      return;
+    }
+    if (e.key !== 'Tab' || !dialogRef.current) return;
+    const items = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !dialogRef.current.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
   const rows: [string, string][] = [
     ['Space', 'Run / pause'],
     ['.', 'Single step'],
     ['Shift + R', 'Reset the field'],
     ['V B E L R O', 'Select, brush, eraser, line, rectangle, ellipse'],
+    ['C', 'Sound-speed brush (lenses, gradients)'],
     ['S / M', 'Place a source / a microphone'],
+    ['Z', 'Draw a control zone (loud / quiet)'],
     ['[ / ]', 'Smaller / larger brush'],
     ['Shift while drawing', 'Filled rectangle or ellipse'],
     ['Delete', 'Remove the selected source or microphone'],
     ['Ctrl + Z / Ctrl + Shift + Z', 'Undo / redo'],
     ['?', 'This help'],
+    ['Esc', 'Close this help / deselect'],
   ];
   return (
     <div className="backdrop" onClick={() => setShow(false)} role="presentation">
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={dialogRef}
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Keyboard shortcuts"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+        data-testid="help-dialog"
+      >
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h2>Keyboard shortcuts</h2>
-          <button className="btn icon ghost" onClick={() => setShow(false)} aria-label="Close">
+          <button className="btn icon ghost" onClick={() => setShow(false)} aria-label="Close" data-autofocus>
             <X size={16} />
           </button>
         </div>
@@ -151,11 +208,16 @@ export function Sandbox({ route }: { route: Route }) {
   const view3d = useApp((s) => s.view.view3d);
   useSandboxShortcuts();
 
-  // Scene from the URL: ?s=<shared scene> or ?preset=<id>.
+  // Scene from the URL: ?s=<shared scene> or ?preset=<id>. Loaded once per
+  // history entry, so browser Back onto the entry keeps the edits made since.
   useEffect(() => {
     const token = route.query.get('s');
     const presetId = route.query.get('preset');
     const st = useApp.getState();
+    const key = route.query.toString();
+    if (!token && !presetId) return;
+    if (urlSceneConsumed(key)) return;
+    markUrlSceneConsumed(key);
     if (token) {
       decodeSceneUrl(token)
         .then((s) => {
