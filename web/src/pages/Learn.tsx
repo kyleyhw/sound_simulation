@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo, useRef } from 'react';
 import { LiveSim, type Variant } from '../components/LiveSim';
 import { presetById } from '../engine/presets';
 import { encodeRle, type Scene } from '../engine/scene';
 import { DEFAULT_PARAMS, type SimParams } from '../engine/simulation';
+import { scrollPageToTop } from '../lib/anchors';
 import { renderMarkdown } from '../lib/markdown';
 import type { Route } from '../lib/router';
 
@@ -161,6 +162,9 @@ This is *acoustic contrast control*. The answer is the top generalised eigenvect
 export default function Learn({ route }: { route?: Route }) {
   const id = route?.path.split('/')[2];
   const article = ARTICLES.find((a) => a.id === id);
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Next/Previous keep the same scroller (.page), so start each article at the top.
+  useLayoutEffect(() => scrollPageToTop(rootRef.current), [id]);
   const rendered = useMemo(
     () =>
       article?.blocks.map((b) =>
@@ -171,7 +175,7 @@ export default function Learn({ route }: { route?: Route }) {
 
   if (!article) {
     return (
-      <div className="content" data-testid="learn">
+      <div className="content" data-testid="learn" ref={rootRef}>
         <h1>Learn</h1>
         <p className="lede">Short explainers. Each one has a live simulation you can run, pause, switch and open in the sandbox.</p>
         <div className="card-grid">
@@ -193,7 +197,7 @@ export default function Learn({ route }: { route?: Route }) {
 
   const k = ARTICLES.indexOf(article);
   return (
-    <div className="content prose" data-testid="learn-article">
+    <div className="content prose" data-testid="learn-article" ref={rootRef}>
       <p className="muted" style={{ fontSize: 13 }}>
         <a href="#/learn">Learn</a> · {k + 1} of {ARTICLES.length}
       </p>

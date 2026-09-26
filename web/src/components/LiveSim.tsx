@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { buildSimulation, encodeSceneUrl, type Scene } from '../engine/scene';
 import type { Simulation } from '../engine/simulation';
 import { colormapLut } from '../render/colormaps';
+import { MATERIAL_RGB } from '../render/fieldRenderer';
+import { useApp } from '../state/store';
 
 export interface Variant {
   label: string;
@@ -23,9 +25,18 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
   const peakRef = useRef(1e-9);
   const maxRef = useRef(0);
   const [variant, setVariant] = useState(0);
+  // The rAF loop reads the variant through a ref: its effect does not re-run
+  // on a variant change, so a captured `variant` would be stale on auto-replay.
+  const variantRef = useRef(variant);
+  variantRef.current = variant;
+  const theme = useApp((s) => s.theme);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const [playing, setPlaying] = useState(false);
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
+  const [walls, setWalls] = useState(0);
+  const [replays, setReplays] = useState(0);
 
   const draw = () => {
     const sim = simRef.current;
@@ -43,14 +54,18 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
     for (let i = 0; i < sim.n; i++) m = Math.max(m, Math.abs(sim.p[i]));
     peakRef.current = Math.max(m, peakRef.current * 0.97);
     maxRef.current = Math.max(maxRef.current, m);
-    const lut = colormapLut('icefire');
+    const th = themeRef.current;
+    const lut = colormapLut(th === 'dark' ? 'icefire' : 'balance');
+    const mats = MATERIAL_RGB[th];
     const pk = peakRef.current;
     for (let q = 0; q < rows * cols; q++) {
       const o = q * 4;
-      if (sim.material[q] !== 0) {
-        img.data[o] = 150;
-        img.data[o + 1] = 153;
-        img.data[o + 2] = 162;
+      const id = sim.material[q];
+      if (id !== 0) {
+        const rgb = mats[Math.min(id, mats.length - 1)];
+        img.data[o] = Math.round(rgb[0] * 255);
+        img.data[o + 1] = Math.round(rgb[1] * 255);
+        img.data[o + 2] = Math.round(rgb[2] * 255);
       } else {
         const c = Math.round((0.5 + 0.5 * Math.max(-1, Math.min(1, sim.p[q] / pk))) * 255) * 4;
         img.data[o] = lut[c];
@@ -69,7 +84,11 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
   };
 
   const rebuild = (k: number) => {
-    simRef.current = buildSimulation(variants[k].build());
+    const sim = buildSimulation(variants[k].build());
+    simRef.current = sim;
+    let nw = 0;
+    for (let q = 0; q < sim.n; q++) if (sim.material[q] !== 0) nw++;
+    setWalls(nw);
     peakRef.current = 1e-9;
     maxRef.current = 0;
     setStep(0);
@@ -80,6 +99,12 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
     rebuild(variant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variant]);
+
+  // Repaint in the new palette when the theme changes while paused.
+  useEffect(() => {
+    draw();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme]);
 
   useEffect(() => {
     const el = hostRef.current;
@@ -99,7 +124,10 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
         setStep(sim.step_count);
         draw();
         // A pulse that has left (or died away in) the domain replays by itself.
-        if (sim.step_count > 200 && peakRef.current < 2e-3 * maxRef.current) rebuild(variant);
+        if (sim.step_count > 200 && peakRef.current < 2e-3 * maxRef.current) {
+          rebuild(variantRef.current);
+          setReplays((r) => r + 1);
+        }
       }
       raf = requestAnimationFrame(tick);
     };
@@ -115,7 +143,7 @@ export function LiveSim({ variants, stepsPerFrame = 3, caption, height = 300 }: 
   };
 
   return (
-    <figure className="livesim" ref={hostRef} data-testid="livesim">
+    <figure className="livesim" ref={hostRef} data-testid="livesim" data-variant={variant} data-walls={walls} data-replays={replays}>
       <div className="livesim-stage" style={{ height }}>
         <canvas ref={canvasRef} aria-label={`live simulation: ${variants[variant].label}`} />
       </div>
