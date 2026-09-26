@@ -199,7 +199,8 @@ The **Control** tab is `components/ControlPanel.tsx`, backed by
    rectangle. They live in the store (`zones`), not in the scene file.
 2. **Array.** Place N speakers on a line (count, spacing, centre,
    orientation). They are ordinary drivers with ids `arr-*`.
-3. **Measure and design.** The browser engine drives each speaker in turn
+3. **Measure and design.** In a Web Worker (`control/transferWorker.ts`,
+   with progress and Cancel), the browser engine drives each speaker in turn
    with cos(ωt). Once the room has settled, it reads the steady-state
    transfer function H by a DFT over whole periods at up to 40 points per
    zone. The walls, materials and c(x) all come from the current scene.

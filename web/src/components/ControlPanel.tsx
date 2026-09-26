@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   contrastDb,
   design,
@@ -6,16 +6,19 @@ import {
   DESIGN_LABELS,
   type Geometry,
   lineArray,
-  measureTransfer,
+  type Rect,
   type Transfer,
   weightedDrivers,
   zoneContrastFromEnergy,
 } from '../control/soundfield';
 import { cx } from '../control/complex';
+import type { TransferReply, TransferRequest } from '../control/transferWorker';
 import { useApp } from '../state/store';
 import { NumberField } from './fields';
 
 const PREFIX = 'arr-';
+
+const sameRect = (a: Rect | null, b: Rect | null) => !!a && !!b && a.every((v, i) => v === b[i]);
 
 /**
  * Sound-field control (plan 7.7): paint a loud and a quiet zone, place a
@@ -48,6 +51,10 @@ export function ControlPanel() {
   const [transfer, setTransfer] = useState<Transfer | null>(null);
   const [predicted, setPredicted] = useState<Record<string, number> | null>(null);
   const [live, setLive] = useState<number | null>(null);
+  /** Zones the current transfer functions were measured for. */
+  const [measuredZones, setMeasuredZones] = useState<{ bright: Rect; dark: Rect } | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  useEffect(() => () => workerRef.current?.terminate(), []);
 
   const is2d = scene.params.dims === 2;
   const array = scene.drivers.filter((d) => d.id.startsWith(PREFIX));
@@ -57,7 +64,11 @@ export function ControlPanel() {
 
   // Live contrast from the loudness map, ~4 Hz.
   useEffect(() => {
-    if (!zones.bright || !zones.dark) return;
+    if (!zones.bright || !zones.dark) {
+      setLive(null); // no zones, no contrast (not the last value)
+      return;
+    }
+    setLive(null);
     let last = 0;
     return runtime.onFrame(() => {
       const now = performance.now();
@@ -89,31 +100,70 @@ export function ControlPanel() {
     setPredicted(null);
   };
 
-  const runDesign = async () => {
+  // The measurement steps the engine once per speaker until steady state
+  // (~20 s at 200²), so it runs in a worker; the UI stays live and it can be cancelled.
+  const runDesign = () => {
     if (!zones.bright || !zones.dark) return notify('Draw a loud zone and a quiet zone first.', 'error');
     if (speakers.length < 2) return notify('Place a speaker array first.', 'error');
+    const bright = zones.bright;
+    const dark = zones.dark;
     const g: Geometry = { params: scene.params, materials: scene.materials, speed: scene.speed };
-    setProgress(0);
-    try {
-      const T = await measureTransfer(g, speakers, zones.bright, zones.dark, freq, { onProgress: setProgress });
-      setTransfer(T);
-      const res: Record<string, number> = { uniform: contrastDb(T, speakers.map(() => cx(1))) };
-      for (const k of Object.keys(DESIGN_LABELS) as Design[]) res[k] = contrastDb(T, design(k, T, speakers, scene.params, zones.bright));
-      setPredicted(res);
-      applyDesign(T, method);
-    } catch (e) {
-      notify(`Design failed: ${(e as Error).message}`, 'error');
-    } finally {
+    const params = scene.params;
+    const spk = speakers;
+    const ids = array.map((d) => d.id);
+    workerRef.current?.terminate();
+    const w = new Worker(new URL('../control/transferWorker.ts', import.meta.url), { type: 'module' });
+    workerRef.current = w;
+    const finish = () => {
+      w.terminate();
+      if (workerRef.current === w) workerRef.current = null;
       setProgress(null);
-    }
+    };
+    w.onmessage = (e: MessageEvent<TransferReply>) => {
+      const m = e.data;
+      if (m.type === 'progress') return setProgress(m.fraction);
+      finish();
+      if (m.type === 'error') return notify(`Design failed: ${m.message}`, 'error');
+      const T = m.transfer;
+      try {
+        setTransfer(T);
+        setMeasuredZones({ bright, dark });
+        const res: Record<string, number> = { uniform: contrastDb(T, spk.map(() => cx(1))) };
+        for (const k of Object.keys(DESIGN_LABELS) as Design[]) res[k] = contrastDb(T, design(k, T, spk, params, bright));
+        setPredicted(res);
+        applyWeights(T, method, bright, spk, ids);
+      } catch (err) {
+        notify(`Design failed: ${(err as Error).message}`, 'error');
+      }
+    };
+    w.onerror = (e) => {
+      finish();
+      notify(`Design failed: ${e.message || 'worker error'}`, 'error');
+    };
+    setProgress(0);
+    const req: TransferRequest = { g, speakers: spk, bright, dark, f: freq };
+    w.postMessage(req);
   };
 
+  const cancelDesign = () => {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setProgress(null);
+  };
+
+  // Apply is only meaningful for the zones the transfer functions were measured for.
+  const applyBlocked = !zones.bright || !zones.dark ? 'Draw a loud and a quiet zone first.' : !sameRect(zones.bright, measuredZones?.bright ?? null) || !sameRect(zones.dark, measuredZones?.dark ?? null) ? 'The zones changed since the measurement: measure again.' : null;
+
   const applyDesign = (T: Transfer, k: Design | 'uniform') => {
-    if (!zones.bright) return;
-    const w = k === 'uniform' ? speakers.map(() => cx(1)) : design(k, T, speakers, scene.params, zones.bright);
+    if (applyBlocked || !zones.bright) return notify(applyBlocked ?? 'Draw a loud zone first.', 'error');
+    applyWeights(T, k, zones.bright, speakers, array.map((d) => d.id));
+  };
+
+  const applyWeights = (T: Transfer, k: Design | 'uniform', bright: Rect, speakers: number[][], ids: string[]) => {
+    const w = k === 'uniform' ? speakers.map(() => cx(1)) : design(k, T, speakers, scene.params, bright);
     replaceDrivers(
       PREFIX,
-      weightedDrivers(speakers, w, T.f, 1, array.map((d) => d.id)),
+      weightedDrivers(speakers, w, T.f, 1, ids),
     );
     runtime.sim.resetAccumulators();
     setView({ overlay: 'rms' });
@@ -143,7 +193,7 @@ export function ControlPanel() {
             {k === 'bright' ? 'Draw loud zone' : 'Draw quiet zone'} {zones[k] ? '✓' : ''}
           </button>
         ))}
-        <button className="btn sm ghost" onClick={() => (setZone('bright', null), setZone('dark', null))}>
+        <button className="btn sm ghost" onClick={() => (setZone('bright', null), setZone('dark', null))} data-testid="clear-zones">
           Clear zones
         </button>
       </div>
@@ -186,17 +236,27 @@ export function ControlPanel() {
         <button className="btn primary" onClick={runDesign} disabled={progress !== null} data-testid="design">
           {progress !== null ? `Measuring… ${Math.round(progress * 100)} %` : 'Measure room & design'}
         </button>
+        {progress !== null && (
+          <button className="btn ghost" onClick={cancelDesign} data-testid="cancel-design">
+            Cancel
+          </button>
+        )}
         {transfer && (
           <>
-            <button className="btn" onClick={() => applyDesign(transfer, method)} data-testid="apply-design">
+            <button className="btn" onClick={() => applyDesign(transfer, method)} disabled={!!applyBlocked} title={applyBlocked ?? undefined} data-testid="apply-design">
               Apply design
             </button>
-            <button className="btn ghost" onClick={() => applyDesign(transfer, 'uniform')}>
+            <button className="btn ghost" onClick={() => applyDesign(transfer, 'uniform')} disabled={!!applyBlocked} title={applyBlocked ?? undefined}>
               All in phase
             </button>
           </>
         )}
       </div>
+      {transfer && applyBlocked && (
+        <p className="hint" role="status" data-testid="apply-blocked" style={{ fontSize: 12 }}>
+          {applyBlocked}
+        </p>
+      )}
 
       {predicted && (
         <table className="data" data-testid="predicted">
