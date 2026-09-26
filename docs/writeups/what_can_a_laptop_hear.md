@@ -156,11 +156,14 @@ Real rooms add device colouration, unknown poses, clutter and noise. The
 
 ## Try it
 
-The **Sensing** tab in the sandbox runs the trained network in your
-browser. It simulates poses in whatever room you draw, fuses them, shows
-where it is uncertain, suggests where to move next, and scores itself
-against the no-audio baseline. The **Loop** page uses coherent
-back-projection to build a digital twin for sound-field control.
+The [Echo vision](#/echo) page runs a learned room estimate in your
+browser. Draw a room (or pick one), press Listen, and an 8-speaker bar
+pings it; the page shows the back-projected echoes, the network's
+reconstruction and the true room side by side, with their IoU. It uses
+the closed loop's U-Net, not the Phase 2 model above, which did not
+beat the no-audio baseline and is no longer in the app. The
+[Loop](#/loop) page uses the same estimate to build a digital twin for
+sound-field control.
 
 Full numbers: [physics imaging report](../../tests/reports/imaging_2026_09_24.md),
 [learned models report](../../tests/reports/imaging_models_2026_09_24.md),

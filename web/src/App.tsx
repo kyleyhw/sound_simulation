@@ -1,7 +1,9 @@
 import { Moon, Sun } from 'lucide-react';
-import { lazy, Suspense, useEffect } from 'react';
-import { navigate, useRoute } from './lib/router';
+import { lazy, Suspense, useEffect, useRef } from 'react';
+import { GITHUB_URL, TopNav } from './components/TopNav';
+import { navigate, pageOf, useRoute } from './lib/router';
 import { Gallery } from './pages/Gallery';
+import { Home } from './pages/Home';
 import { HelpDialog, Sandbox } from './pages/Sandbox';
 import { useApp } from './state/store';
 
@@ -11,17 +13,6 @@ const Lab = lazy(() => import('./pages/Lab'));
 const Loop = lazy(() => import('./pages/Loop'));
 const EchoVision = lazy(() => import('./pages/EchoVision'));
 const Docs = lazy(() => import('./pages/Docs'));
-
-const NAV: { path: string; label: string }[] = [
-  { path: '/', label: 'Sandbox' },
-  { path: '/echo', label: 'Echo vision' },
-  { path: '/gallery', label: 'Gallery' },
-  { path: '/learn', label: 'Learn' },
-  { path: '/research', label: 'Research' },
-  { path: '/loop', label: 'Loop' },
-  { path: '/lab', label: 'Lab' },
-  { path: '/docs', label: 'Docs' },
-];
 
 function Logo() {
   return (
@@ -51,6 +42,17 @@ function Toast() {
   );
 }
 
+function NotFound() {
+  return (
+    <div className="content not-found" data-testid="not-found">
+      <h1>Page not found</h1>
+      <p className="muted">
+        There is nothing at <code>{window.location.hash || '#/'}</code>. <a href="#/">Go to the home page</a>.
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   const route = useRoute();
   const theme = useApp((s) => s.theme);
@@ -60,52 +62,55 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const base = route.path.split('/').slice(0, 2).join('/') || '/';
-  const path = base === '/sandbox' ? '/' : base;
+  const id = pageOf(route);
+  const mainRef = useRef<HTMLElement>(null);
+  // The page element is the scroll container: start each section at the top.
+  useEffect(() => mainRef.current?.scrollTo(0, 0), [id]);
+
   let page: React.ReactNode;
-  switch (path) {
-    case '/gallery':
+  switch (id) {
+    case 'home':
+      page = <Home />;
+      break;
+    case 'sandbox':
+      page = <Sandbox route={route} />;
+      break;
+    case 'gallery':
       page = <Gallery />;
       break;
-    case '/learn':
+    case 'learn':
       page = <Learn route={route} />;
       break;
-    case '/research':
+    case 'research':
       page = <Research route={route} />;
       break;
-    case '/lab':
+    case 'lab':
       page = <Lab />;
       break;
-    case '/loop':
+    case 'loop':
       page = <Loop />;
       break;
-    case '/echo':
+    case 'echo':
       page = <EchoVision />;
       break;
-    case '/docs':
+    case 'docs':
       page = <Docs route={route} />;
       break;
     default:
-      page = <Sandbox route={route} />;
+      page = <NotFound />;
   }
 
   return (
     <div className="shell">
       <header className="topbar">
-        <a className="brand" href="#/" onClick={(e) => (e.preventDefault(), navigate('/'))}>
+        <a className="brand" href="#/" onClick={(e) => (e.preventDefault(), navigate('/'))} aria-label="Acoustic Sandbox: home" aria-current={id === 'home' ? 'page' : undefined}>
           <Logo />
           <span>Acoustic Sandbox</span>
         </a>
-        <nav className="nav" aria-label="Main">
-          {NAV.map((n) => (
-            <a key={n.path} href={`#${n.path}`} aria-current={path === n.path ? 'page' : undefined}>
-              {n.label}
-            </a>
-          ))}
-        </nav>
+        <TopNav page={id} />
         <span className="spacer" />
         <button
-          className="btn icon ghost"
+          className="btn icon ghost topbar-extra"
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           title="Toggle theme"
@@ -113,11 +118,11 @@ export default function App() {
         >
           {theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}
         </button>
-        <a className="btn icon ghost" href="https://github.com/kyleyhw/sound_simulation" target="_blank" rel="noreferrer" aria-label="Source code on GitHub">
+        <a className="btn icon ghost topbar-extra" href={GITHUB_URL} target="_blank" rel="noreferrer" aria-label="Source code on GitHub">
           <GithubIcon />
         </a>
       </header>
-      <main className="page">
+      <main className="page" ref={mainRef}>
         <Suspense fallback={<div className="content muted">Loading…</div>}>{page}</Suspense>
       </main>
       <HelpDialog />

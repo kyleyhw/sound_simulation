@@ -3,9 +3,11 @@
 ## Where things stand after executing the plan (read first)
 
 The live site is at https://kyleyhw.github.io/sound_simulation/. It
-covers the sandbox, gallery, explainers, research write-ups, the
-closed-loop demo, the room-measurement lab and the docs. Everything runs
-in the browser. `PROJECT_PLAN.md` has the per-item status. The summary
+opens on a home page with three ways in (Echo vision, the sandbox at
+`#/sandbox`, the explainers); the gallery, research write-ups, the
+closed-loop demo, the room-measurement lab and the docs sit behind them
+(declutter of 2026-09-26, `docs/web_app.md` §2; the sandbox's Sensing tab
+was removed then). Everything runs in the browser. `PROJECT_PLAN.md` has the per-item status. The summary
 by phase:
 
 | phase | status | headline |

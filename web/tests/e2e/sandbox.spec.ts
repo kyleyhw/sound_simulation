@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { app, clickField, drag, open, wallCount } from './helpers';
+import { app, clickField, drag, open, openAdvanced, wallCount } from './helpers';
 
 test.describe('sandbox', () => {
   test('loads with no errors and renders the field', async ({ page }) => {
@@ -142,6 +142,7 @@ test.describe('sandbox', () => {
 
   test('grid, units and boundary settings', async ({ page }) => {
     await open(page);
+    await openAdvanced(page);
     await page.getByTestId('grid-0').fill('120');
     await page.getByTestId('grid-0').press('Enter');
     expect(await app<number[]>(page, '(s) => s.runtime.sim.params.shape')).toEqual([120, 200]);
@@ -174,6 +175,7 @@ test.describe('sandbox', () => {
     expect(await app<boolean>(page, '(s) => s.runtime.sim.maxSpeedRatio >= 1')).toBe(true);
     await page.getByRole('button', { name: 'Reset sound speed' }).click();
     expect(await app<boolean>(page, '(s) => s.scene.speed === null')).toBe(true);
+    await openAdvanced(page);
     await page.getByLabel('Set each face separately').check();
     await page.getByLabel('Right face').selectOption('sponge');
     expect(await app<string[]>(page, '(s) => s.runtime.sim.params.faces')).toEqual(['soft', 'soft', 'soft', 'sponge']);
@@ -186,6 +188,7 @@ test.describe('sandbox', () => {
 
   test('3D mode: slices and volume view', async ({ page }) => {
     const errors = await open(page);
+    await openAdvanced(page);
     await page.getByRole('button', { name: '3D' }).click();
     expect(await app<number>(page, '(s) => s.runtime.sim.dims')).toBe(3);
     await page.getByTestId('run').click();

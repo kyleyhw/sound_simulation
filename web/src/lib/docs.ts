@@ -31,11 +31,30 @@ export function docRoute(repoPath: string): string | null {
 
 export function docPathFromRoute(path: string): string {
   const rest = path.replace(/^\/docs\/?/, '');
-  return rest ? `${rest}.md` : 'docs/index.md';
+  return rest ? `${rest}.md` : 'README.md';
 }
 
 /** Title: the first Markdown heading. */
 export function titleOf(md: string, fallback: string): string {
   const m = md.match(/^#\s+(.+)$/m);
   return m ? m[1].replace(/[`*]/g, '') : fallback;
+}
+
+/** A report's display title: its H1 without the trailing date, which is shown separately. */
+export function reportTitle(md: string, fallback: string): string {
+  return titleOf(md, fallback)
+    .replace(/\s*[—–-]\s*\d{4}-\d{2}-\d{2}\s*$/, '')
+    .replace(/,?\s*\(?\d{4}-\d{2}-\d{2}\)?\s*$/, '')
+    .trim();
+}
+
+/** "YYYY-MM-DD" from a file name such as "imaging_2026_09_24.md" (or ""). */
+export function dateOfPath(path: string): string {
+  const m = path.match(/(\d{4})_(\d{2})_(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+/** Scroll the app's scroll container (the page element, not the window) to the top. */
+export function scrollPageTop(): void {
+  document.querySelector('.page')?.scrollTo(0, 0);
 }

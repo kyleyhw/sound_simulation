@@ -8,6 +8,7 @@ test('docs site renders documents with maths, tables, images and in-app links', 
   await expect(page.getByTestId('doc-body').locator('.katex').first()).toBeVisible();
   await expect(page.getByTestId('doc-body').locator('table').first()).toBeVisible();
   // Navigation between documents stays in the app.
+  await page.getByTestId('docs-group-reports').locator('summary').click();
   await page.getByRole('link', { name: 'debug audit 2026 09 24' }).click();
   await expect(page).toHaveURL(/#\/docs\/tests\/reports\/debug_audit_2026_09_24/);
   await expect(page.getByTestId('doc-body')).toContainText('Debug audit');

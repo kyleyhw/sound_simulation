@@ -1,6 +1,7 @@
 import { expect, type Page } from '@playwright/test';
 
-export async function open(page: Page, hash = '#/'): Promise<string[]> {
+/** Open a route (the sandbox by default) with the first-visit banner dismissed; returns the collected errors. */
+export async function open(page: Page, hash = '#/sandbox'): Promise<string[]> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => {
@@ -50,3 +51,9 @@ export async function clickField(page: Page, fx: number, fy: number) {
 }
 
 export const wallCount = (page: Page) => app<number>(page, '(s) => s.scene.materials.reduce((a, m) => a + (m ? 1 : 0), 0)');
+
+/** Expand the Scene tab's collapsed "Advanced" section (grid, units, boundaries). */
+export async function openAdvanced(page: Page) {
+  const adv = page.getByTestId('scene-advanced');
+  if (!(await adv.evaluate((el) => (el as HTMLDetailsElement).open))) await adv.locator('summary').click();
+}

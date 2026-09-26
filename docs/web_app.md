@@ -23,7 +23,7 @@ Features the old UI had, all kept:
 - obstacle brush and eraser
 - driver placement
 - waveform, grid and cadence settings
-- the sensing panel
+- the sensing panel (removed in 2026-09; Echo vision replaces it)
 
 Features it lacked:
 - recordings, spectra and listening
@@ -39,6 +39,54 @@ Features it lacked:
 
 ## 2. UX specification (4.1.2)
 
+### Site structure (declutter, 2026-09-26)
+
+The first visit used to land in the full sandbox, which was overwhelming.
+The site now has a front door and a short navigation bar.
+
+- **Home (`#/`, `pages/Home.tsx`).** One-line pitch, a small live
+  simulation (a pulse echoing off a wall, a pillar and a box; it runs only
+  while on screen and holds still under `prefers-reduced-motion`), and
+  three entry cards: **Echo vision**, **Sandbox** and **Learn**. A quiet
+  row below links Gallery, Research, Loop, Lab and Docs with one phrase
+  each.
+- **Top navigation (`components/TopNav.tsx`).** The logo goes home, then
+  Echo vision, Sandbox, Gallery, Learn and a **More** menu (Research,
+  Loop, Lab, Docs). The menu is a disclosure button with `role="menu"`:
+  ArrowDown/ArrowUp open it and move between items, Home/End jump, Escape
+  closes it and returns focus, and an outside click or a route change
+  closes it. Below 760 px the brand text is hidden; below 520 px the theme
+  toggle and the GitHub link move into the menu, so the bar fits in 390 px
+  with nothing hidden and no sideways scrolling.
+- **Routing (`lib/router.ts`, `pageOf`).** The sandbox lives at
+  `#/sandbox`. Old links still work: `#/?s=…` and `#/?preset=…` open the
+  sandbox with that scene. The app writes `#/sandbox?s=…` and
+  `#/sandbox?preset=…`. Unknown routes, such as `#/nope`,
+  `#/sandbox/extra` or a bare `#anchor`, show "Page not found" with a link
+  home. Each section opens scrolled to the top (the scroll container is
+  `.page`, not the window).
+- **Gallery.** Each card shows a title and one line; the physics note
+  moved to the sandbox's Scene tab ("Why it happens"). Thumbnails are
+  simulated in a Web Worker (`gallery/thumbWorker.ts`), one preset at a
+  time in page order and only once a card is near the viewport. The
+  fields are cached for the session (`gallery/thumbs.ts`), so a revisit or
+  a theme switch only repaints them with Canvas2D (`render/paint2d.ts`).
+  There is no WebGL context per card.
+- **Loop.** A two-sentence intro, then a collapsed "How it works". The
+  controls wrap on a phone, and the results table scrolls inside its own
+  box. The room panels draw the true room as a white outline over the
+  orange estimate fill, so agreement is visible.
+- **Research.** The four write-ups are cards. The reports sit under a
+  collapsed "All reports", newest first, listed by their H1 titles.
+- **Docs.** The sidebar is grouped: **Start here** (overview, current
+  state, the web app, the write-ups), **Guides**, and a collapsed
+  **Developer reference** (module notes such as `calculate`, `data_io`,
+  `simulate`, `waveforms`, `gpu`) and **Reports**. `#/docs` opens the
+  README. On a phone the list folds into an "All documents" button, and
+  choosing a document shows the article at the top.
+
+### Sandbox
+
 Layout. The sandbox route is a four-region grid:
 
 | region | content |
@@ -46,21 +94,42 @@ Layout. The sandbox route is a four-region grid:
 | left rail | tools: select, brush, eraser, line, rectangle, ellipse, source, microphone |
 | centre stage | run controls, speed, undo/redo, share and export toolbar above the field canvas, with a HUD (step, time, fps, cursor cell) and a colour legend |
 | bottom dock | recording of the selected microphone (scope + spectrogram or spectrum), a Listen button, and the history scrubber |
-| right inspector | tabs: Scene (presets, grid, units, boundaries, materials), Sources, Mics, View, Sensing, Control |
+| right inspector | tabs: Scene, Sources, Mics, View, Control (arrow keys move between tabs) |
 
 Below 980 px the regions stack vertically (rail as a horizontal strip).
 
+Scene tab. Name, description and "Why it happens" (the preset's physics
+note), the preset picker, Save/Open, the wall-material and sound-speed
+brushes. Grid (2D/3D, rows/cols, units, Courant number) and boundaries
+sit under a collapsed **Advanced** section; its open state is remembered.
+If a Courant number would make the painted c(x) unstable, it is clamped
+to the largest stable value, with a warning toast (bug B23).
+
+The Control tab keeps its long notes behind one-line disclosures. Once
+opened it stays mounted (hidden when another tab is shown), so a measured
+design and its predicted table survive a tab switch (bug B19).
+
+The Sensing tab (the Phase 2 model, which does not beat the no-audio
+baseline) was removed; Echo vision replaces it. Its model and parity
+fixtures stay for `tests/unit/sensing.test.ts`.
+
+The first visit shows a slim welcome banner under the field (two short
+lines, "Got it" dismisses it for good). It never covers the canvas.
+
 Main flows:
-1. Open the app, press Space: the default scene runs. First-run hints
-   explain the basics.
+1. Open the app → Sandbox, press Space: the default scene runs. A
+   first-run banner explains the basics.
 2. Gallery → pick an experiment → it opens in the sandbox.
 3. Draw walls → place a source → place a microphone → run → listen.
 4. Share: the scene is compressed into the URL (`#/sandbox?s=…`).
 
 Other routes:
+- Echo vision: a network rebuilds a room from its echoes (§5b).
 - Learn: interactive explainers.
-- Research: results, benchmark and write-ups.
+- Research: write-ups and reports.
+- Loop: the closed-loop dashboard (§5b).
 - Lab: real-hardware measurement with the laptop's speakers and mics.
+- Docs: every Markdown document in the repository.
 
 ## 3. Visual design (4.1.3)
 
@@ -90,8 +159,9 @@ web/src/
             editable.ts     in-memory scene form (byte maps)
   render/   fieldRenderer.ts  WebGL2 field renderer (Canvas2D fallback)
             colormaps.ts
-  components/ Viewport, Volume3D, ToolRail, StageToolbar, Inspector, Dock, …
-  pages/    Sandbox, Gallery, Learn, Research, Lab
+  components/ TopNav, Viewport, Volume3D, ToolRail, StageToolbar, Inspector, Dock, …
+  gallery/  thumbWorker.ts, thumbs.ts   gallery thumbnails (worker + cache)
+  pages/    Home, Sandbox, EchoVision, Gallery, Learn, Research, Loop, Lab, Docs
   lib/      dsp (FFT, spectrogram), audio (Web Audio), exporters, geometry, router
 ```
 
@@ -297,8 +367,8 @@ Tests:
 ### Echo vision page (`#/echo`)
 
 A toy front door for the learned room estimate: "machine learning
-reconstructs a room from its echoes". It sits in the nav right after the
-sandbox and uses the loop's sensing setup unchanged: the 100² CPML room,
+reconstructs a room from its echoes". It is the first entry in the nav
+and on the home page, and uses the loop's sensing setup unchanged: the 100² CPML room,
 the 8-speaker bar, and the U-Net above.
 
 1. **The room.** Pick a named example (the demo's rooms, plus a round
@@ -388,7 +458,7 @@ been measured here.
 | layer | tool | what |
 | --- | --- | --- |
 | unit | Vitest (`npm test`) | Python parity 2D/3D, energy conservation (closed box, rigid box), absorption, scene/RLE/URL round-trips, every preset runs finite, DSP, geometry, throughput guard |
-| end-to-end | Playwright (`npm run e2e`) | one test per feature: run/pause/step/reset, shortcuts, brush/eraser/undo/redo, shape tools, sources, microphones + listen, share link, scrubbing, view modes, grid/units/boundaries + input validation, 3D slice + volume, theme + help, PNG export, save, gallery, phone layout (no horizontal overflow) |
+| end-to-end | Playwright (`npm run e2e`) | one test per feature: run/pause/step/reset, shortcuts, brush/eraser/undo/redo, shape tools, sources, microphones + listen, share link, scrubbing, view modes, grid/units/boundaries + input validation, 3D slice + volume, theme + help, PNG export, save, gallery, phone layout (no horizontal overflow). `shell.spec.ts` covers the home page, the nav at 390 and 768 px and its keyboard menu, not-found routes, old sandbox links, the Advanced section, B19, B23, gallery long tasks (< 500 ms), the phone welcome banner and docs list, and the grouped docs and research lists; `loop.spec.ts` checks the Loop at 390 px |
 
 The store is exposed as `window.__app`, so end-to-end tests assert on the
 engine's actual state, not just pixels.

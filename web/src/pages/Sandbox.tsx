@@ -125,22 +125,23 @@ function FirstRunHint() {
   };
   return (
     <div className="hint-card" role="note" data-testid="first-run-hint">
-      <strong>Welcome to the acoustic sandbox</strong>
-      <ol>
-        <li>
-          Press <span className="kbd">Space</span> to run the simulation.
-        </li>
-        <li>Paint walls with the brush, place sources (S) and microphones (M).</li>
-        <li>Open the Gallery for ready-made experiments.</li>
-      </ol>
-      <div className="row tight">
-        <button className="btn sm primary" onClick={close}>
-          Got it
-        </button>
-        <button className="btn sm ghost" onClick={() => useApp.getState().setShowHelp(true)}>
-          Shortcuts
-        </button>
-      </div>
+      <p>
+        <strong>Welcome.</strong>{' '}
+        <span className="hint-wide">
+          Press <span className="kbd">Space</span> to run; paint walls, add sources (S) and mics (M).
+          <br />
+          <span className="dim">
+            Or open a ready-made experiment from the <a href="#/gallery">Gallery</a>.
+          </span>
+        </span>
+        <span className="hint-narrow">Tap Run, then paint walls and add sources.</span>
+      </p>
+      <button className="btn sm ghost hint-wide" onClick={() => useApp.getState().setShowHelp(true)}>
+        Shortcuts
+      </button>
+      <button className="btn sm primary" onClick={close}>
+        Got it
+      </button>
     </div>
   );
 }

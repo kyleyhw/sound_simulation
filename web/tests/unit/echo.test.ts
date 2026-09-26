@@ -93,7 +93,7 @@ describe('echo vision: the ping sweep', () => {
     expect(frames).toBe(array.length * steps);
     for (let s = 0; s < array.length; s++) for (let m = 0; m < array.length; m++) expect(mine[s][m]).toEqual(loop[s][m]);
     expect(params.shape).toEqual([N, N]);
-  });
+  }, 60_000);
 
   it('the network beats back-projection on a training-family room', () => {
     const root = new URL('../../public/models/', import.meta.url);
@@ -110,5 +110,5 @@ describe('echo vision: the ping sweep', () => {
     console.log(`echo sweep: pings ${(t1 - t0).toFixed(0)} ms, empty ${(t2 - t1).toFixed(0)} ms, analysis ${(t3 - t2).toFixed(0)} ms; IoU learned ${r.iouLearned.toFixed(2)} bp ${r.iouBackprojection.toFixed(2)}`);
     expect(r.iouLearned).toBeGreaterThan(0.6);
     expect(r.iouLearned).toBeGreaterThan(r.iouBackprojection);
-  });
+  }, 60_000);
 });

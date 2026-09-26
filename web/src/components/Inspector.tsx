@@ -1,5 +1,5 @@
 import { Download, Eye, EyeOff, Trash2, Upload } from 'lucide-react';
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { PRESETS } from '../engine/presets';
 import { validateScene } from '../engine/scene';
 import { absorptionFromBeta, facesOf, MATERIAL_NAMES, MATERIALS, type OuterKind } from '../engine/simulation';
@@ -10,37 +10,68 @@ import { fromScene, toScene } from '../state/editable';
 import { type InspectorTab, useApp } from '../state/store';
 import { ControlPanel } from './ControlPanel';
 import { NumberField, WaveformEditor } from './fields';
-import { SensingPanel } from './SensingPanel';
 
 const TABS: { id: InspectorTab; label: string }[] = [
   { id: 'scene', label: 'Scene' },
   { id: 'sources', label: 'Sources' },
   { id: 'probes', label: 'Mics' },
   { id: 'view', label: 'View' },
-  { id: 'sensing', label: 'Sensing' },
   { id: 'control', label: 'Control' },
 ];
 
 export function Inspector() {
-  const tab = useApp((s) => s.inspectorTab);
+  const stored = useApp((s) => s.inspectorTab);
   const setTab = useApp((s) => s.setInspectorTab);
+  // The Sensing tab was removed (Echo vision replaces it); fall back to Scene.
+  const tab = TABS.some((t) => t.id === stored) ? stored : 'scene';
+  // The Control panel stays mounted once opened, so its measured design and
+  // results survive a tab switch (B19): measuring can take many seconds.
+  const [controlMounted, setControlMounted] = useState(tab === 'control');
+  if (tab === 'control' && !controlMounted) setControlMounted(true);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const onTabKey = (e: React.KeyboardEvent, k: number) => {
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const next = (k + d + TABS.length) % TABS.length;
+    setTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
+  };
   return (
     <aside className="inspector" aria-label="Inspector">
-      <div className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)} data-testid={`tab-${t.id}`}>
+      <div className="tabs" role="tablist" aria-label="Inspector sections">
+        {TABS.map((t, k) => (
+          <button
+            key={t.id}
+            ref={(el) => {
+              tabRefs.current[k] = el;
+            }}
+            role="tab"
+            id={`tab-${t.id}`}
+            aria-selected={tab === t.id}
+            aria-controls={`panel-${t.id}`}
+            tabIndex={tab === t.id ? 0 : -1}
+            onClick={() => setTab(t.id)}
+            onKeyDown={(e) => onTabKey(e, k)}
+            data-testid={`tab-${t.id}`}
+          >
             {t.label}
           </button>
         ))}
       </div>
-      <div className="panel" role="tabpanel">
-        {tab === 'scene' && <ScenePanel />}
-        {tab === 'sources' && <SourcesPanel />}
-        {tab === 'probes' && <ProbesPanel />}
-        {tab === 'view' && <ViewPanel />}
-        {tab === 'sensing' && <SensingPanel />}
-        {tab === 'control' && <ControlPanel />}
-      </div>
+      {tab !== 'control' && (
+        <div className="panel" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+          {tab === 'scene' && <ScenePanel />}
+          {tab === 'sources' && <SourcesPanel />}
+          {tab === 'probes' && <ProbesPanel />}
+          {tab === 'view' && <ViewPanel />}
+        </div>
+      )}
+      {controlMounted && (
+        <div className="panel" role="tabpanel" id="panel-control" aria-labelledby="tab-control" hidden={tab !== 'control'}>
+          <ControlPanel />
+        </div>
+      )}
     </aside>
   );
 }
@@ -73,6 +104,21 @@ function ScenePanel() {
   const runtime = useApp((s) => s.runtime);
   const notify = useApp((s) => s.notify);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [courantNonce, setCourantNonce] = useState(0);
+  const [advancedOpen] = useState(() => {
+    try {
+      return localStorage.getItem('inspector-advanced') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const rememberAdvanced = (open: boolean) => {
+    try {
+      localStorage.setItem('inspector-advanced', open ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  };
   const p = scene.params;
   const si = scene.units === 'si';
 
@@ -103,6 +149,25 @@ function ScenePanel() {
 
   const shape = p.shape;
   const dt = runtime.sim.dt;
+  const preset = PRESETS.find((x) => x.title === scene.name);
+  const speedRatio = scene.speed ? runtime.sim.maxSpeedRatio : 1;
+
+  // B23: a Courant number that the painted c(x) makes unstable is clamped, with a warning.
+  const setCourant = (v: number) => {
+    const limit = courantLimit(p.dims, speedRatio);
+    const effective = Math.min(v, 0.95 / Math.sqrt(p.dims));
+    if (speedRatio > 1 && effective > limit) {
+      const clamped = Math.floor(limit * 1000) / 1000;
+      notify(
+        `Courant number limited to ${clamped}: the painted sound speed (up to ${speedRatio.toFixed(2)}×) would blow up above it. Reset the sound speed to go higher.`,
+        'error',
+      );
+      if (clamped !== p.courant) setParams({ courant: clamped });
+      setCourantNonce((n) => n + 1);
+      return;
+    }
+    setParams({ courant: v });
+  };
   return (
     <div>
       <h3>Scene</h3>
@@ -111,6 +176,12 @@ function ScenePanel() {
         <input className="input" value={scene.name} onChange={(e) => useApp.getState().setName(e.target.value)} aria-label="Scene name" />
       </div>
       {scene.description && <p style={{ fontSize: 12.5 }}>{scene.description}</p>}
+      {preset && (
+        <details className="about" data-testid="scene-physics">
+          <summary>Why it happens</summary>
+          <p style={{ fontSize: 12.5 }}>{preset.physics}</p>
+        </details>
+      )}
       <div className="row">
         <select
           className="input"
@@ -144,135 +215,6 @@ function ScenePanel() {
         <input ref={fileRef} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
       </div>
 
-      <h3>Grid</h3>
-      <div className="field">
-        <label>Dimensions</label>
-        <div className="seg" role="group" aria-label="Dimensions">
-          {[2, 3].map((d) => (
-            <button
-              key={d}
-              aria-pressed={p.dims === d}
-              onClick={() => d !== p.dims && setParams({ dims: d as 2 | 3, shape: d === 3 ? [64, 64, 64] : [200, 200] })}
-            >
-              {d}D
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="row">
-        {shape.map((n, a) => (
-          <NumberField
-            key={a}
-            label={['Rows', 'Cols', 'Depth'][a]}
-            value={n}
-            integer
-            min={16}
-            max={p.dims === 3 ? 160 : 1024}
-            testId={`grid-${a}`}
-            onChange={(v) => setParams({ shape: shape.map((x, b) => (b === a ? v : x)) })}
-          />
-        ))}
-      </div>
-      <div className="field">
-        <label>Units</label>
-        <div className="seg" role="group" aria-label="Units">
-          <button aria-pressed={!si} onClick={() => setUnits('grid')}>
-            Grid (c = Δx = 1)
-          </button>
-          <button aria-pressed={si} onClick={() => setUnits('si')}>
-            SI (m, s, Hz)
-          </button>
-        </div>
-      </div>
-      {si && (
-        <div className="row">
-          <NumberField label="Cell size Δx (m)" value={p.dx} min={1e-5} max={10} onChange={(v) => setParams({ dx: v })} />
-          <NumberField label="Sound speed c (m/s)" value={p.c} min={1} max={10000} onChange={(v) => setParams({ c: v })} />
-        </div>
-      )}
-      <NumberField
-        label="Courant number σ = cΔt/Δx"
-        value={p.courant}
-        min={0.01}
-        max={1}
-        hint={`Stable for σ ≤ 1/√${p.dims} = ${(1 / Math.sqrt(p.dims)).toFixed(3)}; clamped to 0.95 of that. Δt = ${si ? `${(dt * 1e6).toFixed(2)} µs` : dt.toFixed(3)}.`}
-        onChange={(v) => setParams({ courant: v })}
-      />
-      {si && (
-        <p className="hint dim" style={{ fontSize: 12 }}>
-          Domain {shape.map((n) => (n * p.dx).toFixed(2)).join(' × ')} m · highest resolvable frequency ≈ {((p.c / (8 * p.dx)) / 1000).toFixed(1)} kHz (8 cells/λ)
-        </p>
-      )}
-
-      <h3>Boundaries</h3>
-      <div className="field">
-        <label>Outer walls</label>
-        <select className="input" value={p.outer} onChange={(e) => setParams({ outer: e.target.value as OuterKind })} aria-label="Outer boundary">
-          <option value="soft">Pressure-release (p = 0)</option>
-          <option value="rigid">Rigid (∂p/∂n = 0)</option>
-          <option value="absorb">Impedance (partially absorbing)</option>
-          <option value="mur">Absorbing edge (Mur, 1st order)</option>
-          <option value="sponge">Absorbing layer (sponge)</option>
-          <option value="cpml">Anechoic (PML, best)</option>
-        </select>
-      </div>
-      <label className="row tight" style={{ marginBottom: 8 }}>
-        <input
-          type="checkbox"
-          checked={!!p.faces}
-          onChange={(e) => setParams({ faces: e.target.checked ? facesOf(p) : undefined })}
-          aria-label="Set each face separately"
-        />{' '}
-        Set each face separately
-      </label>
-      {p.faces && (
-        <div className="row wrap" style={{ alignItems: 'flex-start' }}>
-          {facesOf(p).map((f, k) => (
-            <div key={k} className="field" style={{ flex: '1 1 45%' }}>
-              <label>{['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]}</label>
-              <select
-                className="input"
-                value={f}
-                aria-label={`${['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]} face`}
-                onChange={(e) => setParams({ faces: facesOf(p).map((x, q) => (q === k ? (e.target.value as OuterKind) : x)) })}
-              >
-                <option value="soft">p = 0</option>
-                <option value="rigid">Rigid</option>
-                <option value="absorb">Impedance</option>
-                <option value="mur">Mur edge</option>
-                <option value="sponge">Absorbing layer</option>
-                <option value="cpml">PML</option>
-              </select>
-            </div>
-          ))}
-        </div>
-      )}
-      {facesOf(p).includes('absorb') && (
-        <NumberField
-          label="Wall admittance β"
-          value={p.outerBeta}
-          min={0}
-          max={1}
-          hint={`Normal-incidence absorption α = ${absorptionFromBeta(p.outerBeta).toFixed(2)}`}
-          onChange={(v) => setParams({ outerBeta: v })}
-        />
-      )}
-      {facesOf(p).includes('sponge') && (
-        <NumberField label="Layer thickness (cells)" value={p.spongeCells} integer min={4} max={80} onChange={(v) => setParams({ spongeCells: v })} />
-      )}
-      {facesOf(p).includes('cpml') && (
-        <NumberField
-          label="PML thickness (cells)"
-          value={p.cpmlCells ?? 16}
-          integer
-          min={4}
-          max={64}
-          hint="Reflects < −45 dB up to 60° incidence at 16 cells"
-          onChange={(v) => setParams({ cpmlCells: v })}
-          testId="cpml-cells"
-        />
-      )}
-
       <h3>Wall material (brush)</h3>
       <div className="material-grid" role="radiogroup" aria-label="Wall material">
         {MATERIALS.map((m, id) =>
@@ -296,8 +238,151 @@ function ScenePanel() {
       <button className="btn sm danger" style={{ marginTop: 10 }} onClick={() => useApp.getState().clearObstacles()}>
         <Trash2 size={14} /> Clear all walls
       </button>
+
+      <details className="advanced" open={advancedOpen} onToggle={(e) => rememberAdvanced((e.currentTarget as HTMLDetailsElement).open)} data-testid="scene-advanced">
+        <summary>Advanced: grid, units and boundaries</summary>
+        <h3>Grid</h3>
+        <div className="field">
+          <label>Dimensions</label>
+          <div className="seg" role="group" aria-label="Dimensions">
+            {[2, 3].map((d) => (
+              <button
+                key={d}
+                aria-pressed={p.dims === d}
+                onClick={() => d !== p.dims && setParams({ dims: d as 2 | 3, shape: d === 3 ? [64, 64, 64] : [200, 200] })}
+              >
+                {d}D
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="row">
+          {shape.map((n, a) => (
+            <NumberField
+              key={a}
+              label={['Rows', 'Cols', 'Depth'][a]}
+              value={n}
+              integer
+              min={16}
+              max={p.dims === 3 ? 160 : 1024}
+              testId={`grid-${a}`}
+              onChange={(v) => setParams({ shape: shape.map((x, b) => (b === a ? v : x)) })}
+            />
+          ))}
+        </div>
+        <div className="field">
+          <label>Units</label>
+          <div className="seg" role="group" aria-label="Units">
+            <button aria-pressed={!si} onClick={() => setUnits('grid')}>
+              Grid (c = Δx = 1)
+            </button>
+            <button aria-pressed={si} onClick={() => setUnits('si')}>
+              SI (m, s, Hz)
+            </button>
+          </div>
+        </div>
+        {si && (
+          <div className="row">
+            <NumberField label="Cell size Δx (m)" value={p.dx} min={1e-5} max={10} onChange={(v) => setParams({ dx: v })} />
+            <NumberField label="Sound speed c (m/s)" value={p.c} min={1} max={10000} onChange={(v) => setParams({ c: v })} />
+          </div>
+        )}
+        <NumberField
+          key={`courant-${courantNonce}`}
+          label="Courant number σ = cΔt/Δx"
+          value={p.courant}
+          min={0.01}
+          max={1}
+          hint={
+            speedRatio > 1
+              ? `With the painted sound speed (up to ${speedRatio.toFixed(2)}×), stable for σ ≤ ${courantLimit(p.dims, speedRatio).toFixed(3)}. Δt = ${si ? `${(dt * 1e6).toFixed(2)} µs` : dt.toFixed(3)}.`
+              : `Stable for σ ≤ 1/√${p.dims} = ${(1 / Math.sqrt(p.dims)).toFixed(3)}; clamped to 0.95 of that. Δt = ${si ? `${(dt * 1e6).toFixed(2)} µs` : dt.toFixed(3)}.`
+          }
+          testId="courant"
+          onChange={setCourant}
+        />
+        {si && (
+          <p className="hint dim" style={{ fontSize: 12 }}>
+            Domain {shape.map((n) => (n * p.dx).toFixed(2)).join(' × ')} m · highest resolvable frequency ≈ {((p.c / (8 * p.dx)) / 1000).toFixed(1)} kHz (8 cells/λ)
+          </p>
+        )}
+
+        <h3>Boundaries</h3>
+        <div className="field">
+          <label>Outer walls</label>
+          <select className="input" value={p.outer} onChange={(e) => setParams({ outer: e.target.value as OuterKind })} aria-label="Outer boundary">
+            <option value="soft">Pressure-release (p = 0)</option>
+            <option value="rigid">Rigid (∂p/∂n = 0)</option>
+            <option value="absorb">Impedance (partially absorbing)</option>
+            <option value="mur">Absorbing edge (Mur, 1st order)</option>
+            <option value="sponge">Absorbing layer (sponge)</option>
+            <option value="cpml">Anechoic (PML, best)</option>
+          </select>
+        </div>
+        <label className="row tight" style={{ marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            checked={!!p.faces}
+            onChange={(e) => setParams({ faces: e.target.checked ? facesOf(p) : undefined })}
+            aria-label="Set each face separately"
+          />{' '}
+          Set each face separately
+        </label>
+        {p.faces && (
+          <div className="row wrap" style={{ alignItems: 'flex-start' }}>
+            {facesOf(p).map((f, k) => (
+              <div key={k} className="field" style={{ flex: '1 1 45%' }}>
+                <label>{['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]}</label>
+                <select
+                  className="input"
+                  value={f}
+                  aria-label={`${['Top', 'Bottom', 'Left', 'Right', 'Front', 'Back'][k]} face`}
+                  onChange={(e) => setParams({ faces: facesOf(p).map((x, q) => (q === k ? (e.target.value as OuterKind) : x)) })}
+                >
+                  <option value="soft">p = 0</option>
+                  <option value="rigid">Rigid</option>
+                  <option value="absorb">Impedance</option>
+                  <option value="mur">Mur edge</option>
+                  <option value="sponge">Absorbing layer</option>
+                  <option value="cpml">PML</option>
+                </select>
+              </div>
+            ))}
+          </div>
+        )}
+        {facesOf(p).includes('absorb') && (
+          <NumberField
+            label="Wall admittance β"
+            value={p.outerBeta}
+            min={0}
+            max={1}
+            hint={`Normal-incidence absorption α = ${absorptionFromBeta(p.outerBeta).toFixed(2)}`}
+            onChange={(v) => setParams({ outerBeta: v })}
+          />
+        )}
+        {facesOf(p).includes('sponge') && (
+          <NumberField label="Layer thickness (cells)" value={p.spongeCells} integer min={4} max={80} onChange={(v) => setParams({ spongeCells: v })} />
+        )}
+        {facesOf(p).includes('cpml') && (
+          <NumberField
+            label="PML thickness (cells)"
+            value={p.cpmlCells ?? 16}
+            integer
+            min={4}
+            max={64}
+            hint="Reflects < −45 dB up to 60° incidence at 16 cells"
+            onChange={(v) => setParams({ cpmlCells: v })}
+            testId="cpml-cells"
+          />
+        )}
+      </details>
     </div>
   );
+}
+
+/** Largest Courant number that keeps the scheme stable with local speed ratio `r` (same 0.99 margin as the speed brush). */
+function courantLimit(dims: number, r: number): number {
+  return Math.min(0.95, 0.99 / r) / Math.sqrt(dims);
 }
 
 function SpeedControls() {

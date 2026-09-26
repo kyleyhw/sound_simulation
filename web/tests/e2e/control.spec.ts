@@ -22,6 +22,12 @@ test('control panel designs an ACC array that makes a quiet zone', async ({ page
   await expect(page.getByTestId('predicted')).toBeVisible({ timeout: 60_000 });
   const acc = await page.getByTestId('predicted').locator('tr', { hasText: 'ACC' }).locator('td.mono').innerText();
   expect(parseFloat(acc)).toBeGreaterThan(10);
+  // B19: the measured design survives a switch to another inspector tab and back.
+  await page.getByTestId('tab-scene').click();
+  await expect(page.getByTestId('control-panel')).toBeHidden();
+  await page.getByTestId('tab-control').click();
+  await expect(page.getByTestId('predicted')).toBeVisible();
+  await expect(page.getByTestId('apply-design')).toBeVisible();
   // Weights were applied as gains/delays.
   expect(await app<boolean>(page, "(s) => s.scene.drivers.filter((d) => d.id.startsWith('arr-')).some((d) => (d.delay ?? 0) > 0)")).toBe(true);
 

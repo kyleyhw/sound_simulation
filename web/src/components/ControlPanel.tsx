@@ -122,9 +122,10 @@ export function ControlPanel() {
   return (
     <div data-testid="control-panel">
       <h3>Sound-field control</h3>
-      <p className="hint">
-        Make one region loud and another quiet with a speaker array. The designs use transfer functions measured in this room, walls included.
-      </p>
+      <details className="about">
+        <summary>Make one zone loud and another quiet with a speaker array.</summary>
+        <p className="hint">The designs use transfer functions measured in this room, walls included.</p>
+      </details>
 
       <h3>1 · Zones</h3>
       <div className="btn-row">
@@ -231,9 +232,12 @@ export function ControlPanel() {
           Show loudness map
         </button>
       </div>
-      <p className="hint dim" style={{ fontSize: 12 }}>
-        Run the simulation after applying a design. The averaged map settles once the tone has filled the room; press Reset averaging to drop the start-up transient.
-      </p>
+      <details className="about">
+        <summary>Run the simulation after applying a design.</summary>
+        <p className="hint dim" style={{ fontSize: 12 }}>
+          The averaged map settles once the tone has filled the room; press Reset averaging to drop the start-up transient.
+        </p>
+      </details>
     </div>
   );
 }
