@@ -361,6 +361,13 @@ input[type='range'] {
 .wrap {
   flex-wrap: wrap;
 }
+/* On phones, items of a wrapping row keep their natural width, so the row
+   wraps instead of squeezing and clipping them (flex-basis 0 never wraps). */
+@media (max-width: 560px) {
+  .row.wrap > * {
+    flex: 1 1 auto;
+  }
+}
 
 .seg {
   display: inline-flex;

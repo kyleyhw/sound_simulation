@@ -244,8 +244,23 @@ export function alphaFromT60(r: Omit<Shoebox, 'alpha'>, t60: number, c = 343): n
 /** Echo arrival times predicted by first-order image sources for a source/mic
  * pair at `pos` (co-located) in a shoebox: the six wall distances. */
 export function shoeboxFirstEchoes(r: Omit<Shoebox, 'alpha'>, pos: [number, number, number]): number[] {
+  if (shoeboxGeometryError(r, pos)) return [];
   const [x, y, z] = pos;
   return [x, r.lx - x, y, r.ly - y, z, r.lz - z].sort((a, b) => a - b);
+}
+
+/** Why a room/position pair is impossible (the laptop must sit strictly
+ * inside the box), or null when it is valid. */
+export function shoeboxGeometryError(r: Omit<Shoebox, 'alpha'>, pos: [number, number, number]): string | null {
+  const dims = [r.lx, r.ly, r.lz];
+  const names = ['length', 'width', 'height'];
+  for (let a = 0; a < 3; a++) {
+    if (!(Number.isFinite(dims[a]) && dims[a] > 0)) return `The room ${names[a]} must be a positive number.`;
+    const p = pos[a];
+    if (!(Number.isFinite(p) && p > 0 && p < dims[a]))
+      return `Laptop ${'xyz'[a]} = ${Number.isFinite(p) ? p.toFixed(2) : p} m is outside the room (0 to ${dims[a].toFixed(2)} m along its ${names[a]}).`;
+  }
+  return null;
 }
 
 /**

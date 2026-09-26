@@ -17,10 +17,10 @@ to real devices.
 | Device calibration (9.6) | `directPathWindow`, `equalize`, `roundTripLatencyMs` | Latency is the direct-peak delay minus the pre-roll. The device response is a short window around the direct speaker-to-mic path. Later IRs are equalised by a regularised inverse, `G = H·conj(D) / (\|D\|² + ε·max\|D\|²)`, which sharpens echo peaks. The calibration is stored per browser. |
 | Echo distance (9.3) | `findEchoes` | Local maxima of \|h\| above −24 dB, at least 0.8 ms apart. Reflector distance = c·Δt/2. |
 | Reverberation (9.4) | `decayMetrics`, `octaveBand` | Schroeder backward integral; T20 / T30 / EDT by least-squares fit. Octave bands 250 Hz to 4 kHz. |
-| Room twin (9.5) | `lab/twin.ts` | Sabine and Eyring T60, plus a 3D FDTD shoebox with locally reacting walls. The wall admittance β comes from α by inverting the Paris random-incidence average ∫(1−\|R(θ)\|²) sin 2θ dθ. |
+| Room twin (9.5) | `lab/twin.ts` | Sabine and Eyring T60, plus a 3D FDTD shoebox with locally reacting walls. The wall admittance β comes from α by inverting the Paris random-incidence average ∫(1−\|R(θ)\|²) sin 2θ dθ. The page runs it in a Web Worker (`lab/twinWorker.ts`) and rejects a laptop position outside the room. |
 | Capture set (9.7) | `lab/captures.ts` | Labelled IRs with the tape-measured distance, room size, pose, latency and phone orientation. Kept in localStorage and exported as JSON. |
 | Head tracking (9.9) | `lab/headtrack.ts` | MediaPipe BlazeFace is loaded from a CDN on demand. It uses a pinhole model: distance = f·0.15 m / face width in pixels. |
-| Virtual headphones (9.10) | `control/ctc.ts` | Kirkeby regularised 2×2 inverse with a modelling delay. Free-field plant, ears at ±8.75 cm. The filters are redesigned as the head moves. |
+| Virtual headphones (9.10) | `control/ctc.ts` | Kirkeby regularised 2×2 inverse with a modelling delay. Free-field plant, ears at ±8.75 cm. The filters are redesigned as the head moves, at the audio device's own sample rate (often 44.1 kHz). |
 | Phone as sensor (9.11) | Lab §5 | `DeviceOrientationEvent` (with the iOS permission prompt). The orientation is stored with each capture. |
 
 ## Offline scoring

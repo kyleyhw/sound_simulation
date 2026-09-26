@@ -54,6 +54,38 @@ export function saveCaptures(c: Capture[]): void {
   }
 }
 
+/** A fresh capture id, unique even for two saves in the same millisecond. */
+export function newCaptureId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Append imported captures to the set. Rows are deleted by id, so an
+ * imported capture whose id is already taken (re-importing an export, or a
+ * file with repeated ids) gets a new id instead of aliasing the old row.
+ */
+export function mergeCaptures(existing: Capture[], imported: Capture[], makeId: () => string = newCaptureId): Capture[] {
+  const taken = new Set(existing.map((c) => c.id));
+  const out = [...existing];
+  for (const c of imported) {
+    let id = typeof c.id === 'string' && c.id ? c.id : makeId();
+    while (taken.has(id)) id = makeId();
+    taken.add(id);
+    out.push({ ...c, id });
+  }
+  return out;
+}
+
+/** Parse the tape-measured distance field: '' is "not entered"; anything
+ * else must be a positive, finite number of metres. */
+export function parseDistance(text: string): { value: number | undefined; error: string | null } {
+  const t = text.trim().replace(',', '.');
+  if (t === '') return { value: undefined, error: null };
+  const v = Number(t);
+  if (!Number.isFinite(v) || v <= 0) return { value: undefined, error: 'Enter a positive distance in metres, e.g. 1.25' };
+  return { value: v, error: null };
+}
+
 export function exportCaptures(c: Capture[]): Blob {
   return new Blob([JSON.stringify({ format: 'acoustic-sandbox-captures', version: 1, captures: c }, null, 1)], {
     type: 'application/json',

@@ -4,7 +4,20 @@ import { drawSeries } from '../components/Dock';
 import { NumberField } from '../components/fields';
 import { type CtcFilters, type CtcGeometry, designCtc, separationDb, stereoSeparationDb } from '../control/ctc';
 import { playAndRecord, openAudio } from '../lab/audioio';
-import { b64ToF32, type Capture, exportCaptures, f32ToB64, loadCalibration, loadCaptures, saveCalibration, saveCaptures, type StoredCalibration } from '../lab/captures';
+import {
+  b64ToF32,
+  type Capture,
+  exportCaptures,
+  f32ToB64,
+  loadCalibration,
+  loadCaptures,
+  mergeCaptures,
+  newCaptureId,
+  parseDistance,
+  saveCalibration,
+  saveCaptures,
+  type StoredCalibration,
+} from '../lab/captures';
 import { HeadTracker, type HeadPose } from '../lab/headtrack';
 import {
   alphaFromT60,
@@ -21,8 +34,10 @@ import {
   roundTripLatencyMs,
   sabine,
   shoeboxFirstEchoes,
+  shoeboxGeometryError,
 } from '../lab/measure';
-import { simulateShoebox, type TwinResult } from '../lab/twin';
+import type { TwinResult } from '../lab/twin';
+import type { TwinReply, TwinRequest } from '../lab/twinWorker';
 import type { Route } from '../lib/router';
 import { download } from '../lib/exporters';
 import { useApp } from '../state/store';
@@ -79,7 +94,9 @@ export default function Lab(_props: { route?: Route }) {
   const [out, setOut] = useState<'both' | 'left' | 'right'>('both');
   const [busy, setBusy] = useState<string | null>(null);
   const [meas, setMeas] = useState<Measurement | null>(null);
-  const [truth, setTruth] = useState<number | ''>('');
+  // Raw text: parsing on every keystroke ate the decimal point ("1." -> 1).
+  const [truth, setTruth] = useState('');
+  const truthParsed = parseDistance(truth);
   const [label, setLabel] = useState('');
   const [captures, setCaptures] = useState<Capture[]>(() => loadCaptures());
   const [cal, setCal] = useState<StoredCalibration | null>(() => loadCalibration());
@@ -132,13 +149,14 @@ export default function Lab(_props: { route?: Route }) {
 
   const addCapture = () => {
     if (!meas) return;
+    if (truthParsed.error) return notify(`Tape-measured distance: ${truthParsed.error}`, 'error');
     const c: Capture = {
-      id: `${Date.now().toString(36)}`,
+      id: newCaptureId(),
       label: label || `capture ${captures.length + 1}`,
       createdAt: new Date().toISOString(),
       sampleRate: meas.sampleRate,
       irs: meas.irs.map(f32ToB64),
-      measuredDistance: truth === '' ? undefined : Number(truth),
+      measuredDistance: truthParsed.value,
       room: room,
       position: pos,
       orientation: orient ?? undefined,
@@ -168,13 +186,42 @@ export default function Lab(_props: { route?: Route }) {
   const [alpha, setAlpha] = useState(0.15);
   const [twin, setTwin] = useState<TwinResult | null>(null);
   const [twinProg, setTwinProg] = useState<number | null>(null);
-  const runTwin = async () => {
-    setTwinProg(0);
-    try {
-      setTwin(await simulateShoebox({ ...room, alpha }, pos, { maxCells: 56, seconds: 0.6, onProgress: setTwinProg }));
-    } finally {
+  const twinWorkerRef = useRef<Worker | null>(null);
+  const geoError = shoeboxGeometryError(room, pos);
+  // The 3D FDTD takes ~10 s, so it runs in a worker to keep the page responsive.
+  const runTwin = () => {
+    if (geoError) return notify(geoError, 'error');
+    twinWorkerRef.current?.terminate();
+    const w = new Worker(new URL('../lab/twinWorker.ts', import.meta.url), { type: 'module' });
+    twinWorkerRef.current = w;
+    const finish = () => {
+      w.terminate();
+      if (twinWorkerRef.current === w) twinWorkerRef.current = null;
       setTwinProg(null);
-    }
+    };
+    w.onmessage = (e: MessageEvent<TwinReply>) => {
+      const m = e.data;
+      if (m.type === 'progress') setTwinProg(m.fraction);
+      else if (m.type === 'done') {
+        setTwin(m.result);
+        finish();
+      } else {
+        notify(`Room simulation failed: ${m.message}`, 'error');
+        finish();
+      }
+    };
+    w.onerror = (e) => {
+      notify(`Room simulation failed: ${e.message || 'worker error'}`, 'error');
+      finish();
+    };
+    setTwinProg(0);
+    const req: TwinRequest = { room: { ...room, alpha }, pos, maxCells: 56, seconds: 0.6 };
+    w.postMessage(req);
+  };
+  const cancelTwin = () => {
+    twinWorkerRef.current?.terminate();
+    twinWorkerRef.current = null;
+    setTwinProg(null);
   };
   const predicted = shoeboxFirstEchoes(room, pos);
 
@@ -188,8 +235,11 @@ export default function Lab(_props: { route?: Route }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackerRef = useRef<HeadTracker | null>(null);
   const playRef = useRef<{ stop: () => void; update: (f: CtcFilters, on: boolean) => void } | null>(null);
+  // ConvolverNode buffers must match the AudioContext rate (often 44.1 kHz,
+  // not 48 kHz), so the filters are designed at the rate of the open context.
+  const [audioRate, setAudioRate] = useState(48000);
   const geo: CtcGeometry = useMemo(() => ({ speakerSpan: span, head }), [span, head]);
-  const filters = useMemo(() => designCtc(geo, 48000, 1024, beta), [geo, beta]);
+  const filters = useMemo(() => designCtc(geo, audioRate, 1024, beta), [geo, audioRate, beta]);
   const freqs = useMemo(() => Array.from({ length: 60 }, (_, k) => 150 * Math.pow(7000 / 150, k / 59)), []);
   const sep = useMemo(() => separationDb(filters, geo, geo, freqs), [filters, geo, freqs]);
   const nat = useMemo(() => stereoSeparationDb(geo, freqs), [geo, freqs]);
@@ -217,7 +267,20 @@ export default function Lab(_props: { route?: Route }) {
     trackerRef.current = null;
     setTracking(false);
   };
-  useEffect(() => () => trackerRef.current?.stop(), []);
+  const orientRef = useRef<((e: DeviceOrientationEvent) => void) | null>(null);
+  // Unmount: stop the tracker, the looping test programme, the twin worker
+  // and the orientation listener.
+  useEffect(
+    () => () => {
+      trackerRef.current?.stop();
+      playRef.current?.stop();
+      playRef.current = null;
+      twinWorkerRef.current?.terminate();
+      if (orientRef.current) window.removeEventListener('deviceorientation', orientRef.current);
+      orientRef.current = null;
+    },
+    [],
+  );
 
   const togglePlay = async () => {
     if (playing) {
@@ -226,6 +289,16 @@ export default function Lab(_props: { route?: Route }) {
       setPlaying(false);
       return;
     }
+    try {
+      await startPlayback();
+    } catch (e) {
+      playRef.current?.stop();
+      playRef.current = null;
+      notify(`Playback failed: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  const startPlayback = async () => {
     const ctx = await openAudio();
     // Test programme: left = low chirp bursts, right = high chirp bursts, alternating.
     const fs = ctx.sampleRate;
@@ -260,6 +333,7 @@ export default function Lab(_props: { route?: Route }) {
     bypass[1].connect(merge, 0, 1);
     merge.connect(ctx.destination);
     const update = (f: CtcFilters, on: boolean) => {
+      if (f.sampleRate !== ctx.sampleRate) return; // stale design; the redesign at ctx.sampleRate follows
       for (let s = 0; s < 2; s++)
         for (let p = 0; p < 2; p++) {
           const b = ctx.createBuffer(1, f.length, f.sampleRate);
@@ -268,15 +342,20 @@ export default function Lab(_props: { route?: Route }) {
         }
       bypass.forEach((g) => (g.gain.value = on ? 0 : 1));
     };
-    update(filters, ctcOn);
+    update(fs === filters.sampleRate ? filters : designCtc(geo, fs, 1024, beta), ctcOn);
     src.start();
     playRef.current = {
       stop: () => {
-        src.stop();
+        try {
+          src.stop();
+        } catch {
+          /* never started */
+        }
         merge.disconnect();
       },
       update,
     };
+    setAudioRate(fs);
     setPlaying(true);
   };
 
@@ -288,8 +367,12 @@ export default function Lab(_props: { route?: Route }) {
         const r = await DOE.requestPermission();
         if (r !== 'granted') throw new Error('permission denied');
       }
-      const on = (e: DeviceOrientationEvent) => setOrient({ alpha: e.alpha, beta: e.beta, gamma: e.gamma });
-      window.addEventListener('deviceorientation', on);
+      // One listener, however often the button is pressed; removed on unmount.
+      if (!orientRef.current) {
+        const on = (e: DeviceOrientationEvent) => setOrient({ alpha: e.alpha, beta: e.beta, gamma: e.gamma });
+        orientRef.current = on;
+        window.addEventListener('deviceorientation', on);
+      }
       notify('Orientation sensor on: move the phone and watch the readout.');
     } catch (e) {
       notify(`Orientation unavailable: ${(e as Error).message}`, 'error');
@@ -300,7 +383,8 @@ export default function Lab(_props: { route?: Route }) {
     try {
       const j = JSON.parse(await f.text());
       if (j.format !== 'acoustic-sandbox-captures') throw new Error('not a capture file');
-      const next = [...captures, ...(j.captures as Capture[])];
+      if (!Array.isArray(j.captures)) throw new Error('not a capture file');
+      const next = mergeCaptures(captures, j.captures as Capture[]);
       setCaptures(next);
       saveCaptures(next);
     } catch (e) {
@@ -371,7 +455,7 @@ export default function Lab(_props: { route?: Route }) {
                 <div className="k">recording peak</div>
               </div>
               <div className="metric">
-                <div className="v">{meas.latencyMs.toFixed(1)} ms</div>
+                <div className="v" title={meas.latencyMs < 0 ? 'The strongest peak came before playback started, so the microphone probably did not hear the sweep.' : undefined}>{meas.latencyMs >= 0 ? `${meas.latencyMs.toFixed(1)} ms` : 'n/a'}</div>
                 <div className="k">round-trip latency{meas.equalized ? ' · equalised' : ''}</div>
               </div>
             </div>
@@ -423,10 +507,19 @@ export default function Lab(_props: { route?: Route }) {
               </div>
               <div className="field">
                 <label>Tape-measured nearest wall (m)</label>
-                <input className="input mono" value={truth} onChange={(e) => setTruth(e.target.value === '' ? '' : Number(e.target.value))} aria-label="Measured distance" />
+                <input
+                  className={`input mono${truthParsed.error ? ' invalid' : ''}`}
+                  inputMode="decimal"
+                  value={truth}
+                  onChange={(e) => setTruth(e.target.value)}
+                  aria-label="Measured distance"
+                  aria-invalid={!!truthParsed.error}
+                  placeholder="e.g. 1.25"
+                />
+                {truthParsed.error && <span className="warn">{truthParsed.error}</span>}
               </div>
               <div className="field">
-                <button className="btn" onClick={addCapture} data-testid="save-capture">
+                <button className="btn" onClick={addCapture} disabled={!!truthParsed.error} data-testid="save-capture">
                   Save to capture set
                 </button>
               </div>
@@ -449,7 +542,14 @@ export default function Lab(_props: { route?: Route }) {
         </div>
         <div className="row wrap">
           {(['x', 'y', 'z'] as const).map((a, k) => (
-            <NumberField key={a} label={`Laptop ${a} (m)`} value={pos[k]} min={0.05} max={40} onChange={(v) => setPos(pos.map((x, q) => (q === k ? v : x)) as [number, number, number])} />
+            <NumberField
+              key={a}
+              label={`Laptop ${a} (m)`}
+              value={pos[k]}
+              min={0.05}
+              max={Math.max(0.05, Number(([room.lx, room.ly, room.lz][k] - 0.05).toFixed(2)))}
+              onChange={(v) => setPos(pos.map((x, q) => (q === k ? v : x)) as [number, number, number])}
+            />
           ))}
         </div>
         <div className="metric-row">
@@ -470,12 +570,25 @@ export default function Lab(_props: { route?: Route }) {
             <div className="k">FDTD twin T30 {twin ? `(${twin.cells.join('×')} cells)` : ''}</div>
           </div>
         </div>
-        <p className="muted" style={{ fontSize: 13 }}>
-          Predicted first-order reflector distances: {predicted.map((d) => d.toFixed(2)).join(', ')} m.
-        </p>
-        <button className="btn" onClick={runTwin} disabled={twinProg !== null} data-testid="run-twin">
-          {twinProg !== null ? 'Simulating…' : 'Simulate the room (3D FDTD)'}
-        </button>
+        {geoError ? (
+          <p className="warn" role="alert" data-testid="twin-geometry-error" style={{ color: 'var(--warn)', fontSize: 13 }}>
+            {geoError}
+          </p>
+        ) : (
+          <p className="muted" style={{ fontSize: 13 }}>
+            Predicted first-order reflector distances: {predicted.map((d) => d.toFixed(2)).join(', ')} m.
+          </p>
+        )}
+        <div className="row tight wrap">
+          <button className="btn" onClick={runTwin} disabled={twinProg !== null || !!geoError} data-testid="run-twin">
+            {twinProg !== null ? 'Simulating…' : 'Simulate the room (3D FDTD)'}
+          </button>
+          {twinProg !== null && (
+            <button className="btn ghost" onClick={cancelTwin} data-testid="cancel-twin">
+              Cancel
+            </button>
+          )}
+        </div>
       </Section>
 
       <Section id="headphones" title="3 · Virtual headphones" lede="Crosstalk cancellation drives both laptop speakers so that each ear hears only its own channel. It works in a small sweet spot, so the webcam tracks your head and the filters follow you. Left channel: low chirps. Right channel: high chirps.">
@@ -553,7 +666,17 @@ export default function Lab(_props: { route?: Route }) {
           </button>
           <label className="btn">
             <Upload size={16} /> Import
-            <input type="file" accept=".json" hidden onChange={(e) => e.target.files?.[0] && importCaptures(e.target.files[0])} />
+            <input
+              type="file"
+              accept=".json"
+              hidden
+              data-testid="import-captures"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = ''; // so choosing the same file again fires onChange
+                if (f) importCaptures(f);
+              }}
+            />
           </label>
         </div>
       </Section>
