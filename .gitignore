@@ -228,3 +228,6 @@ node_modules/
 
 # Cached sensitivity matrices for scripts/eval_information.py (regenerable)
 data/information/
+
+# Two-speaker study datasets (regenerable: npm run in web/scripts/two_speaker_data.ts)
+data/two_speaker/

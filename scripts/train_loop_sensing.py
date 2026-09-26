@@ -15,6 +15,18 @@ loop's own TypeScript code (``web/scripts/loop_sensing_data.ts``):
 line by line; the web parity test checks the two against each other. The
 probability threshold is chosen on the validation scenes only; the test
 split is scored once, at the end.
+
+Two-speaker study (2026-09-26, ``tests/reports/two_speaker_2026_09_26.md``):
+``--scheme NAME`` trains the same recipe on another sensing device or
+emission scheme, with data from ``web/scripts/two_speaker_data.ts`` in
+``data/two_speaker/NAME`` (the device's element positions, which set the
+near-field mask and the array-centre channel, come from its
+``device.json``). ``--scheme bar8`` is the loop's bar on ``data/loop_sensing``.
+``--limit`` / ``--val-limit`` subsample train / validation (the prior map
+is computed from the subsampled training masks).
+
+    uv run python scripts/train_loop_sensing.py train --scheme seq --limit 1000 --val-limit 200 \
+        --epochs 30 --out checkpoints/two_speaker/seq
 """
 
 from __future__ import annotations
@@ -166,11 +178,29 @@ def predict(model: torch.nn.Module, x: NDArray, batch: int = 32) -> NDArray:
     return np.concatenate(out)
 
 
-def prepare(data: pathlib.Path, n: int = 100) -> dict:
-    array = demo_array(n)
+def scheme_setup(args: argparse.Namespace) -> tuple[pathlib.Path, NDArray]:
+    """Data directory and device element positions for ``--scheme`` (default: the loop's bar)."""
+    name = getattr(args, "scheme", None)
+    if not name or name == "bar8":
+        return pathlib.Path(args.data), demo_array(100)
+    data = (
+        pathlib.Path(args.data)
+        if args.data != "data/loop_sensing"
+        else ROOT / "data/two_speaker" / name
+    )
+    dev = json.loads((data / "device.json").read_text())
+    return data, np.asarray(dev["elements"], float)
+
+
+def limit_split(d: dict, k: int) -> dict:
+    return {key: v[:k] for key, v in d.items()} if k else d
+
+
+def prepare(data: pathlib.Path, n: int = 100, array: NDArray | None = None, limit: int = 0) -> dict:
+    array = demo_array(n) if array is None else array
     near = near_array(array, n)
     m, o = crop_of(n)
-    tr = load_split(data, "train", n)
+    tr = limit_split(load_split(data, "train", n), limit)
     pr = tr["mask"][:, o : o + m, o : o + m].mean(0)
     pr = np.clip(pr, 1e-3, 1 - 1e-3)
     prior_logit = np.log(pr / (1 - pr)).astype(np.float32)
@@ -188,14 +218,12 @@ def train(args: argparse.Namespace) -> None:
     torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    data = pathlib.Path(args.data)
+    data, array = scheme_setup(args)
     out = pathlib.Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    P = prepare(data)
+    P = prepare(data, array=array, limit=args.limit)
     tr = P["train"]
-    va = load_split(data, "val")
-    if args.limit:
-        tr = {k: v[: args.limit] for k, v in tr.items()}
+    va = limit_split(load_split(data, "val"), args.val_limit)
     m, o = crop_of(100)
     xt = features(tr["raw"], P["array"], P["norm"], P["prior_logit"])
     yt = tr["mask"][:, o : o + m, o : o + m].astype(np.float32)
@@ -258,6 +286,7 @@ def train(args: argparse.Namespace) -> None:
                     "epoch": ep,
                     "n_params": n_params,
                     "n_train": len(xt),
+                    "array": P["array"].tolist(),
                     "args": vars(args),
                 },
                 out / "best.pt",
@@ -341,6 +370,7 @@ def export(args: argparse.Namespace) -> None:
     assert err < 1e-3, f"folded network differs from the model by {err}"
     print(f"folded-weights check: max |logit difference| {err:.2e}")
     m, o = crop_of(100)
+    scheme = c["args"].get("scheme") or "bar8"
     manifest = {
         "format": "loop-unet-v1",
         "grid": 100,
@@ -358,21 +388,43 @@ def export(args: argparse.Namespace) -> None:
             "val_iou": c["val_iou"],
             "n_params": c["n_params"],
             "n_train": c["n_train"],
-            "data": "web/scripts/loop_sensing_data.ts (random loop scenes, seeds 1e6 + i)",
+            "data": "web/scripts/loop_sensing_data.ts (random loop scenes, seeds 1e6 + i)"
+            if scheme == "bar8"
+            else f"web/scripts/two_speaker_data.ts --schemes {scheme} (random loop scenes, seeds 1e6 + i)",
         },
     }
+    if scheme != "bar8":
+        manifest["scheme"] = scheme
+        manifest["device"] = [[int(v) for v in e] for e in c["array"]]
     dst.with_suffix(".json").write_text(json.dumps(manifest))
     print(f"wrote {dst}.bin ({off * 4 / 1024:.0f} KiB) and .json")
     if args.fixtures:
-        write_fixtures(model, c, pathlib.Path(args.data))
+        if scheme == "bar8":
+            write_fixtures(model, c, pathlib.Path(args.data))
+        else:
+            write_fixtures(
+                model,
+                c,
+                ROOT / "data/two_speaker" / scheme,
+                array=np.asarray(c["array"], float),
+                rooms_at=(("test", 0), ("test", 1), ("test", 2)),
+                dst=ROOT / f"web/tests/fixtures/two_speaker_{scheme}_parity.json",
+            )
 
 
-def write_fixtures(model: LoopUNet, c: dict, data: pathlib.Path) -> None:
+def write_fixtures(
+    model: LoopUNet,
+    c: dict,
+    data: pathlib.Path,
+    array: NDArray | None = None,
+    rooms_at: tuple = (("test", 0), ("test", 1), ("demo", 3)),
+    dst: pathlib.Path | None = None,
+) -> None:
     """A few test scenes (seeds only: the web test re-simulates them) with
     Python features (strided sample) and PyTorch logits for the parity test."""
-    array = demo_array(100)
+    array = demo_array(100) if array is None else array
     rooms = []
-    for split, idx in (("test", 0), ("test", 1), ("demo", 3)):
+    for split, idx in rooms_at:
         d = load_split(data, split)
         raw = d["raw"][idx : idx + 1]
         x = features(raw, array, c["norm"], c["prior_logit"])
@@ -389,7 +441,7 @@ def write_fixtures(model: LoopUNet, c: dict, data: pathlib.Path) -> None:
                 "logits": [round(float(v), 4) for v in logit.ravel()],
             }
         )
-    p = ROOT / "web/tests/fixtures/loop_sensing_parity.json"
+    p = dst or ROOT / "web/tests/fixtures/loop_sensing_parity.json"
     p.write_text(json.dumps({"stride": 97, "rooms": rooms}))
     print(f"wrote {p}")
 
@@ -408,6 +460,10 @@ def main() -> None:
     t.add_argument("--lr", type=float, default=3e-3)
     t.add_argument("--dice", type=float, default=1.0)
     t.add_argument("--limit", type=int, default=0)
+    t.add_argument("--val-limit", type=int, default=0)
+    t.add_argument(
+        "--scheme", default=None, help="two-speaker scheme (data/two_speaker/NAME); bar8 = the bar"
+    )
     t.add_argument("--seed", type=int, default=0)
     t.add_argument("--threads", type=int, default=2)
     e = sub.add_parser("export")

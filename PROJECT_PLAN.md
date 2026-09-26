@@ -330,6 +330,15 @@ with statistical significance.
         known reflective walls act as image speakers and help, half of it
         from extra echo energy. Playing both speakers at once buys time,
         never information. Report: `tests/reports/information_2026_09_26.md`.)*
+    *   `[completed]` 6.4.4: Two speakers instead of an array (trained
+        networks). *(A laptop-like 2-speaker + 2-mic device pinging in turn
+        reaches IoU 0.56 on held-out loop rooms, against 0.73 for the bar with
+        the same budget and 0.15 for back-projection. Moved to 4 placements
+        it reaches 0.80, beating the bar (z = 5.6). Playing both at once
+        buys no information: same pulse or split bands 0.44; noise codes
+        match pinging in turn but take longer, and gain SNR (+0.15 IoU at
+        10 dB). Known rigid walls hurt with direct-path migration (0.44).
+        Report: `tests/reports/two_speaker_2026_09_26.md`.)*
 *   `[completed]` **Task 6.5: Room acoustic parameters**
     *   `[completed]` 6.5.1: Estimate T60, direct-to-reverberant ratio,
         and absorption from recordings.
